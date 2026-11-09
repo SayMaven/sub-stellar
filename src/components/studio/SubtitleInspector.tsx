@@ -2,17 +2,20 @@ import React, { useState } from 'react';
 import {
   Type,
   Clock,
+  Sparkles,
   Sliders,
   ChevronLeft,
   ChevronRight,
   Eye,
   EyeOff,
   Wand2,
+  Flame,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
+import type { ParticlePresetType } from '../../types';
 
 export const SubtitleInspector: React.FC = () => {
-  const [tab, setTab] = useState<'text' | 'style' | 'presets'>('text');
+  const [tab, setTab] = useState<'text' | 'style' | 'particles' | 'presets'>('text');
   const {
     lines,
     selectedLineId,
@@ -79,8 +82,19 @@ export const SubtitleInspector: React.FC = () => {
             <span>Typography</span>
           </button>
           <button
+            onClick={() => setTab('particles')}
+            className={`px-2 py-1 rounded font-medium transition-colors flex items-center gap-1.5 ${
+              tab === 'particles'
+                ? 'bg-gatefold-accent/20 text-gatefold-accent border border-gatefold-accent/40 font-semibold'
+                : 'text-gatefold-text-3 hover:text-gatefold-text'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Particles</span>
+          </button>
+          <button
             onClick={() => setTab('presets')}
-            className={`px-2.5 py-1 rounded font-medium transition-colors flex items-center gap-1.5 ${
+            className={`px-2 py-1 rounded font-medium transition-colors flex items-center gap-1.5 ${
               tab === 'presets'
                 ? 'bg-gatefold-accent/20 text-gatefold-accent border border-gatefold-accent/40 font-semibold'
                 : 'text-gatefold-text-3 hover:text-gatefold-text'
@@ -348,6 +362,86 @@ export const SubtitleInspector: React.FC = () => {
               </button>
             </div>
           </>
+        )}
+
+        {tab === 'particles' && (
+          <div className="space-y-4">
+            {/* Master Toggle */}
+            <div className="flex items-center justify-between pb-2 border-b border-gatefold-line">
+              <div>
+                <span className="font-semibold text-gatefold-text block">Particle Engine</span>
+                <span className="text-[10px] text-gatefold-text-3">Zero-GC ParticleContainer</span>
+              </div>
+              <button
+                onClick={() => setStyle({ particleEnabled: !style.particleEnabled })}
+                className={`p-1.5 rounded transition-colors ${
+                  style.particleEnabled
+                    ? 'bg-gatefold-accent/20 text-gatefold-accent'
+                    : 'text-gatefold-text-3 hover:bg-gatefold-hover'
+                }`}
+                title={style.particleEnabled ? 'Disable Particles' : 'Enable Particles'}
+              >
+                {style.particleEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+              </button>
+            </div>
+
+            {/* Particle Preset Selector */}
+            <div className="space-y-2">
+              <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold">
+                Stellar Preset
+              </span>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(['stardust', 'sparkle', 'cosmic'] as ParticlePresetType[]).map((preset) => (
+                  <button
+                    key={preset}
+                    onClick={() => setStyle({ particlePreset: preset })}
+                    className={`py-2 px-1 text-center rounded border capitalize transition-colors flex flex-col items-center gap-1 ${
+                      style.particlePreset === preset
+                        ? 'border-gatefold-accent bg-gatefold-accent/15 text-gatefold-accent font-semibold'
+                        : 'border-gatefold-line bg-gatefold-surface text-gatefold-text-3 hover:text-gatefold-text'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span className="text-[11px]">{preset}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Burst Count Slider */}
+            <div className="space-y-2 pt-2 border-t border-gatefold-line">
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-gatefold-text">Syllable Burst Count</span>
+                <span className="font-mono text-gatefold-text-3">{style.particleBurstCount} particles</span>
+              </div>
+              <input
+                type="range"
+                min={5}
+                max={40}
+                step={5}
+                value={style.particleBurstCount}
+                onChange={(e) => setStyle({ particleBurstCount: parseInt(e.target.value, 10) })}
+                className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+              />
+              <p className="text-[10px] text-gatefold-text-3">
+                Particles spawned dynamically on each lyric syllable transition.
+              </p>
+            </div>
+
+            {/* Manual Test Burst Button */}
+            <div className="pt-2 border-t border-gatefold-line">
+              <button
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('substellar:trigger-burst'));
+                }}
+                disabled={!style.particleEnabled}
+                className="w-full py-2 px-3 rounded-lg bg-gatefold-accent/20 border border-gatefold-accent/40 text-gatefold-accent hover:bg-gatefold-accent/30 font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:pointer-events-none"
+              >
+                <Flame className="w-4 h-4" />
+                <span>Test Particle Burst</span>
+              </button>
+            </div>
+          </div>
         )}
 
         {tab === 'presets' && (

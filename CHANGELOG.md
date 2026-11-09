@@ -32,7 +32,28 @@ Format penulisan mengacu pada Keep a Changelog dan menganut prinsip Semantic Ver
 
 ---
 
-## [1.0.0-alpha.2] - 2026-11-09 (Fase 2 Selesai & Rombak UI Professional)
+## [1.0.0-alpha.3] - 2026-11-10 (Fase 3 Selesai: Particle Engine dengan Zero-GC Object Pooling)
+
+### Ditambahkan (Added)
+- Generic Zero-GC Static Object Pool (`src/engine/pixi/ObjectPool.ts`):
+  - Alokasi memori statis pra-alokasi (`capacity` tetap) dengan struktur stack terindeks LIFO.
+  - Alokasi nol (0 GC garbage) saat `acquire()` dan `release()` di dalam game loop / render loop 60 FPS.
+  - Implementasi aman dengan interface generic `Poolable` dan penanganan overflow protektif.
+- Stellar Particle Engine (`src/engine/particles/ParticleManager.ts`):
+  - Integrasi native dengan PixiJS v8 `ParticleContainer` untuk rendering GPU berkecepatan tinggi.
+  - Tekstur pendaran bintang prosedural (*procedural radial glow + 4-point cross star glint*) dibuat di memori via Canvas 2D murni tanpa ketergantungan file aset eksternal.
+  - Tiga preset fisika partikel (*stardust*, *sparkle*, *cosmic*) dengan simulasi fisika (gravitasi, kecepatan radial, skala, rotasi, dan pembusukan alfa/fade).
+  - Emisi dinamis (*burst*) yang sinkron dengan sapuan karaoke (*karaoke sweep*) saat kata atau suku kata aktif berganti.
+- Particle Tab pada Subtitle Inspector (`src/components/studio/SubtitleInspector.tsx`):
+  - Master toggle pengaktifan engine partikel dengan telemetry partikel aktif.
+  - Pemilih preset visual 1-klik (*Stardust*, *Sparkle*, *Cosmic*).
+  - Slider intensitas burst suku kata (5 hingga 40 partikel).
+  - Tombol uji coba burst instan (*Test Particle Burst*) di tengah kanvas via event `substellar:trigger-burst`.
+- Quality Gates & Telemetry:
+  - 31 dari 31 unit test Vitest lolos 100% (`objectPool.test.ts`, `particleManager.test.ts`, `rubyLayout.test.ts`, `perfStore.test.ts`, `themeStore.test.ts`, `studioStore.test.ts`).
+  - Lolos `cargo test` Rust backend dan `npm run build` Vite production bundle tanpa kesalahan.
+
+---
 
 ### Ditambahkan (Added)
 - Subtitle & RubyLayout Engine (`src/engine/text/RubyLayout.ts`):

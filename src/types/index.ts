@@ -6,6 +6,8 @@ export type StudioTab = 'studio' | 'youtube' | 'lyrics' | 'presets' | 'export' |
 
 export type ProjectStatus = 'idle' | 'loading' | 'ready' | 'error';
 
+export type ParticlePresetType = 'stardust' | 'sparkle' | 'cosmic';
+
 export interface PerfMetrics {
   fps: number;
   activeParticles: number;
@@ -70,6 +72,9 @@ export interface SubtitleStyle {
   yOffset: number;
   rubyScale: number;
   showSafeGuides: boolean;
+  particlePreset: ParticlePresetType;
+  particleBurstCount: number;
+  particleEnabled: boolean;
 }
 
 export interface TrackMetadata {

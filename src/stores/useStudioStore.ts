@@ -23,6 +23,9 @@ export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   yOffset: 80,
   rubyScale: 0.45,
   showSafeGuides: true,
+  particlePreset: 'stardust',
+  particleBurstCount: 15,
+  particleEnabled: true,
 };
 
 export const SAMPLE_SUBTITLES: SubtitleLine[] = [

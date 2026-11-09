@@ -3,20 +3,25 @@ import { Application, Container, Text, TextStyle, Graphics } from 'pixi.js';
 import { usePerfStore } from '../../stores/usePerfStore';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { parseMarkdownRuby, computeRubyPosition } from '../../engine/text/RubyLayout';
+import { ParticleManager } from '../../engine/particles/ParticleManager';
+import type { ParticlePresetType } from '../../types';
 
 export const PixiViewport: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const subtitleGroupRef = useRef<Container | null>(null);
   const safeGuidesRef = useRef<Graphics | null>(null);
+  const particleManagerRef = useRef<ParticleManager | null>(null);
+  const lastActiveIndexRef = useRef<number>(-1);
 
   const { profile, updateMetrics } = usePerfStore();
   const { currentTime, lines, style } = useStudioStore();
 
-  // Initialize PixiJS v8 Application
+  // Initialize PixiJS v8 Application & Zero-GC Particle Manager
   useEffect(() => {
     let isMounted = true;
     let localApp: Application | null = null;
+    let localParticleManager: ParticleManager | null = null;
 
     async function initPixi() {
       if (!containerRef.current) return;
@@ -47,39 +52,22 @@ export const PixiViewport: React.FC = () => {
       app.stage.addChild(safeGuides);
       safeGuidesRef.current = safeGuides;
 
-      // Draw standard broadcast safe lines
-      // 93% Action Safe
       const actionW = 1280 * 0.93;
       const actionH = 720 * 0.93;
       safeGuides.rect((1280 - actionW) / 2, (720 - actionH) / 2, actionW, actionH);
       safeGuides.stroke({ color: 0x8fb4ff, alpha: 0.15, width: 1 });
 
-      // 90% Title Safe
       const titleW = 1280 * 0.90;
       const titleH = 720 * 0.90;
       safeGuides.rect((1280 - titleW) / 2, (720 - titleH) / 2, titleW, titleH);
       safeGuides.stroke({ color: 0x8fb4ff, alpha: 0.25, width: 1 });
 
-      // Ambient particle container
-      const particleContainer = new Container();
-      app.stage.addChild(particleContainer);
+      // Zero-GC Particle Manager with ParticleContainer
+      localParticleManager = new ParticleManager(profile.maxParticles);
+      particleManagerRef.current = localParticleManager;
+      app.stage.addChild(localParticleManager.stageContainer);
 
-      const starGraphics: Graphics[] = [];
-      const particleCount = profile.mode === 'low' ? 50 : profile.mode === 'balanced' ? 140 : 280;
-
-      for (let i = 0; i < particleCount; i++) {
-        const star = new Graphics();
-        star.circle(0, 0, Math.random() * 2 + 0.8);
-        star.fill({ color: 0x8fb4ff, alpha: Math.random() * 0.8 + 0.2 });
-        star.x = Math.random() * 1280;
-        star.y = Math.random() * 720;
-        (star as unknown as { vx: number; vy: number }).vx = (Math.random() - 0.5) * 0.3;
-        (star as unknown as { vy: number }).vy = -Math.random() * 0.5 - 0.2;
-        particleContainer.addChild(star);
-        starGraphics.push(star);
-      }
-
-      // Subtitle Display Group
+      // Subtitle Display Group (Rendered above particles)
       const subtitleGroup = new Container();
       app.stage.addChild(subtitleGroup);
       subtitleGroupRef.current = subtitleGroup;
@@ -91,32 +79,25 @@ export const PixiViewport: React.FC = () => {
 
       app.ticker.add(() => {
         const now = performance.now();
-        const deltaMs = now - lastTime;
+        const deltaSeconds = (now - lastTime) / 1000;
         lastTime = now;
         frameCount++;
 
+        // Update particle physics without GC allocations
+        if (localParticleManager && style.particleEnabled) {
+          localParticleManager.update(deltaSeconds);
+        }
+
+        // FPS & Performance Telemetry
         if (now - lastFpsCheck >= 1000) {
           const fps = Math.round((frameCount * 1000) / (now - lastFpsCheck));
           updateMetrics({
             fps,
-            frameTimeMs: deltaMs,
-            activeParticles: particleCount,
+            frameTimeMs: deltaSeconds * 1000,
+            activeParticles: localParticleManager?.activeCount || 0,
           });
           frameCount = 0;
           lastFpsCheck = now;
-        }
-
-        // Animate ambient stars
-        for (let i = 0; i < starGraphics.length; i++) {
-          const star = starGraphics[i];
-          const typedStar = star as unknown as { vx: number; vy: number };
-          star.x += typedStar.vx;
-          star.y += typedStar.vy;
-
-          if (star.y < 0) {
-            star.y = 720;
-            star.x = Math.random() * 1280;
-          }
         }
       });
     }
@@ -125,12 +106,16 @@ export const PixiViewport: React.FC = () => {
 
     return () => {
       isMounted = false;
+      if (localParticleManager) {
+        localParticleManager.destroy();
+        particleManagerRef.current = null;
+      }
       if (localApp) {
         localApp.destroy(true, { children: true });
         appRef.current = null;
       }
     };
-  }, [profile.mode, profile.bloomEnabled, profile.renderScale, updateMetrics]);
+  }, [profile.mode, profile.maxParticles, profile.bloomEnabled, profile.renderScale, updateMetrics, style.particleEnabled]);
 
   // Update Safe Guides visibility
   useEffect(() => {
@@ -139,9 +124,30 @@ export const PixiViewport: React.FC = () => {
     }
   }, [style.showSafeGuides]);
 
-  // Dynamic Subtitle & Ruby Text Rendering on Canvas
+  // Listen for manual burst trigger (e.g. from Inspector "Test Burst")
+  useEffect(() => {
+    const handleTriggerBurst = (e: Event) => {
+      const custom = e as CustomEvent<{ x?: number; y?: number; preset?: ParticlePresetType; count?: number; color?: number }>;
+      if (particleManagerRef.current && style.particleEnabled) {
+        const x = custom.detail?.x ?? 640;
+        const y = custom.detail?.y ?? 360;
+        const preset = custom.detail?.preset ?? style.particlePreset;
+        const count = custom.detail?.count ?? style.particleBurstCount;
+        const color = custom.detail?.color ?? 0x8fb4ff;
+        particleManagerRef.current.emit(preset, x, y, count, color);
+      }
+    };
+
+    window.addEventListener('substellar:trigger-burst', handleTriggerBurst);
+    return () => {
+      window.removeEventListener('substellar:trigger-burst', handleTriggerBurst);
+    };
+  }, [style.particleEnabled, style.particlePreset, style.particleBurstCount]);
+
+  // Dynamic Subtitle, Ruby Text & Karaoke Sweep Rendering
   useEffect(() => {
     const subtitleGroup = subtitleGroupRef.current;
+    const particleManager = particleManagerRef.current;
     if (!subtitleGroup) return;
 
     subtitleGroup.removeChildren();
@@ -155,46 +161,57 @@ export const PixiViewport: React.FC = () => {
     // Parse Ruby tokens from line
     const rubyTokens = parseMarkdownRuby(activeLine.text);
 
+    // Compute token durations for karaoke sweep
+    const lineDuration = Math.max(0.1, activeLine.endTime - activeLine.startTime);
+    const tokenDuration = lineDuration / Math.max(1, rubyTokens.length);
+
     // Create line container
     const lineContainer = new Container();
-
-    // Base text style
-    const baseStyle = new TextStyle({
-      fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
-      fontSize: style.fontSize,
-      fontWeight: 'bold',
-      fill: 0xffffff,
-      stroke: {
-        color: 0x14161b,
-        width: style.outerStrokeWidth,
-        join: 'round',
-      },
-      dropShadow: style.glowBlur > 0 ? {
-        alpha: 0.8,
-        angle: Math.PI / 4,
-        blur: style.glowBlur,
-        color: 0x5770b0,
-        distance: 2,
-      } : undefined,
-    });
-
-    const rubyStyle = new TextStyle({
-      fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
-      fontSize: Math.round(style.fontSize * style.rubyScale),
-      fontWeight: 'bold',
-      fill: 0x8fb4ff,
-      stroke: {
-        color: 0x14161b,
-        width: Math.max(3, style.outerStrokeWidth * 0.5),
-        join: 'round',
-      },
-    });
-
     let currentX = 0;
-    const tokenNodes: Container[] = [];
+    let currentActiveTokenIdx = -1;
 
-    for (const token of rubyTokens) {
+    rubyTokens.forEach((token, idx) => {
+      const tokenStart = activeLine.startTime + idx * tokenDuration;
+      const tokenEnd = tokenStart + tokenDuration;
+      const isTokenActive = currentTime >= tokenStart && currentTime < tokenEnd;
+
+      if (isTokenActive) {
+        currentActiveTokenIdx = idx;
+      }
+
       const tokenContainer = new Container();
+
+      // Style: Active karaoke tokens shine in vibrant cyan/accent
+      const baseStyle = new TextStyle({
+        fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
+        fontSize: style.fontSize,
+        fontWeight: 'bold',
+        fill: isTokenActive ? 0x8fb4ff : 0xffffff,
+        stroke: {
+          color: isTokenActive ? 0x26324f : 0x14161b,
+          width: style.outerStrokeWidth,
+          join: 'round',
+        },
+        dropShadow: (style.glowBlur > 0 || isTokenActive) ? {
+          alpha: isTokenActive ? 1.0 : 0.7,
+          angle: Math.PI / 4,
+          blur: isTokenActive ? style.glowBlur + 6 : style.glowBlur,
+          color: isTokenActive ? 0x8fb4ff : 0x5770b0,
+          distance: isTokenActive ? 3 : 2,
+        } : undefined,
+      });
+
+      const rubyStyle = new TextStyle({
+        fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
+        fontSize: Math.round(style.fontSize * style.rubyScale),
+        fontWeight: 'bold',
+        fill: isTokenActive ? 0x5affb5 : 0x8fb4ff,
+        stroke: {
+          color: 0x14161b,
+          width: Math.max(3, style.outerStrokeWidth * 0.5),
+          join: 'round',
+        },
+      });
 
       // Base Text Node
       const baseText = new Text({ text: token.base, style: baseStyle });
@@ -220,15 +237,37 @@ export const PixiViewport: React.FC = () => {
       }
 
       tokenContainer.x = currentX;
-      currentX += baseText.width + 4;
-      tokenNodes.push(tokenContainer);
+      currentX += baseText.width + 6;
       lineContainer.addChild(tokenContainer);
-    }
+    });
 
-    // Center entire line horizontally
+    // Center line horizontally & position vertically
     lineContainer.x = (1280 - currentX) / 2;
-    // Position vertically based on yOffset from bottom
     lineContainer.y = 720 - style.yOffset;
+
+    // Trigger karaoke particle emission when word switches
+    if (
+      currentActiveTokenIdx !== -1 &&
+      currentActiveTokenIdx !== lastActiveIndexRef.current &&
+      particleManager &&
+      style.particleEnabled
+    ) {
+      lastActiveIndexRef.current = currentActiveTokenIdx;
+      const targetChild = lineContainer.children[currentActiveTokenIdx];
+      if (targetChild) {
+        const worldX = lineContainer.x + targetChild.x + 20;
+        const worldY = lineContainer.y - 10;
+        particleManager.emit(
+          style.particlePreset,
+          worldX,
+          worldY,
+          style.particleBurstCount,
+          0x8fb4ff
+        );
+      }
+    } else if (currentActiveTokenIdx === -1) {
+      lastActiveIndexRef.current = -1;
+    }
 
     // Translation subtitle if present
     if (activeLine.translation) {
@@ -241,7 +280,7 @@ export const PixiViewport: React.FC = () => {
       const transText = new Text({ text: activeLine.translation, style: transStyle });
       transText.anchor.set(0.5, 0);
       transText.x = 640;
-      transText.y = lineContainer.y + style.fontSize + 12;
+      transText.y = lineContainer.y + style.fontSize + 14;
       subtitleGroup.addChild(transText);
     }
 

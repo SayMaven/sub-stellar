@@ -20,11 +20,18 @@ Mengacu pada skill resmi `pixijs-scene-particle-container`, `pixijs-scene-text`,
   app.destroy({ removeView: true }, { children: true, texture: true });
   ```
 
-## 2. Particle System (`ParticleContainer`)
-* Gunakan `ParticleContainer` untuk partikel bintang (*stardust*), kilau (*sparkles*), dan debu kosmik.
-* Properti dinamis yang diaktifkan: `position: true`, `rotation: true`, `uvs: false`, `color: true`.
-* Terapkan `blendMode: 'add'` untuk efek pendaran cahaya yang menyatu dengan background.
-* Wajib terhubung ke `ObjectPool` untuk mencegah alokasi memori di setiap frame.
+## 2. Particle System (`ParticleContainer` & `ObjectPool`)
+* Gunakan `ParticleContainer` untuk partikel bintang (*stardust*), kilau (*sparkles*), dan debu kosmik (`src/engine/particles/ParticleManager.ts`).
+* Properti dinamis yang diaktifkan: `position: true`, `rotation: true`, `color: true`, `vertex: true`.
+* Terapkan tekstur prosedural in-memory (radial glow + cross star glint via Canvas 2D) untuk eliminasi ketergantungan file aset eksternal.
+* Wajib terhubung ke `ObjectPool<ParticleState>` (`src/engine/pixi/ObjectPool.ts`) dengan alokasi statis di awal:
+  - Zero GC allocations per frame di dalam `app.ticker`.
+  - Mutasi in-place terhadap properti `pixiParticle` (`x, y, scaleX, scaleY, rotation, alpha, tint`).
+  - Partikel mati otomatis di-release dan disembunyikan (`alpha = 0`) tanpa alokasi objek baru.
+* Tiga Preset Fisika:
+  - `stardust`: Gerakan melayang lambat ke atas (soft upward drift, gravitasi -15).
+  - `sparkle`: Ledakan radial cepat dengan gravitasi jatuh ringan (radial burst, gravitasi +40).
+  - `cosmic`: Pendaran kosmik shimmering naik cepat (gravitasi -30).
 
 ## 3. Subtitle Typography & Shaders
 * **Multi-Layer Stroke:**
