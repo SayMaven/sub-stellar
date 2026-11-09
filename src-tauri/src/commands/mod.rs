@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+pub mod ytdl;
+pub mod lyrics_proxy;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {
     pub app_version: String,

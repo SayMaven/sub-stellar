@@ -32,8 +32,8 @@ Seluruh instruksi telah dipecah secara modular ke dalam folder spesifik di `.age
 * **Fase 1 (Inisialisasi Fondasi & Shell Gatefold):** Selesai (`1.0.0-alpha.1`)
 * **Fase 2 (Viewport PixiJS v8, RubyLayout Engine & No-Slop UI):** Selesai (`1.0.0-alpha.2`)
 * **Fase 3 (Particle Engine dengan Zero-GC Object Pooling):** Selesai (`1.0.0-alpha.3`)
-* **Fase 4 (Integrasi YouTube & Multi-Source Lyrics Fetcher):** Antrean Berikutnya
-* **Fase 5 (Audio Waveform Worker & Timeline Scrubber):** Antrean
+* **Fase 4 (Integrasi YouTube & Multi-Source Lyrics Fetcher):** Selesai (`1.0.0-alpha.4`)
+* **Fase 5 (Audio Waveform Worker & Timeline Scrubber):** Antrean Berikutnya
 * **Fase 6 (FFmpeg Hardware Auto-Probing & Export Pipeline):** Antrean
 
 ---

@@ -32,6 +32,33 @@ Format penulisan mengacu pada Keep a Changelog dan menganut prinsip Semantic Ver
 
 ---
 
+## [1.0.0-alpha.4] - 2026-11-10 (Fase 4 Selesai: Integrasi YouTube & Multi-Source Lyrics Fetcher)
+
+### Ditambahkan (Added)
+- Native YouTube & Media Ingestion Command (`src-tauri/src/commands/ytdl.rs`):
+  - Validasi regex URL YouTube yang aman terhadap manipulasi skema (`youtube.com/watch?v=`, `youtu.be/`, `youtube.com/shorts/`).
+  - Deteksi ketersediaan binary `yt-dlp` (`ytdl_check_binary`) dengan probing versi otomatis.
+  - Resolusi metadata cepat via `yt-dlp --dump-json` dan fallback resilien ke official YouTube oEmbed API jika `yt-dlp` belum terpasang.
+  - Proteksi penuh terhadap command injection menggunakan pemanggilan vector argument array di Rust.
+- Native Anti-CORS Lyrics Proxy (`src-tauri/src/commands/lyrics_proxy.rs`):
+  - IPC bridge `lyrics_http_get` untuk querying endpoint NetEase dan LRCLIB tanpa hambatan browser CORS.
+  - Domain allowlist ketat (`lrclib.net`, `music.163.com`, `qq.com`, `kugou.com`).
+- Multi-Source Lyrics Engine (`src/services/lyrics/`):
+  - `lrclib.ts`: Pencarian terbuka LRCLIB untuk lirik tersinkronisasi baris dan kata.
+  - `netease.ts`: Pencarian katalog J-Pop/Anime/K-Pop NetEase dengan dukungan lirik terjemahan dan word-timed format `.yrc`.
+  - `similarity.ts`: Algoritma normalisasi pembersih judul (`cleanTitle`), kalkulasi bigram Dice coefficient, dan toleransi durasi ($\le 4\text{s}$) untuk pemeringkatan skor kecocokan kandidat.
+  - `lrcParser.ts`: Parser serbaguna untuk standard LRC, enhanced word-synced LRC (`<mm:ss.xx>`), dan NetEase YRC (`[start,dur](start,dur,0)`) ke struktur `SubtitleLine[]` dengan `RubyToken[]`.
+  - `lyricsAggregator.ts`: Penggabungan concurrent via `Promise.allSettled`, deduplikasi cerdas, dan pengurutan kandidat terbaik.
+- Integrasi UI Drawers & Theme Adaptation:
+  - `LyricsDrawer.tsx`: Antarmuka pencarian multi-source dengan badge skor kecocokan persentase, indikator word-sync, preview lirik langsung, dan tab manual paste dengan deteksi jumlah baris.
+  - `YouTubeDrawer.tsx`: Card metadata video YouTube resolusi tinggi dengan thumbnail, channel, durasi, status yt-dlp, dan 1-klik "Load into Studio" yang otomatis merekayasa palet variabel dinamis CSS Gatefold OKLCH (`extractFromCover`).
+- Quality Gates & Tests:
+  - 43 dari 43 unit test Vitest lulus 100% (penambahan `similarity.test.ts`, `lrcParser.test.ts`, `lyricsAggregator.test.ts`).
+  - 7 dari 7 unit test Rust backend lulus 100% (`ytdl` tests, `lyrics_proxy` tests, `system_info`, `hardware_caps`).
+  - `npm run build` dan `cargo check` berhasil tanpa error.
+
+---
+
 ## [1.0.0-alpha.3] - 2026-11-10 (Fase 3 Selesai: Particle Engine dengan Zero-GC Object Pooling)
 
 ### Ditambahkan (Added)

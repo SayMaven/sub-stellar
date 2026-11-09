@@ -1,0 +1,80 @@
+import { describe, it, expect } from 'vitest';
+import { parseLrcTimestamp, isYrcFormat, parseYrc, parseLrc } from '../services/lyrics/lrcParser';
+
+describe('LRC & YRC Subtitle Parsers', () => {
+  it('parseLrcTimestamp converts [mm:ss.xx] to float seconds', () => {
+    expect(parseLrcTimestamp('01:23.45')).toBeCloseTo(83.45, 2);
+    expect(parseLrcTimestamp('00:05.100')).toBeCloseTo(5.1, 2);
+    expect(parseLrcTimestamp('invalid')).toBeNull();
+  });
+
+  it('detects NetEase YRC format accurately', () => {
+    const yrcSample = '[12000,4500](12000,800,0)Hello(12800,1200,0)World';
+    const standardLrc = '[00:12.00] Hello World';
+
+    expect(isYrcFormat(yrcSample)).toBe(true);
+    expect(isYrcFormat(standardLrc)).toBe(false);
+  });
+
+  it('parses YRC format into structured lines with word timings', () => {
+    const yrcSample = `
+[12000,4000](12000,1000,0)もう(13000,1500,0)何(14500,1500,0)も
+[18000,5000](18000,2000,0)いらない
+    `.trim();
+
+    const lines = parseYrc(yrcSample);
+    expect(lines).toHaveLength(2);
+    expect(lines[0].startTime).toBe(12);
+    expect(lines[0].endTime).toBe(16);
+    expect(lines[0].text).toBe('もう何も');
+    expect(lines[0].tokens).toHaveLength(3);
+    expect(lines[0].tokens[0].text).toBe('もう');
+    expect(lines[0].tokens[0].startTime).toBe(12);
+  });
+
+  it('parses standard LRC and computes valid subtitle intervals', () => {
+    const standardLrc = `
+[ar:Kenshi Yonezu]
+[ti:Kick Back]
+[00:12.50]努力 未来 A BEAUTIFUL STAR
+[00:17.20]努力 未来 A BEAUTIFUL STAR
+[00:22.00]油断したって どうしようもない
+    `.trim();
+
+    const lines = parseLrc(standardLrc);
+    expect(lines).toHaveLength(3);
+    expect(lines[0].startTime).toBe(12.5);
+    expect(lines[0].text).toBe('努力 未来 A BEAUTIFUL STAR');
+    expect(lines[0].tokens.length).toBeGreaterThan(0);
+    expect(lines[1].startTime).toBe(17.2);
+    expect(lines[0].endTime).toBeLessThanOrEqual(lines[1].startTime);
+  });
+
+  it('parses word-synced Enhanced LRC tags', () => {
+    const enhancedLrc = '[00:10.00]<00:10.00>Star <00:11.20>Dust <00:12.50>Stream';
+    const lines = parseLrc(enhancedLrc);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].tokens).toHaveLength(3);
+    expect(lines[0].tokens[0].text).toBe('Star');
+    expect(lines[0].tokens[1].text).toBe('Dust');
+  });
+
+  it('associates parallel translation lines correctly', () => {
+    const lrc = `
+[00:12.00]もう何もいらない
+[00:18.00]あぁ待ち遠しいな
+    `.trim();
+
+    const translation = `
+[00:12.00]I do not need anything anymore
+[00:18.00]Ah, I can hardly wait
+    `.trim();
+
+    const lines = parseLrc(lrc, translation);
+    expect(lines).toHaveLength(2);
+    expect(lines[0].translation).toBe('I do not need anything anymore');
+    expect(lines[1].translation).toBe('Ah, I can hardly wait');
+  });
+});
+

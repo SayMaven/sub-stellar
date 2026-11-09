@@ -107,6 +107,9 @@ interface StudioStoreState {
   toggleLoop: () => void;
   setSelectedLineId: (id: string | null) => void;
   setStyle: (partial: Partial<SubtitleStyle>) => void;
+  setLines: (lines: SubtitleLine[]) => void;
+  setTrack: (track: Partial<TrackMetadata>) => void;
+  importLyrics: (lines: SubtitleLine[], trackMetadata?: Partial<TrackMetadata>) => void;
   updateLineText: (id: string, text: string) => void;
   updateLineTiming: (id: string, startTime: number, endTime: number) => void;
   loadSampleTrack: () => void;
@@ -172,6 +175,35 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
 
   setStyle: (partial: Partial<SubtitleStyle>) =>
     set((state) => ({ style: { ...state.style, ...partial } })),
+
+  setLines: (lines: SubtitleLine[]) =>
+    set({
+      lines,
+      selectedLineId: lines[0]?.id || null,
+      status: lines.length > 0 ? 'ready' : 'idle',
+    }),
+
+  setTrack: (trackData: Partial<TrackMetadata>) =>
+    set((state) => ({
+      track: { ...state.track, ...trackData },
+      duration: trackData.duration ?? state.duration,
+    })),
+
+  importLyrics: (lines: SubtitleLine[], trackMetadata?: Partial<TrackMetadata>) => {
+    const { track, duration } = get();
+    const updatedTrack = trackMetadata ? { ...track, ...trackMetadata } : track;
+    const newDuration = trackMetadata?.duration ?? (lines.length > 0 ? lines[lines.length - 1].endTime + 2.0 : duration);
+
+    set({
+      lines,
+      track: updatedTrack,
+      duration: newDuration,
+      selectedLineId: lines[0]?.id || null,
+      currentTime: lines[0]?.startTime ?? 0,
+      status: 'ready',
+      errorMessage: null,
+    });
+  },
 
   updateLineText: (id: string, text: string) => {
     const { lines } = get();
