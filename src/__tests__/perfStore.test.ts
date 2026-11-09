@@ -62,3 +62,4 @@ describe('usePerfStore', () => {
     expect(usePerfStore.getState().showTelemetry).toBe(false);
   });
 });
+

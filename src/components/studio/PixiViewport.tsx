@@ -181,3 +181,4 @@ export const PixiViewport: React.FC = () => {
     </div>
   );
 };
+

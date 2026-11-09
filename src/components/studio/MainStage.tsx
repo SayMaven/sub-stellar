@@ -85,3 +85,4 @@ export const MainStage: React.FC = () => {
     </div>
   );
 };
+

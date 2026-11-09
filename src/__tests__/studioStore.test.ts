@@ -99,3 +99,4 @@ describe('useStudioStore', () => {
     expect(useStudioStore.getState().sidebarCollapsed).toBe(true);
   });
 });
+

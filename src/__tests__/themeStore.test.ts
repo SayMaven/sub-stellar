@@ -43,3 +43,4 @@ describe('useThemeStore', () => {
     expect(useThemeStore.getState().tokens.accent).toBe('#123456');
   });
 });
+
