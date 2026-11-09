@@ -1,0 +1,18 @@
+[package]
+name = "sub-stellar"
+version = "1.0.0-alpha.1"
+description = "SubStellar Next-Gen Animated Subtitle & Lyrics Studio"
+authors = ["SayMaven"]
+edition = "2021"
+
+[lib]
+name = "sub_stellar_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

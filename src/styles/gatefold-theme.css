@@ -1,0 +1,123 @@
+/* Gatefold Design System & Dynamic OKLCH Theming */
+/* Adapted from gatefold-foobar2000 (theme/css/app.css & theme/js/theme.js) */
+
+@property --bg        { syntax: '<color>'; inherits: true; initial-value: #14161b; }
+@property --surface   { syntax: '<color>'; inherits: true; initial-value: #1b1e24; }
+@property --surface-2 { syntax: '<color>'; inherits: true; initial-value: #23272e; }
+@property --text      { syntax: '<color>'; inherits: true; initial-value: #f3f4f6; }
+@property --text-2    { syntax: '<color>'; inherits: true; initial-value: #bfc3ca; }
+@property --text-3    { syntax: '<color>'; inherits: true; initial-value: #8b9099; }
+@property --accent    { syntax: '<color>'; inherits: true; initial-value: #8fb4ff; }
+@property --glow      { syntax: '<color>'; inherits: true; initial-value: #5770b0; }
+@property --blob-1    { syntax: '<color>'; inherits: true; initial-value: #26324f; }
+@property --blob-2    { syntax: '<color>'; inherits: true; initial-value: #3a2d55; }
+@property --blob-3    { syntax: '<color>'; inherits: true; initial-value: #1f3d48; }
+
+:root {
+  --tx: 1100ms;
+  --ease: cubic-bezier(.22, .7, .18, 1);
+  --line: color-mix(in oklab, var(--text) 9%, transparent);
+  --line-2: color-mix(in oklab, var(--text) 15%, transparent);
+  --hover: color-mix(in oklab, var(--text) 6.5%, transparent);
+  --panel: color-mix(in oklab, var(--bg) 58%, transparent);
+  --panel-strong: color-mix(in oklab, var(--bg) 80%, transparent);
+  --shadow-pop: 0 18px 50px -12px rgb(0 0 0 / .55), 0 2px 8px rgb(0 0 0 / .25);
+  --r-sm: 6px;
+  --r: 10px;
+  --r-lg: 16px;
+}
+
+/* Ambient Aurora Backlight Layer */
+.ambient-aurora-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+  background-color: var(--bg);
+  transition: background-color var(--tx) var(--ease);
+}
+
+.aurora-blob-1 {
+  position: absolute;
+  width: 55vw;
+  height: 55vw;
+  top: -15vw;
+  left: -10vw;
+  border-radius: 9999px;
+  background: radial-gradient(circle, var(--blob-1) 0%, transparent 70%);
+  filter: blur(80px);
+  opacity: 0.65;
+  transition: background var(--tx) var(--ease);
+  will-change: transform;
+}
+
+.aurora-blob-2 {
+  position: absolute;
+  width: 50vw;
+  height: 50vw;
+  bottom: -10vw;
+  right: -10vw;
+  border-radius: 9999px;
+  background: radial-gradient(circle, var(--blob-2) 0%, transparent 70%);
+  filter: blur(80px);
+  opacity: 0.55;
+  transition: background var(--tx) var(--ease);
+  will-change: transform;
+}
+
+.aurora-blob-3 {
+  position: absolute;
+  width: 40vw;
+  height: 40vw;
+  top: 30%;
+  left: 35%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, var(--blob-3) 0%, transparent 70%);
+  filter: blur(90px);
+  opacity: 0.45;
+  transition: background var(--tx) var(--ease);
+  will-change: transform;
+}
+
+/* Glass panel utility */
+.gatefold-card {
+  background-color: var(--panel);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: var(--r);
+  transition: border-color 200ms ease, background-color 200ms ease, box-shadow 200ms ease;
+}
+
+.gatefold-card:hover {
+  border-color: var(--line-2);
+}
+
+.gatefold-card-strong {
+  background-color: var(--panel-strong);
+  border: 1px solid var(--line-2);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
+}
