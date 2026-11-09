@@ -2,13 +2,18 @@ import React, { useEffect, useRef } from 'react';
 import { Application, Container, Text, TextStyle, Graphics } from 'pixi.js';
 import { usePerfStore } from '../../stores/usePerfStore';
 import { useStudioStore } from '../../stores/useStudioStore';
+import { parseMarkdownRuby, computeRubyPosition } from '../../engine/text/RubyLayout';
 
 export const PixiViewport: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
-  const { profile, updateMetrics } = usePerfStore();
-  const { currentTime, lines } = useStudioStore();
+  const subtitleGroupRef = useRef<Container | null>(null);
+  const safeGuidesRef = useRef<Graphics | null>(null);
 
+  const { profile, updateMetrics } = usePerfStore();
+  const { currentTime, lines, style } = useStudioStore();
+
+  // Initialize PixiJS v8 Application
   useEffect(() => {
     let isMounted = true;
     let localApp: Application | null = null;
@@ -36,20 +41,31 @@ export const PixiViewport: React.FC = () => {
       containerRef.current.innerHTML = '';
       containerRef.current.appendChild(app.canvas);
 
-      // Scene Root
-      const stage = app.stage;
-      const subtitleContainer = new Container();
-      subtitleContainer.x = 640;
-      subtitleContainer.y = 520; // Bottom centered
-      stage.addChild(subtitleContainer);
+      // Safe Margins Guide Layer (Action Safe 93%, Title Safe 90%)
+      const safeGuides = new Graphics();
+      safeGuides.visible = style.showSafeGuides;
+      app.stage.addChild(safeGuides);
+      safeGuidesRef.current = safeGuides;
 
-      // Particles Container for ambient stardust
+      // Draw standard broadcast safe lines
+      // 93% Action Safe
+      const actionW = 1280 * 0.93;
+      const actionH = 720 * 0.93;
+      safeGuides.rect((1280 - actionW) / 2, (720 - actionH) / 2, actionW, actionH);
+      safeGuides.stroke({ color: 0x8fb4ff, alpha: 0.15, width: 1 });
+
+      // 90% Title Safe
+      const titleW = 1280 * 0.90;
+      const titleH = 720 * 0.90;
+      safeGuides.rect((1280 - titleW) / 2, (720 - titleH) / 2, titleW, titleH);
+      safeGuides.stroke({ color: 0x8fb4ff, alpha: 0.25, width: 1 });
+
+      // Ambient particle container
       const particleContainer = new Container();
-      stage.addChild(particleContainer);
+      app.stage.addChild(particleContainer);
 
-      // Create static pool of ambient stars
       const starGraphics: Graphics[] = [];
-      const particleCount = profile.mode === 'low' ? 60 : profile.mode === 'balanced' ? 180 : 350;
+      const particleCount = profile.mode === 'low' ? 50 : profile.mode === 'balanced' ? 140 : 280;
 
       for (let i = 0; i < particleCount; i++) {
         const star = new Graphics();
@@ -57,62 +73,18 @@ export const PixiViewport: React.FC = () => {
         star.fill({ color: 0x8fb4ff, alpha: Math.random() * 0.8 + 0.2 });
         star.x = Math.random() * 1280;
         star.y = Math.random() * 720;
-        (star as unknown as { vx: number; vy: number }).vx = (Math.random() - 0.5) * 0.4;
-        (star as unknown as { vy: number }).vy = -Math.random() * 0.6 - 0.2;
+        (star as unknown as { vx: number; vy: number }).vx = (Math.random() - 0.5) * 0.3;
+        (star as unknown as { vy: number }).vy = -Math.random() * 0.5 - 0.2;
         particleContainer.addChild(star);
         starGraphics.push(star);
       }
 
-      // Main Lyric Text
-      const mainTextStyle = new TextStyle({
-        fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
-        fontSize: 54,
-        fontWeight: 'bold',
-        fill: 0xffffff,
-        stroke: { color: 0x14161b, width: 8, join: 'round' },
-        dropShadow: {
-          alpha: 0.7,
-          angle: Math.PI / 4,
-          blur: 10,
-          color: 0x5770b0,
-          distance: 4,
-        },
-      });
+      // Subtitle Display Group
+      const subtitleGroup = new Container();
+      app.stage.addChild(subtitleGroup);
+      subtitleGroupRef.current = subtitleGroup;
 
-      const rubyTextStyle = new TextStyle({
-        fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
-        fontSize: 22,
-        fontWeight: 'bold',
-        fill: 0x8fb4ff,
-        stroke: { color: 0x14161b, width: 4, join: 'round' },
-      });
-
-      const transTextStyle = new TextStyle({
-        fontFamily: ['Segoe UI', 'sans-serif'],
-        fontSize: 22,
-        fill: 0xbfc3ca,
-        stroke: { color: 0x14161b, width: 4, join: 'round' },
-      });
-
-      // Assemble Subtitle with Ruby Layout
-      const mainText = new Text({ text: 'もう何もいらない', style: mainTextStyle });
-      mainText.anchor.set(0.5, 0.5);
-
-      // Ruby Furigana text: "なに" positioned right above "何"
-      const rubyText = new Text({ text: 'なに', style: rubyTextStyle });
-      rubyText.anchor.set(0.5, 1);
-      rubyText.x = -36; // Centered above '何'
-      rubyText.y = -34;
-
-      const transText = new Text({ text: 'I do not need anything anymore', style: transTextStyle });
-      transText.anchor.set(0.5, 0);
-      transText.y = 42;
-
-      subtitleContainer.addChild(mainText);
-      subtitleContainer.addChild(rubyText);
-      subtitleContainer.addChild(transText);
-
-      // Frame Ticker
+      // Render Ticker
       let lastTime = performance.now();
       let frameCount = 0;
       let lastFpsCheck = performance.now();
@@ -134,7 +106,7 @@ export const PixiViewport: React.FC = () => {
           lastFpsCheck = now;
         }
 
-        // Animate particles
+        // Animate ambient stars
         for (let i = 0; i < starGraphics.length; i++) {
           const star = starGraphics[i];
           const typedStar = star as unknown as { vx: number; vy: number };
@@ -160,17 +132,121 @@ export const PixiViewport: React.FC = () => {
     };
   }, [profile.mode, profile.bloomEnabled, profile.renderScale, updateMetrics]);
 
-  // Handle subtitle line update when currentTime changes
+  // Update Safe Guides visibility
   useEffect(() => {
-    // Current line sync
-    const activeLine = lines.find(
-      (l) => currentTime >= l.startTime && currentTime <= l.endTime
-    ) || lines[0];
-
-    if (activeLine && appRef.current) {
-      // Future lines update in phase 2
+    if (safeGuidesRef.current) {
+      safeGuidesRef.current.visible = style.showSafeGuides;
     }
-  }, [currentTime, lines]);
+  }, [style.showSafeGuides]);
+
+  // Dynamic Subtitle & Ruby Text Rendering on Canvas
+  useEffect(() => {
+    const subtitleGroup = subtitleGroupRef.current;
+    if (!subtitleGroup) return;
+
+    subtitleGroup.removeChildren();
+
+    // Find active subtitle line based on currentTime
+    const activeLine =
+      lines.find((l) => currentTime >= l.startTime && currentTime <= l.endTime) || lines[0];
+
+    if (!activeLine) return;
+
+    // Parse Ruby tokens from line
+    const rubyTokens = parseMarkdownRuby(activeLine.text);
+
+    // Create line container
+    const lineContainer = new Container();
+
+    // Base text style
+    const baseStyle = new TextStyle({
+      fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
+      fontSize: style.fontSize,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      stroke: {
+        color: 0x14161b,
+        width: style.outerStrokeWidth,
+        join: 'round',
+      },
+      dropShadow: style.glowBlur > 0 ? {
+        alpha: 0.8,
+        angle: Math.PI / 4,
+        blur: style.glowBlur,
+        color: 0x5770b0,
+        distance: 2,
+      } : undefined,
+    });
+
+    const rubyStyle = new TextStyle({
+      fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
+      fontSize: Math.round(style.fontSize * style.rubyScale),
+      fontWeight: 'bold',
+      fill: 0x8fb4ff,
+      stroke: {
+        color: 0x14161b,
+        width: Math.max(3, style.outerStrokeWidth * 0.5),
+        join: 'round',
+      },
+    });
+
+    let currentX = 0;
+    const tokenNodes: Container[] = [];
+
+    for (const token of rubyTokens) {
+      const tokenContainer = new Container();
+
+      // Base Text Node
+      const baseText = new Text({ text: token.base, style: baseStyle });
+      baseText.x = 0;
+      baseText.y = 0;
+      tokenContainer.addChild(baseText);
+
+      // Ruby Text Node (if present)
+      if (token.isRuby && token.ruby) {
+        const rubyText = new Text({ text: token.ruby, style: rubyStyle });
+        const metrics = computeRubyPosition(
+          0,
+          0,
+          baseText.width,
+          baseText.height,
+          rubyText.width,
+          rubyText.height,
+          2
+        );
+        rubyText.x = metrics.rubyX;
+        rubyText.y = metrics.rubyY;
+        tokenContainer.addChild(rubyText);
+      }
+
+      tokenContainer.x = currentX;
+      currentX += baseText.width + 4;
+      tokenNodes.push(tokenContainer);
+      lineContainer.addChild(tokenContainer);
+    }
+
+    // Center entire line horizontally
+    lineContainer.x = (1280 - currentX) / 2;
+    // Position vertically based on yOffset from bottom
+    lineContainer.y = 720 - style.yOffset;
+
+    // Translation subtitle if present
+    if (activeLine.translation) {
+      const transStyle = new TextStyle({
+        fontFamily: ['Segoe UI', 'sans-serif'],
+        fontSize: Math.max(16, Math.round(style.fontSize * 0.4)),
+        fill: 0xbfc3ca,
+        stroke: { color: 0x14161b, width: 4, join: 'round' },
+      });
+      const transText = new Text({ text: activeLine.translation, style: transStyle });
+      transText.anchor.set(0.5, 0);
+      transText.x = 640;
+      transText.y = lineContainer.y + style.fontSize + 12;
+      subtitleGroup.addChild(transText);
+    }
+
+    subtitleGroup.addChild(lineContainer);
+  }, [currentTime, lines, style]);
 
   return (
     <div className="w-full h-full flex items-center justify-center p-2 relative overflow-hidden">
@@ -181,4 +257,3 @@ export const PixiViewport: React.FC = () => {
     </div>
   );
 };
-

@@ -32,6 +32,35 @@ Format penulisan mengacu pada Keep a Changelog dan menganut prinsip Semantic Ver
 
 ---
 
+## [1.0.0-alpha.2] - 2026-11-09 (Fase 2 Selesai & Rombak UI Professional)
+
+### Ditambahkan (Added)
+- Subtitle & RubyLayout Engine (`src/engine/text/RubyLayout.ts`):
+  - Parser tag Markdown Ruby `{漢字|かんじ}` ke struktur token `ParsedRubyToken` dan serializer balikan.
+  - Perhitungan presisi centering horizontal dan offset vertikal Furigana di atas Kanji:
+    $$\text{rubyX} = \text{baseX} + \frac{\text{baseWidth} - \text{rubyWidth}}{2}$$
+  - Pemenggalan baris teks CJK mematuhi aturan *Kinsoku Shori* (larangan tanda baca di awal/akhir baris).
+  - Segmentasi karakter berbasis grapheme cluster anti-pecah menggunakan native `Intl.Segmenter`.
+- Viewport PixiJS v8 Multi-Layer Outline & Safe Guides (`src/components/studio/PixiViewport.tsx`):
+  - Multi-layer outline stroke (outer dark outline tebal + inner glow accent outline) untuk keterbacaan tinggi di atas video apa pun.
+  - Broadcast safe guides overlay: 93% Action Safe dan 90% Title Safe.
+  - Reaktivitas instan terhadap modifikasi teks, timecode, font size, dan skala furigana dari Inspector.
+- Subtitle & Style Inspector Panel (`src/components/studio/SubtitleInspector.tsx`):
+  - Inspector dockable di sisi kanan kanvas: Editor timing presisi sub-detik, syntax editor `{Kanji|Ruby}`, token badge per suku kata.
+  - Kontrol tipografi: Font size slider (24–96px), skala furigana (30–70%), outer stroke width, inner glow, Y-offset, dan toggle safe guides.
+  - Preset visual 1-klik: J-Pop Starlight (Cyan), Neon Shinjuku (Magenta), Sakura Petal (Pink), dan Clean Minimalist.
+- Rombak Desain UI Bebas Slop (Standar `no-ui-slop`, `ui-states`, & `uxkin-research`):
+  - Mengeliminasi kartu generik dekoratif; antarmuka kini berfokus pada ruang kerja NLE/DAW profesional.
+  - State kosong & penggunaan pertama (`EmptyStudioState.tsx`): Dropzone media drag-and-drop interaktif bergaris putus-putus dengan tombol showcase demo 1-klik.
+  - State loading & busy action: Indikator proses step-by-step pada YouTube Downloader dan skeleton placeholder pada pencarian lirik.
+  - State error & validasi: Banner error interaktif dengan aksi recovery pemulihan (*Restore Sample* / *Dismiss*), validasi format URL YouTube, dan umpan balik kesalahan timing.
+  - Tab manual input lirik alternatif jika pencarian database tidak menghasilkan kandidat.
+- Quality Gates & Unit Tests:
+  - 22 dari 22 pengujian unit Vitest lolos 100% (`rubyLayout.test.ts`, `studioStore.test.ts`, `perfStore.test.ts`, `themeStore.test.ts`).
+  - `npm run typecheck` dan `npm run build` berhasil tanpa error.
+
+---
+
 ## [1.0.0-alpha.1] - 2026-11-09 (Fase 1 Selesai)
 
 ### Ditambahkan (Added)

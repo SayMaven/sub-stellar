@@ -4,6 +4,8 @@ export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:3';
 
 export type StudioTab = 'studio' | 'youtube' | 'lyrics' | 'presets' | 'export' | 'settings';
 
+export type ProjectStatus = 'idle' | 'loading' | 'ready' | 'error';
+
 export interface PerfMetrics {
   fps: number;
   activeParticles: number;
@@ -54,6 +56,22 @@ export interface SubtitleLine {
   translation?: string;
 }
 
+export interface SubtitleStyle {
+  fontFamily: string;
+  fontSize: number;
+  fillColor: string;
+  outerStrokeColor: string;
+  outerStrokeWidth: number;
+  innerStrokeColor: string;
+  innerStrokeWidth: number;
+  glowColor: string;
+  glowBlur: number;
+  verticalPosition: 'bottom' | 'center' | 'top';
+  yOffset: number;
+  rubyScale: number;
+  showSafeGuides: boolean;
+}
+
 export interface TrackMetadata {
   id: string;
   title: string;
@@ -65,4 +83,3 @@ export interface TrackMetadata {
   audioUrl?: string;
   videoUrl?: string;
 }
-

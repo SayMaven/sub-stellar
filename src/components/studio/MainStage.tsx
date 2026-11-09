@@ -1,83 +1,151 @@
 import React from 'react';
 import { PixiViewport } from './PixiViewport';
 import { TimelineDrawer } from './TimelineDrawer';
+import { SubtitleInspector } from './SubtitleInspector';
+import { EmptyStudioState } from './EmptyStudioState';
 import { useStudioStore } from '../../stores/useStudioStore';
+import { usePerfStore } from '../../stores/usePerfStore';
 import type { AspectRatio } from '../../types';
-import { ZoomIn, ZoomOut } from 'lucide-react';
+import { ZoomIn, ZoomOut, AlertCircle, X, RotateCcw } from 'lucide-react';
 
 const ASPECT_RATIOS: { id: AspectRatio; label: string }[] = [
-  { id: '16:9', label: '16:9 (Landscape)' },
-  { id: '9:16', label: '9:16 (Shorts/TikTok)' },
-  { id: '1:1', label: '1:1 (Square)' },
-  { id: '4:3', label: '4:3 (Classic)' },
+  { id: '16:9', label: '16:9' },
+  { id: '9:16', label: '9:16' },
+  { id: '1:1', label: '1:1' },
+  { id: '4:3', label: '4:3' },
 ];
 
 export const MainStage: React.FC = () => {
-  const { aspectRatio, setAspectRatio, zoom, setZoom } = useStudioStore();
+  const {
+    aspectRatio,
+    setAspectRatio,
+    zoom,
+    setZoom,
+    lines,
+    errorMessage,
+    setErrorMessage,
+    loadSampleTrack,
+  } = useStudioStore();
+
+  const { profile } = usePerfStore();
 
   const getAspectClass = () => {
     switch (aspectRatio) {
       case '16:9':
-        return 'aspect-video max-w-4xl max-h-[70vh]';
+        return 'aspect-video max-w-4xl max-h-[65vh]';
       case '9:16':
-        return 'aspect-[9/16] max-h-[70vh]';
+        return 'aspect-[9/16] max-h-[65vh]';
       case '1:1':
-        return 'aspect-square max-h-[70vh]';
+        return 'aspect-square max-h-[65vh]';
       case '4:3':
-        return 'aspect-[4/3] max-w-3xl max-h-[70vh]';
+        return 'aspect-[4/3] max-w-3xl max-h-[65vh]';
     }
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-gatefold-bg/40 backdrop-blur-sm overflow-hidden select-none">
+    <div className="flex-1 flex flex-col h-full bg-gatefold-bg/50 backdrop-blur-sm overflow-hidden select-none">
+      {/* Error State Banner */}
+      {errorMessage && (
+        <div className="px-4 py-2 bg-red-500/15 border-b border-red-500/30 text-red-300 text-xs flex items-center justify-between z-20">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadSampleTrack}
+              className="px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/30 text-[11px] font-medium"
+            >
+              Restore Sample
+            </button>
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="p-1 rounded hover:bg-red-500/20"
+              aria-label="Dismiss error"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Stage Toolbar */}
       <div className="h-10 px-4 border-b border-gatefold-line flex items-center justify-between bg-gatefold-panel text-xs text-gatefold-text-2">
-        {/* Aspect Ratio Switcher */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-gatefold-text-3 mr-1 font-medium">Aspect:</span>
-          {ASPECT_RATIOS.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setAspectRatio(item.id)}
-              className={`px-2 py-1 rounded text-xs font-mono transition-colors ${
-                aspectRatio === item.id
-                  ? 'bg-gatefold-accent/20 text-gatefold-accent border border-gatefold-accent/40 font-semibold'
-                  : 'text-gatefold-text-3 hover:text-gatefold-text hover:bg-gatefold-hover border border-transparent'
-              }`}
-            >
-              {item.id}
-            </button>
-          ))}
+        {/* Left: Aspect Ratio & Safe Guide Indicators */}
+        <div className="flex items-center gap-2">
+          <span className="text-gatefold-text-3 font-medium text-[11px]">Format:</span>
+          <div className="flex items-center gap-1 bg-gatefold-surface rounded-md p-0.5 border border-gatefold-line">
+            {ASPECT_RATIOS.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setAspectRatio(item.id)}
+                className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
+                  aspectRatio === item.id
+                    ? 'bg-gatefold-accent/20 text-gatefold-accent font-semibold'
+                    : 'text-gatefold-text-3 hover:text-gatefold-text'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <span className="text-gatefold-line-2 mx-1">|</span>
+
+          <span className="font-mono text-[11px] text-gatefold-text-3">
+            Internal Canvas: {profile.previewResolution} ({profile.renderScale}x)
+          </span>
         </div>
 
-        {/* Zoom Controls */}
-        <div className="flex items-center gap-2">
+        {/* Right: Zoom & Reset */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 bg-gatefold-surface rounded-md px-2 py-0.5 border border-gatefold-line">
+            <button
+              onClick={() => setZoom(zoom - 10)}
+              className="text-gatefold-text-3 hover:text-gatefold-text"
+              title="Zoom Out"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <span className="font-mono text-[11px] text-gatefold-text-3 w-8 text-center">{zoom}%</span>
+            <button
+              onClick={() => setZoom(zoom + 10)}
+              className="text-gatefold-text-3 hover:text-gatefold-text"
+              title="Zoom In"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
           <button
-            onClick={() => setZoom(zoom - 10)}
-            className="p-1 rounded text-gatefold-text-3 hover:text-gatefold-text hover:bg-gatefold-hover"
-            title="Zoom Out"
+            onClick={loadSampleTrack}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-gatefold-text-3 hover:text-gatefold-text hover:bg-gatefold-hover border border-transparent hover:border-gatefold-line transition-colors"
+            title="Reset Project to Sample Track"
           >
-            <ZoomOut className="w-3.5 h-3.5" />
-          </button>
-          <span className="font-mono text-xs text-gatefold-text-3 w-10 text-center">{zoom}%</span>
-          <button
-            onClick={() => setZoom(zoom + 10)}
-            className="p-1 rounded text-gatefold-text-3 hover:text-gatefold-text hover:bg-gatefold-hover"
-            title="Zoom In"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
+            <RotateCcw className="w-3 h-3" />
+            <span>Reset Demo</span>
           </button>
         </div>
       </div>
 
-      {/* Main Stage Canvas Viewport */}
-      <div className="flex-1 flex items-center justify-center p-4 overflow-hidden relative">
-        <div
-          className={`w-full transition-all duration-200 border border-gatefold-line bg-black/60 rounded-xl overflow-hidden shadow-2xl relative ${getAspectClass()}`}
-          style={{ transform: `scale(${zoom / 100})` }}
-        >
-          <PixiViewport />
+      {/* Main Workspace Split: Viewport (Left) + Subtitle Inspector (Right) */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Canvas Stage Area */}
+        <div className="flex-1 flex items-center justify-center p-4 overflow-hidden relative">
+          {lines.length === 0 ? (
+            <EmptyStudioState />
+          ) : (
+            <div
+              className={`w-full transition-all duration-200 border border-gatefold-line bg-black/80 rounded-xl overflow-hidden shadow-2xl relative ${getAspectClass()}`}
+              style={{ transform: `scale(${zoom / 100})` }}
+            >
+              <PixiViewport />
+            </div>
+          )}
         </div>
+
+        {/* Subtitle & Typography Inspector */}
+        {lines.length > 0 && <SubtitleInspector />}
       </div>
 
       {/* Bottom Timeline Drawer */}
@@ -85,4 +153,3 @@ export const MainStage: React.FC = () => {
     </div>
   );
 };
-

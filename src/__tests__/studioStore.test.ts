@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useStudioStore, SAMPLE_SUBTITLES } from '../stores/useStudioStore';
+import { useStudioStore, SAMPLE_SUBTITLES, DEFAULT_SUBTITLE_STYLE } from '../stores/useStudioStore';
 
 describe('useStudioStore', () => {
   beforeEach(() => {
@@ -14,6 +14,8 @@ describe('useStudioStore', () => {
       volume: 0.8,
       isMuted: false,
       isLooping: false,
+      status: 'ready',
+      errorMessage: null,
       track: {
         id: 'sample-track-1',
         title: 'Stellar Night Flight',
@@ -23,6 +25,7 @@ describe('useStudioStore', () => {
       },
       lines: SAMPLE_SUBTITLES,
       selectedLineId: 'line-1',
+      style: DEFAULT_SUBTITLE_STYLE,
     });
   });
 
@@ -31,7 +34,7 @@ describe('useStudioStore', () => {
     expect(state.activeTab).toBe('studio');
     expect(state.track.title).toBe('Stellar Night Flight');
     expect(state.lines.length).toBeGreaterThan(0);
-    expect(state.lines[0].text).toBe('もう何もいらない');
+    expect(state.lines[0].text).toBe('もう{何|なに}もいらない');
     expect(state.lines[0].tokens[1].ruby).toBe('なに');
   });
 
@@ -98,5 +101,35 @@ describe('useStudioStore', () => {
     toggleSidebar();
     expect(useStudioStore.getState().sidebarCollapsed).toBe(true);
   });
-});
 
+  it('updates line text and re-parses ruby tokens', () => {
+    const { updateLineText } = useStudioStore.getState();
+    updateLineText('line-1', '夢を{見|み}よう');
+
+    const updated = useStudioStore.getState().lines.find((l) => l.id === 'line-1');
+    expect(updated).toBeDefined();
+    expect(updated?.text).toBe('夢を{見|み}よう');
+    expect(updated?.tokens.some((t) => t.ruby === 'み')).toBe(true);
+  });
+
+  it('updates line timing correctly', () => {
+    const { updateLineTiming } = useStudioStore.getState();
+    updateLineTiming('line-1', 10.0, 15.0);
+
+    const updated = useStudioStore.getState().lines.find((l) => l.id === 'line-1');
+    expect(updated?.startTime).toBe(10.0);
+    expect(updated?.endTime).toBe(15.0);
+  });
+
+  it('clears project to empty state and restores sample', () => {
+    const { clearProject, loadSampleTrack } = useStudioStore.getState();
+
+    clearProject();
+    expect(useStudioStore.getState().status).toBe('idle');
+    expect(useStudioStore.getState().lines.length).toBe(0);
+
+    loadSampleTrack();
+    expect(useStudioStore.getState().status).toBe('ready');
+    expect(useStudioStore.getState().lines.length).toBeGreaterThan(0);
+  });
+});
