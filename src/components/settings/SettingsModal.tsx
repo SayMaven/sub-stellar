@@ -1,12 +1,18 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings, Palette, Zap, Info } from 'lucide-react';
 import { useThemeStore } from '../../stores/useThemeStore';
 import { usePerfStore } from '../../stores/usePerfStore';
+import { tauriBridge, type SystemInfo } from '../../services/tauriBridge';
 import type { ThemePresetName, QualityMode } from '../../types';
 
 export const SettingsModal: React.FC = () => {
   const { currentPreset, setPreset } = useThemeStore();
   const { mode, setQualityMode } = usePerfStore();
+  const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null);
+
+  useEffect(() => {
+    tauriBridge.getSystemInfo().then(setSysInfo).catch(() => {});
+  }, []);
 
   const themes: { id: ThemePresetName; label: string; swatch: string }[] = [
     { id: 'default', label: 'Gatefold Obsidian', swatch: 'bg-[#8fb4ff]' },
@@ -21,17 +27,17 @@ export const SettingsModal: React.FC = () => {
       <div className="max-w-2xl mx-auto space-y-6">
         <div>
           <h2 className="text-xl font-semibold text-gatefold-text flex items-center gap-2">
-            <Settings className="w-6 h-6 text-gatefold-accent" />
+            <Settings className="w-5 h-5 text-gatefold-accent" />
             <span>Appearance & System Settings</span>
           </h2>
-          <p className="text-sm text-gatefold-text-3 mt-1">
+          <p className="text-xs text-gatefold-text-3 mt-1">
             Configure Gatefold dynamic OKLCH color palettes, hardware quality tiers, and system preferences.
           </p>
         </div>
 
         {/* Theme Settings Card */}
         <div className="gatefold-card-strong p-5 space-y-4">
-          <h3 className="text-xs font-semibold text-gatefold-text-2 uppercase tracking-wider flex items-center gap-2">
+          <h3 className="text-xs font-semibold text-gatefold-text-2 uppercase tracking-wider flex items-center gap-2 font-mono">
             <Palette className="w-4 h-4 text-gatefold-accent" />
             <span>OKLCH Dynamic Theme Presets</span>
           </h3>
@@ -43,11 +49,11 @@ export const SettingsModal: React.FC = () => {
                 onClick={() => setPreset(t.id)}
                 className={`p-3 rounded-lg border text-left flex items-center gap-3 transition-all ${
                   currentPreset === t.id
-                    ? 'border-gatefold-accent bg-gatefold-accent/15 text-gatefold-accent font-medium'
+                    ? 'border-gatefold-accent bg-gatefold-accent/15 text-gatefold-accent font-medium shadow-[0_0_12px_rgba(143,180,255,0.15)]'
                     : 'border-gatefold-line bg-gatefold-surface text-gatefold-text hover:border-gatefold-line-2'
                 }`}
               >
-                <div className={`w-4 h-4 rounded-full ${t.swatch} border border-white/20`} />
+                <div className={`w-4 h-4 rounded-full ${t.swatch} border border-white/20 shrink-0`} />
                 <span className="text-xs truncate">{t.label}</span>
               </button>
             ))}
@@ -56,7 +62,7 @@ export const SettingsModal: React.FC = () => {
 
         {/* Performance Mode Card */}
         <div className="gatefold-card-strong p-5 space-y-4">
-          <h3 className="text-xs font-semibold text-gatefold-text-2 uppercase tracking-wider flex items-center gap-2">
+          <h3 className="text-xs font-semibold text-gatefold-text-2 uppercase tracking-wider flex items-center gap-2 font-mono">
             <Zap className="w-4 h-4 text-gatefold-accent" />
             <span>Low-End Hardware Optimization (Tri-Tier Profile)</span>
           </h3>
@@ -84,7 +90,7 @@ export const SettingsModal: React.FC = () => {
                 onClick={() => setQualityMode(p.id as QualityMode)}
                 className={`p-3 rounded-lg border cursor-pointer transition-all ${
                   mode === p.id
-                    ? 'border-gatefold-accent bg-gatefold-accent/10'
+                    ? 'border-gatefold-accent bg-gatefold-accent/10 shadow-[0_0_12px_rgba(143,180,255,0.1)]'
                     : 'border-gatefold-line bg-gatefold-surface hover:border-gatefold-line-2'
                 }`}
               >
@@ -107,10 +113,10 @@ export const SettingsModal: React.FC = () => {
             <span>Architecture & Build Information</span>
           </div>
           <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
-            <div>App Version: 1.0.0-alpha.1</div>
+            <div>App Version: {sysInfo?.app_version || '1.0.0-alpha.5'}</div>
+            <div>OS: {sysInfo?.os_name || 'Windows'} ({sysInfo?.arch || 'x64'})</div>
             <div>Desktop Shell: Tauri v2 (Rust 1.94)</div>
             <div>Rendering Canvas: PixiJS v8 (WebGPU / WebGL)</div>
-            <div>CSS Theming: Gatefold OKLCH @property</div>
           </div>
         </div>
       </div>

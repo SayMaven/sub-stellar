@@ -32,6 +32,51 @@ Format penulisan mengacu pada Keep a Changelog dan menganut prinsip Semantic Ver
 
 ---
 
+## [1.0.0-alpha.5] - 2026-11-10 (Fase 5 Selesai: Overhaul UI Menyeluruh, Audio Waveform Worker & Timeline Scrubber)
+
+### Ditambahkan (Added)
+- Master Playback Master Clock (`src/engine/audio/PlaybackEngine.ts`):
+  - Sinkronisasi master clock 60 FPS presisi tinggi terikat langsung ke elemen native `<video>` atau `<audio>` browser.
+  - Memajukan `currentTime` secara kontinu dan otomatis saat Play (atau Spacebar) ditekan, menggerakkan playhead dan partikel.
+  - Dukungan loop otomatis, sinkronisasi play/pause, seek instan, dan volume/mute state.
+- Subtitle Exporter Generator (`src/engine/text/SubtitleExporter.ts`):
+  - Generator format Advanced SubStation Alpha (`.ass` v4.00+) standar industri dengan definisi style warna OKLCH, outline multi-stroke, dan tag karaoke `\k` per-kata.
+  - Generator SubRip (`.srt`) murni untuk kompatibilitas universal.
+  - Trigger unduhan file langsung ke browser tanpa mock placeholder.
+- Dual-Layer Video & Canvas Viewport (`src/components/studio/PixiViewport.tsx`):
+  - Layer 0 (Underlying Media): Elemen video native `<video>` untuk file video lokal (drag & drop) atau backdrop visualizer studio atmosferik dinamis dengan pendaran ambient saat memutar lagu/audio.
+  - Layer 1 (Overlay Canvas): Kanvas transparan PixiJS v8 menampilkan subtitle multi-stroke, furigana ruby text, broadcast safe guides (93% Action / 90% Title Safe), dan semburan partikel GPU pada transisi suku kata.
+- Perbaikan Layout Menyeluruh & Anti-Overflow (`MainStage.tsx`, `Shell.tsx`, `Header.tsx`, `TransportBar.tsx`):
+  - Eliminasi batasan kaku `max-h-[65vh]` menjadi wadah proporsional `aspect-video max-h-full max-w-full`.
+  - Penambahan batas `min-h-0`, `min-w-0`, dan `shrink-0` di seluruh struktur flexbox untuk mencegah pemotongan timeline dan squishing toolbar.
+- Pengkaitan Presets Library ke Aksi Nyata (`src/components/presets/PresetsDrawer.tsx`):
+  - Mengaplikasikan langsung parameter tipografi, outline stroke ganda, partikel, dan palet warna dinamis OKLCH ke `useStudioStore` dan `useThemeStore`.
+- Drag-and-Drop Media Dropzone (`src/components/studio/EmptyStudioState.tsx`):
+  - Mendukung input file video/audio lokal (.mp4, .webm, .mp3, .wav) langsung ke panggung studio.
+- Off-Thread Waveform Web Worker (`src/workers/waveform.worker.ts`):
+  - Ekstraksi dan downsampling peak audio non-blocking ke tepat ~2.000 titik (1.000 bin pasangan min/max).
+  - Algoritma envelope sintetis harmonik untuk visualisasi preview instan tanpa pembebanan memori mentah.
+  - Transfer data memori Zero-Copy memanfaatkan native `transferable ArrayBuffer` pada `postMessage`.
+- Waveform & Audio Cache Manager (`src/engine/audio/WaveformManager.ts`):
+  - Orkestrasi thread worker terisolasi dengan fallback in-thread komputasi otomatis jika Web Worker tidak didukung lingkungan runtime.
+  - Caching berbasis track ID dan durasi untuk eliminasi redundant re-computations.
+- Timeline Scrubber Profesional & Trimming Interaktif (`src/components/studio/TimelineDrawer.tsx`):
+  - Render bentuk gelombang audio berbasis HTML5 Canvas yang adaptif terhadap palet dinamis tema Gatefold OKLCH.
+  - Kontrol zoom horizontal multi-tingkat (1x, 2x, 4x) dengan ruler timecode dinamis sub-detik.
+  - Playhead scrubber interaktif dengan pointer capture presisi snapping 0.05s.
+  - Blok subtitle interaktif: geser posisi timecode (*body move*), trimming awal (*start trim handle*), dan trimming akhir (*end trim handle*).
+  - Indikator segmentasi kata/suku kata di dalam setiap blok subtitle.
+- Interactive Furigana & Ruby Editor Modal (`src/components/furigana/RubyEditorModal.tsx`):
+  - Modal pengeditan bacaan kanji interaktif per-kata dengan live preview furigana di atas kanji.
+  - Editor segmen kata: tambah kata, hapus kata, ubah kanji, dan ubah bacaan ruby secara visual.
+  - Serialisasi otomatis kembali ke format Markdown Ruby `{Kanji|Ruby}` yang langsung tersinkronisasi ke kanvas studio.
+- Quality Gates & Tests:
+  - 55 dari 55 unit test Vitest lulus 100% (penambahan `playbackEngine.test.ts`, `subtitleExporter.test.ts`, `waveform.test.ts`, dan `rubyEditor.test.ts`).
+  - Bundle `waveform.worker.js` terisolasi berhasil dibangun dalam produksi Vite.
+  - Semua pengujian Rust backend tetap lulus tanpa peringatan.
+
+---
+
 ## [1.0.0-alpha.4] - 2026-11-10 (Fase 4 Selesai: Integrasi YouTube & Multi-Source Lyrics Fetcher)
 
 ### Ditambahkan (Added)

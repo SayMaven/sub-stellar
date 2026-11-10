@@ -55,7 +55,7 @@ export const SubtitleInspector: React.FC = () => {
   }
 
   return (
-    <aside className="w-80 border-l border-gatefold-line bg-gatefold-panel-strong backdrop-blur-md flex flex-col h-full text-xs select-none">
+    <aside className="w-80 shrink-0 border-l border-gatefold-line bg-gatefold-panel-strong backdrop-blur-md flex flex-col h-full text-xs select-none">
       {/* Inspector Tabs */}
       <div className="h-10 px-2 border-b border-gatefold-line flex items-center justify-between bg-gatefold-panel">
         <div className="flex gap-1">

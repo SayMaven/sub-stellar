@@ -32,13 +32,13 @@ export const MainStage: React.FC = () => {
   const getAspectClass = () => {
     switch (aspectRatio) {
       case '16:9':
-        return 'aspect-video max-w-4xl max-h-[65vh]';
+        return 'aspect-video max-h-full max-w-full';
       case '9:16':
-        return 'aspect-[9/16] max-h-[65vh]';
+        return 'aspect-[9/16] max-h-full max-w-full';
       case '1:1':
-        return 'aspect-square max-h-[65vh]';
+        return 'aspect-square max-h-full max-w-full';
       case '4:3':
-        return 'aspect-[4/3] max-w-3xl max-h-[65vh]';
+        return 'aspect-[4/3] max-h-full max-w-full';
     }
   };
 
@@ -129,15 +129,18 @@ export const MainStage: React.FC = () => {
       </div>
 
       {/* Main Workspace Split: Viewport (Left) + Subtitle Inspector (Right) */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* Canvas Stage Area */}
-        <div className="flex-1 flex items-center justify-center p-4 overflow-hidden relative">
+        <div className="flex-1 min-w-0 min-h-0 flex items-center justify-center p-3 overflow-hidden relative">
           {lines.length === 0 ? (
             <EmptyStudioState />
           ) : (
             <div
-              className={`w-full transition-all duration-200 border border-gatefold-line bg-black/80 rounded-xl overflow-hidden shadow-2xl relative ${getAspectClass()}`}
-              style={{ transform: `scale(${zoom / 100})` }}
+              className={`relative border border-gatefold-line bg-black rounded-xl overflow-hidden shadow-2xl flex items-center justify-center ${getAspectClass()}`}
+              style={{
+                transform: zoom === 100 ? undefined : `scale(${zoom / 100})`,
+                transition: 'transform 0.15s ease-out',
+              }}
             >
               <PixiViewport />
             </div>
@@ -149,7 +152,9 @@ export const MainStage: React.FC = () => {
       </div>
 
       {/* Bottom Timeline Drawer */}
-      <TimelineDrawer />
+      <div className="h-44 shrink-0 overflow-hidden">
+        <TimelineDrawer />
+      </div>
     </div>
   );
 };

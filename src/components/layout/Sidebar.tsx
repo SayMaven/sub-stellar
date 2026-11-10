@@ -32,7 +32,7 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className={`h-full border-r border-gatefold-line bg-gatefold-panel-strong backdrop-blur-md flex flex-col justify-between transition-all duration-300 z-30 select-none ${
+      className={`h-full shrink-0 border-r border-gatefold-line bg-gatefold-panel-strong backdrop-blur-md flex flex-col justify-between transition-all duration-300 z-30 select-none ${
         sidebarCollapsed ? 'w-[68px]' : 'w-[236px]'
       }`}
     >

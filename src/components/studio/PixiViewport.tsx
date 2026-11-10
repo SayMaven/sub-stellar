@@ -4,10 +4,14 @@ import { usePerfStore } from '../../stores/usePerfStore';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { parseMarkdownRuby, computeRubyPosition } from '../../engine/text/RubyLayout';
 import { ParticleManager } from '../../engine/particles/ParticleManager';
+import { playbackEngine } from '../../engine/audio/PlaybackEngine';
 import type { ParticlePresetType } from '../../types';
+import { Music, Play } from 'lucide-react';
 
 export const PixiViewport: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const appRef = useRef<Application | null>(null);
   const subtitleGroupRef = useRef<Container | null>(null);
   const safeGuidesRef = useRef<Graphics | null>(null);
@@ -15,7 +19,15 @@ export const PixiViewport: React.FC = () => {
   const lastActiveIndexRef = useRef<number>(-1);
 
   const { profile, updateMetrics } = usePerfStore();
-  const { currentTime, lines, style } = useStudioStore();
+  const { currentTime, lines, style, track, isPlaying, togglePlay, selectedLineId } = useStudioStore();
+
+  // Bind media element to playback engine
+  useEffect(() => {
+    const el = videoRef.current || audioRef.current;
+    if (el) {
+      playbackEngine.bindMediaElement(el);
+    }
+  }, [track.videoUrl, track.audioUrl]);
 
   // Initialize PixiJS v8 Application & Zero-GC Particle Manager
   useEffect(() => {
@@ -152,9 +164,10 @@ export const PixiViewport: React.FC = () => {
 
     subtitleGroup.removeChildren();
 
-    // Find active subtitle line based on currentTime
+    // Find active subtitle line based on currentTime, or selected line when paused
     const activeLine =
-      lines.find((l) => currentTime >= l.startTime && currentTime <= l.endTime) || lines[0];
+      lines.find((l) => currentTime >= l.startTime && currentTime <= l.endTime) ||
+      (!isPlaying ? lines.find((l) => l.id === selectedLineId) || lines[0] : null);
 
     if (!activeLine) return;
 
@@ -285,14 +298,68 @@ export const PixiViewport: React.FC = () => {
     }
 
     subtitleGroup.addChild(lineContainer);
-  }, [currentTime, lines, style]);
+  }, [currentTime, lines, style, isPlaying, selectedLineId]);
 
   return (
-    <div className="w-full h-full flex items-center justify-center p-2 relative overflow-hidden">
+    <div className="w-full h-full relative overflow-hidden flex items-center justify-center bg-black">
+      {/* 1. Underlying Real Video Element (if video URL provided) */}
+      {track.videoUrl ? (
+        <video
+          ref={videoRef}
+          src={track.videoUrl}
+          playsInline
+          className="absolute inset-0 w-full h-full object-contain z-0"
+        />
+      ) : track.coverUrl ? (
+        /* 2. Album Cover Backdrop (with gentle dark gradient vignette) */
+        <div className="absolute inset-0 z-0 overflow-hidden flex items-center justify-center">
+          <img
+            src={track.coverUrl}
+            alt={track.title}
+            className="w-full h-full object-cover filter blur-md scale-105 opacity-30"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-black/60" />
+        </div>
+      ) : (
+        /* 3. Atmospheric Visualizer Backdrop (for demo & audio-only tracks) */
+        <div className="absolute inset-0 z-0 bg-gradient-to-br from-[#121624] via-[#0d1017] to-[#1a1226] flex items-center justify-center overflow-hidden">
+          {/* Subtle pulsating glow ring */}
+          <div
+            className={`w-96 h-96 rounded-full bg-gatefold-accent/10 filter blur-3xl transition-transform duration-700 ${
+              isPlaying ? 'scale-110 opacity-70' : 'scale-90 opacity-40'
+            }`}
+          />
+          {/* Center Watermark / Info Pill */}
+          <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1 rounded-full bg-black/40 border border-white/10 text-[11px] font-mono text-gatefold-text-3 backdrop-blur-md">
+            <Music className="w-3.5 h-3.5 text-gatefold-accent" />
+            <span className="text-gatefold-text-2 font-medium">{track.title}</span>
+            <span>•</span>
+            <span>{track.artist}</span>
+          </div>
+
+          {!isPlaying && (
+            <button
+              onClick={togglePlay}
+              className="absolute z-20 w-16 h-16 rounded-full bg-black/60 hover:bg-gatefold-accent hover:text-black border border-white/20 text-white flex items-center justify-center transition-all shadow-2xl hover:scale-110 active:scale-95 cursor-pointer backdrop-blur-md"
+              title="Click to Play"
+            >
+              <Play className="w-7 h-7 fill-current ml-1" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Hidden Audio element if audio-only URL is provided */}
+      {track.audioUrl && !track.videoUrl && (
+        <audio ref={audioRef} src={track.audioUrl} preload="auto" />
+      )}
+
+      {/* 4. PixiJS Interactive Canvas Viewport (Overlay with Furigana & Particles) */}
       <div
         ref={containerRef}
-        className="w-full h-full flex items-center justify-center [&>canvas]:max-w-full [&>canvas]:max-h-full [&>canvas]:object-contain [&>canvas]:rounded-lg [&>canvas]:shadow-2xl"
+        className="absolute inset-0 z-10 w-full h-full flex items-center justify-center pointer-events-none [&>canvas]:w-full [&>canvas]:h-full [&>canvas]:object-contain"
       />
     </div>
   );
 };
+

@@ -1,25 +1,56 @@
-import React, { useState } from 'react';
-import { Film, Cpu, HardDrive, DownloadCloud, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  Film,
+  Cpu,
+  Download,
+  CheckCircle2,
+} from 'lucide-react';
+import { useStudioStore } from '../../stores/useStudioStore';
+import { generateAss, generateSrt, downloadFile } from '../../engine/text/SubtitleExporter';
+import { tauriBridge, type HardwareCapabilities } from '../../services/tauriBridge';
 
 export const ExportDrawer: React.FC = () => {
-  const [format, setFormat] = useState<'mp4' | 'webm' | 'ass'>('mp4');
-  const [resolution, setResolution] = useState('1080p');
-  const [isExporting, setIsExporting] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const { lines, style, track } = useStudioStore();
 
-  const handleStartExport = () => {
+  const [format, setFormat] = useState<'ass' | 'srt' | 'mp4' | 'webm'>('ass');
+  const [resolution, setResolution] = useState('1080p');
+  const [fps, setFps] = useState<number>(60);
+  const [hardwareCaps, setHardwareCaps] = useState<HardwareCapabilities | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportSuccess, setExportSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    tauriBridge.probeHardwareCapabilities().then(setHardwareCaps).catch(() => {});
+  }, []);
+
+  const handleExport = () => {
+    const baseName = (track.title || 'substellar_project')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '_');
+
     setIsExporting(true);
-    setProgress(0);
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsExporting(false);
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 200);
+    setExportSuccess(null);
+
+    try {
+      if (format === 'ass') {
+        const assText = generateAss(lines, style, track);
+        downloadFile(`${baseName}.ass`, assText, 'text/plain;charset=utf-8');
+        setExportSuccess(`Exported ${lines.length} lines to ${baseName}.ass with full Furigana styles & karaoke tags.`);
+      } else if (format === 'srt') {
+        const srtText = generateSrt(lines);
+        downloadFile(`${baseName}.srt`, srtText, 'text/plain;charset=utf-8');
+        setExportSuccess(`Exported ${lines.length} lines to ${baseName}.srt.`);
+      } else {
+        // Video render pipeline config
+        const assText = generateAss(lines, style, track);
+        downloadFile(`${baseName}_render_subtitles.ass`, assText, 'text/plain;charset=utf-8');
+        setExportSuccess(
+          `Render configuration prepared for ${format.toUpperCase()} (${resolution} @ ${fps} FPS). Subtitle file generated.`
+        );
+      }
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -27,133 +58,138 @@ export const ExportDrawer: React.FC = () => {
       <div className="max-w-2xl mx-auto space-y-6">
         <div>
           <h2 className="text-xl font-semibold text-gatefold-text flex items-center gap-2">
-            <Film className="w-6 h-6 text-gatefold-accent" />
-            <span>FFmpeg Export Center & Hardware Probing</span>
+            <Film className="w-5 h-5 text-gatefold-accent" />
+            <span>Export Center & Hardware Capabilities</span>
           </h2>
-          <p className="text-sm text-gatefold-text-3 mt-1">
-            Export video burn-in subtitles or transparent alpha overlays with hardware acceleration.
+          <p className="text-xs text-gatefold-text-3 mt-1">
+            Export vector subtitle files (.ass/.srt) with Furigana and karaoke tags, or configure hardware-accelerated video rendering.
           </p>
         </div>
 
-        {/* Hardware Status Card */}
+        {/* Real Hardware Probing Card */}
         <div className="gatefold-card p-4 flex items-center justify-between border-emerald-500/30 bg-emerald-500/5">
           <div className="flex items-center gap-3">
-            <Cpu className="w-5 h-5 text-emerald-400" />
+            <Cpu className="w-5 h-5 text-emerald-400 shrink-0" />
             <div>
-              <h4 className="text-xs font-semibold text-gatefold-text">Hardware Probing Active</h4>
-              <p className="text-[11px] text-gatefold-text-3">
-                Detected Encoder: <span className="font-mono text-emerald-400">h264_qsv / libx264</span> (Dynamic Cascade Ready)
+              <h4 className="text-xs font-semibold text-gatefold-text">Hardware Acceleration Probed</h4>
+              <p className="text-[11px] text-gatefold-text-3 font-mono">
+                Encoder: <span className="text-emerald-400">{hardwareCaps?.available_encoders.join(', ') || 'libx264 (CPU)'}</span> • Profile: <span className="text-gatefold-accent">{hardwareCaps?.recommended_quality || 'balanced'}</span>
               </p>
             </div>
           </div>
           <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-            OPTIMIZED
+            READY
           </span>
         </div>
 
-        {/* Export Configuration Card */}
-        <div className="gatefold-card-strong p-5 space-y-5">
-          {/* Format Selection */}
-          <div>
-            <label className="block text-xs font-semibold text-gatefold-text-2 uppercase tracking-wider mb-2">
-              Container Format
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: 'mp4', name: 'MP4 (H.264)', desc: 'Standard Burn-in Video' },
-                { id: 'webm', name: 'WebM (VP9)', desc: 'Transparent Alpha Channel' },
-                { id: 'ass', name: 'Advanced ASS', desc: 'Raw Vector Subtitle File' },
-              ].map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => setFormat(f.id as 'mp4' | 'webm' | 'ass')}
-                  className={`p-3 rounded-lg text-left transition-all border ${
-                    format === f.id
-                      ? 'bg-gatefold-accent/15 border-gatefold-accent text-gatefold-accent'
-                      : 'bg-gatefold-surface border-gatefold-line text-gatefold-text hover:border-gatefold-line-2'
-                  }`}
-                >
-                  <div className="font-semibold text-xs">{f.name}</div>
-                  <div className="text-[10px] text-gatefold-text-3 mt-0.5">{f.desc}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Resolution & FPS */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gatefold-text-2 uppercase tracking-wider mb-2">
-                Resolution
-              </label>
-              <select
-                value={resolution}
-                onChange={(e) => setResolution(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-gatefold-surface border border-gatefold-line rounded-lg text-gatefold-text focus:border-gatefold-accent focus:outline-none"
-              >
-                <option value="1080p">1080p Full HD (1920x1080)</option>
-                <option value="720p">720p HD (1280x720) - Low End Recommended</option>
-                <option value="4k">4K Ultra HD (3840x2160)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-gatefold-text-2 uppercase tracking-wider mb-2">
-                Target Frame Rate
-              </label>
-              <div className="px-3 py-2 text-xs bg-gatefold-surface border border-gatefold-line rounded-lg text-gatefold-text font-mono">
-                60.000 FPS (Smooth Motion)
-              </div>
-            </div>
-          </div>
-
-          {/* Export Action */}
-          <div className="pt-2">
-            {isExporting ? (
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs font-mono text-gatefold-text-2">
-                  <span>Rendering PixiJS Frames to FFmpeg Pipe...</span>
-                  <span>{progress}%</span>
-                </div>
-                <div className="h-2 w-full bg-gatefold-surface-2 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gatefold-accent transition-all duration-200"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-              </div>
-            ) : progress === 100 ? (
-              <div className="p-3 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Video exported successfully to /output/stellar-flight.mp4</span>
-                </div>
-                <button
-                  onClick={() => setProgress(0)}
-                  className="underline hover:text-emerald-300 font-medium"
-                >
-                  Export Another
-                </button>
-              </div>
-            ) : (
+        {/* Format Selector */}
+        <div className="gatefold-card-strong p-5 space-y-4">
+          <label className="block text-xs font-semibold text-gatefold-text-2 uppercase tracking-wider font-mono">
+            Export Target Format
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              { id: 'ass', name: 'ASS Vector', desc: 'Full Furigana & \\k timing' },
+              { id: 'srt', name: 'SubRip (SRT)', desc: 'Universal text subtitles' },
+              { id: 'mp4', name: 'MP4 Video', desc: 'H.264 Burn-in Export' },
+              { id: 'webm', name: 'WebM Alpha', desc: 'Transparent video overlay' },
+            ].map((f) => (
               <button
-                onClick={handleStartExport}
-                className="w-full py-3 px-4 rounded-lg bg-gatefold-accent text-gatefold-bg font-semibold text-sm hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_var(--glow)]"
+                key={f.id}
+                onClick={() => setFormat(f.id as 'ass' | 'srt' | 'mp4' | 'webm')}
+                className={`p-3 rounded-lg text-left transition-all border ${
+                  format === f.id
+                    ? 'bg-gatefold-accent/15 border-gatefold-accent text-gatefold-accent'
+                    : 'bg-gatefold-surface border-gatefold-line text-gatefold-text hover:border-gatefold-line-2'
+                }`}
               >
-                <DownloadCloud className="w-4 h-4" />
-                <span>Render & Export Video</span>
+                <div className="font-semibold text-xs flex items-center justify-between">
+                  <span>{f.name}</span>
+                  {format === f.id && <CheckCircle2 className="w-3.5 h-3.5 text-gatefold-accent" />}
+                </div>
+                <div className="text-[10px] text-gatefold-text-3 mt-1">{f.desc}</div>
               </button>
-            )}
+            ))}
           </div>
-        </div>
 
-        {/* Disk & Zero-Temp Info */}
-        <div className="flex items-center gap-2 text-xs text-gatefold-text-3">
-          <HardDrive className="w-3.5 h-3.5" />
-          <span>Zero-Temp Disk I/O: PixiJS frames stream directly to FFmpeg stdin pipe.</span>
+          {/* Render Specifications (When Video Selected) */}
+          {(format === 'mp4' || format === 'webm') && (
+            <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gatefold-line">
+              <div>
+                <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
+                  Resolution
+                </label>
+                <select
+                  value={resolution}
+                  onChange={(e) => setResolution(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                >
+                  <option value="1080p">1080p Full HD (1920x1080)</option>
+                  <option value="720p">720p HD (1280x720) - Low-End Recommended</option>
+                  <option value="4K">4K Ultra HD (3840x2160)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
+                  Framerate
+                </label>
+                <select
+                  value={fps}
+                  onChange={(e) => setFps(parseInt(e.target.value, 10))}
+                  className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                >
+                  <option value={60}>60 FPS (Smooth particle animation)</option>
+                  <option value={30}>30 FPS (Standard video)</option>
+                  <option value={24}>24 FPS (Cinematic standard)</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Project Summary */}
+          <div className="p-3 rounded-lg bg-gatefold-surface/60 border border-gatefold-line text-xs space-y-1.5">
+            <div className="flex justify-between text-gatefold-text-3 font-mono text-[11px]">
+              <span>Subtitle Events:</span>
+              <span className="text-gatefold-text font-semibold">{lines.length} lines</span>
+            </div>
+            <div className="flex justify-between text-gatefold-text-3 font-mono text-[11px]">
+              <span>Active Style:</span>
+              <span className="text-gatefold-accent">{style.fontSize}px ({style.particlePreset} particles)</span>
+            </div>
+            <div className="flex justify-between text-gatefold-text-3 font-mono text-[11px]">
+              <span>Track Title:</span>
+              <span className="text-gatefold-text font-medium">{track.title}</span>
+            </div>
+          </div>
+
+          {/* Success Message */}
+          {exportSuccess && (
+            <div className="p-3 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{exportSuccess}</span>
+            </div>
+          )}
+
+          {/* Export Action Button */}
+          <div className="pt-2">
+            <button
+              onClick={handleExport}
+              disabled={isExporting || lines.length === 0}
+              className="w-full py-2.5 px-4 bg-gatefold-accent text-gatefold-bg font-semibold text-xs rounded-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2 shadow-[0_0_16px_var(--glow)] disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" />
+              <span>
+                {format === 'ass'
+                  ? 'Download Advanced ASS (.ass) Subtitles'
+                  : format === 'srt'
+                  ? 'Download Standard SRT (.srt) Subtitles'
+                  : `Export Video Pipeline (${format.toUpperCase()})`}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 };
-

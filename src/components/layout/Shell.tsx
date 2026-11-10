@@ -82,9 +82,9 @@ export const Shell: React.FC = () => {
       <Header />
 
       {/* Middle Workspace: Collapsible Sidebar + Main Viewport / Drawer */}
-      <div className="flex-1 flex overflow-hidden relative z-10">
+      <div className="flex-1 min-h-0 flex overflow-hidden relative z-10">
         <Sidebar />
-        <main className="flex-1 flex overflow-hidden">{renderActiveView()}</main>
+        <main className="flex-1 min-w-0 min-h-0 flex overflow-hidden">{renderActiveView()}</main>
       </div>
 
       {/* Bottom Transport Bar (92px) */}

@@ -113,6 +113,7 @@ interface StudioStoreState {
   updateLineText: (id: string, text: string) => void;
   updateLineTiming: (id: string, startTime: number, endTime: number) => void;
   loadSampleTrack: () => void;
+  loadLocalMedia: (file: File) => void;
   clearProject: () => void;
   setErrorMessage: (msg: string | null) => void;
 }
@@ -252,6 +253,52 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       selectedLineId: 'line-1',
       style: DEFAULT_SUBTITLE_STYLE,
     });
+  },
+
+  loadLocalMedia: (file: File) => {
+    const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mkv|mov)$/i.test(file.name);
+    const url = URL.createObjectURL(file);
+
+    if (typeof document !== 'undefined') {
+      const media = document.createElement(isVideo ? 'video' : 'audio');
+      media.src = url;
+      media.preload = 'metadata';
+
+      media.onloadedmetadata = () => {
+        const duration = media.duration && !isNaN(media.duration) ? media.duration : 180;
+        set({
+          track: {
+            id: `local-${Date.now()}`,
+            title: file.name.replace(/\.[^/.]+$/, ''),
+            artist: 'Local Media',
+            duration,
+            videoUrl: isVideo ? url : undefined,
+            audioUrl: !isVideo ? url : undefined,
+          },
+          duration,
+          currentTime: 0,
+          status: 'ready',
+          errorMessage: null,
+        });
+      };
+
+      media.onerror = () => {
+        set({
+          track: {
+            id: `local-${Date.now()}`,
+            title: file.name.replace(/\.[^/.]+$/, ''),
+            artist: 'Local Media',
+            duration: 180,
+            videoUrl: isVideo ? url : undefined,
+            audioUrl: !isVideo ? url : undefined,
+          },
+          duration: 180,
+          currentTime: 0,
+          status: 'ready',
+          errorMessage: null,
+        });
+      };
+    }
   },
 
   clearProject: () => {

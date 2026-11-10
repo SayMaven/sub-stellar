@@ -45,7 +45,7 @@ export const TransportBar: React.FC = () => {
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <footer className="h-[92px] w-full px-4 border-t border-gatefold-line bg-gatefold-panel-strong backdrop-blur-md flex items-center justify-between z-40 select-none">
+    <footer className="h-[92px] shrink-0 w-full px-4 border-t border-gatefold-line bg-gatefold-panel-strong backdrop-blur-md flex items-center justify-between z-40 select-none">
       {/* Left: Track Information */}
       <div className="flex items-center gap-3 w-1/4 min-w-[200px]">
         <div className="w-12 h-12 rounded-lg bg-gatefold-surface-2 border border-gatefold-line flex items-center justify-center overflow-hidden flex-shrink-0 relative group">

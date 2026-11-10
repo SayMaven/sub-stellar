@@ -23,7 +23,7 @@ export const Header: React.FC = () => {
   };
 
   return (
-    <header className="h-[46px] w-full px-3 flex items-center justify-between border-b border-gatefold-line bg-gatefold-panel-strong backdrop-blur-md z-40 select-none">
+    <header className="h-[46px] shrink-0 w-full px-3 flex items-center justify-between border-b border-gatefold-line bg-gatefold-panel-strong backdrop-blur-md z-40 select-none">
       {/* Brand & Title */}
       <div className="flex items-center gap-2.5">
         <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-gatefold-accent/20 border border-gatefold-accent/40 text-gatefold-accent">
