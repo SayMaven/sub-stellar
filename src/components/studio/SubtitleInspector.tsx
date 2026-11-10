@@ -16,11 +16,18 @@ import {
   RotateCcw,
   Crosshair,
   Palette,
+  Scissors,
+  Merge,
+  Ban,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import type { ParticlePresetType, WordAnimationStyle } from '../../types';
 
-export const SubtitleInspector: React.FC = () => {
+interface SubtitleInspectorProps {
+  width?: number;
+}
+
+export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ width = 320 }) => {
   const [tab, setTab] = useState<'text' | 'colors' | 'style' | 'particles' | 'presets'>('text');
   const [selectedTokenIdx, setSelectedTokenIdx] = useState<number>(0);
 
@@ -35,6 +42,11 @@ export const SubtitleInspector: React.FC = () => {
   const updateLineTiming = useStudioStore((s) => s.updateLineTiming);
   const updateTokenTiming = useStudioStore((s) => s.updateTokenTiming);
   const resetTokenTimingsEvenly = useStudioStore((s) => s.resetTokenTimingsEvenly);
+  const splitTokenIntoChars = useStudioStore((s) => s.splitTokenIntoChars);
+  const splitAllTokensIntoChars = useStudioStore((s) => s.splitAllTokensIntoChars);
+  const mergeTokenWithNeighbor = useStudioStore((s) => s.mergeTokenWithNeighbor);
+  const toggleTokenAnimDisabled = useStudioStore((s) => s.toggleTokenAnimDisabled);
+  const setAllTokensAnimDisabled = useStudioStore((s) => s.setAllTokensAnimDisabled);
   const style = useStudioStore((s) => s.style);
   const setStyle = useStudioStore((s) => s.setStyle);
   const seek = useStudioStore((s) => s.seek);
@@ -74,7 +86,10 @@ export const SubtitleInspector: React.FC = () => {
 
   if (!activeLine) {
     return (
-      <aside className="w-80 shrink-0 border-l border-gatefold-line bg-gatefold-panel-strong flex flex-col h-full text-xs select-none">
+      <aside
+        style={{ width }}
+        className="shrink-0 border-l border-gatefold-line bg-gatefold-panel-strong flex flex-col h-full text-xs select-none"
+      >
         <div className="h-10 px-3 border-b border-gatefold-line flex items-center text-gatefold-text-3 font-medium">
           Subtitle Inspector
         </div>
@@ -124,8 +139,17 @@ export const SubtitleInspector: React.FC = () => {
     }
   };
 
+  const allTokensDisabled =
+    activeLine.tokens.length > 0 && activeLine.tokens.every((t) => Boolean(t.disableAnim));
+  const activeTokenCharCount = activeToken
+    ? Array.from(activeToken.text).filter((c) => c.trim().length > 0).length
+    : 0;
+
   return (
-    <aside className="w-80 shrink-0 border-l border-gatefold-line bg-gatefold-panel-strong flex flex-col h-full text-xs select-none">
+    <aside
+      style={{ width }}
+      className="shrink-0 border-l border-gatefold-line bg-gatefold-panel-strong flex flex-col h-full text-xs select-none"
+    >
       {/* Inspector Tabs */}
       <div className="h-10 px-1.5 border-b border-gatefold-line flex items-center justify-between bg-gatefold-panel">
         <div className="flex gap-0.5 w-full justify-between">
@@ -345,18 +369,47 @@ export const SubtitleInspector: React.FC = () => {
 
             {/* Per-Word Vocal Timing & Syllable Editor */}
             <div className="space-y-2 pt-2 border-t border-gatefold-line">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-1 flex-wrap">
                 <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold">
                   Per-Word Vocal Timing ({activeLine.tokens.length})
                 </span>
-                <button
-                  onClick={() => resetTokenTimingsEvenly(activeLine.id)}
-                  title="Reset all word durations equally across line"
-                  className="text-[10px] font-mono text-gatefold-text-3 hover:text-gatefold-accent flex items-center gap-1"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Even Split</span>
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => splitAllTokensIntoChars(activeLine.id)}
+                    title="Split all multi-character words in this line into individual characters"
+                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-gatefold-text-2 hover:text-gatefold-accent flex items-center gap-1"
+                  >
+                    <Scissors className="w-2.5 h-2.5" />
+                    <span>All Chars</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAllTokensAnimDisabled(activeLine.id, !allTokensDisabled)}
+                    title={
+                      allTokensDisabled
+                        ? 'Re-enable vocal animation on all words in this line'
+                        : 'Disable vocal animation on all words in this line'
+                    }
+                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded border flex items-center gap-1 ${
+                      allTokensDisabled
+                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                        : 'bg-gatefold-surface hover:bg-gatefold-hover border-gatefold-line text-gatefold-text-3 hover:text-gatefold-text'
+                    }`}
+                  >
+                    <Ban className="w-2.5 h-2.5" />
+                    <span>{allTokensDisabled ? 'All Muted' : 'Mute Line'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => resetTokenTimingsEvenly(activeLine.id)}
+                    title="Reset to smart auto-detected words and equal timing across line"
+                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-gatefold-text-3 hover:text-gatefold-accent flex items-center gap-1"
+                  >
+                    <RotateCcw className="w-2.5 h-2.5" />
+                    <span>Auto Split</span>
+                  </button>
+                </div>
               </div>
 
               {/* Selectable Word Badges */}
@@ -368,18 +421,26 @@ export const SubtitleInspector: React.FC = () => {
                 <div className="flex flex-wrap gap-1.5">
                   {activeLine.tokens.map((tok, i) => {
                     const isSel = i === safeTokenIdx;
-                    const isPlayingNow = i === playingTokenIdx;
+                    const isPlayingNow = i === playingTokenIdx && !tok.disableAnim;
                     const dur = Math.max(0.05, tok.endTime - tok.startTime);
+                    const isMuted = Boolean(tok.disableAnim);
                     return (
                       <button
                         type="button"
                         key={i}
                         onClick={() => setSelectedTokenIdx(i)}
-                        className={`px-2 py-1 rounded border flex flex-col items-center transition-colors ${
+                        title={
+                          isMuted
+                            ? `"${tok.text}" — Vocal animation disabled (static)`
+                            : `"${tok.text}" (${dur.toFixed(2)}s)`
+                        }
+                        className={`px-2 py-1 rounded border flex flex-col items-center transition-colors relative ${
                           isSel
                             ? 'bg-gatefold-accent/20 border-gatefold-accent text-gatefold-accent'
                             : isPlayingNow
                             ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-300'
+                            : isMuted
+                            ? 'bg-gatefold-surface/40 border-dashed border-gatefold-line text-gatefold-text-3 opacity-60'
                             : 'bg-gatefold-surface border-gatefold-line text-gatefold-text hover:border-gatefold-line-2'
                         }`}
                       >
@@ -388,9 +449,15 @@ export const SubtitleInspector: React.FC = () => {
                             {tok.ruby}
                           </span>
                         )}
-                        <span className="text-xs font-medium leading-tight">{tok.text}</span>
+                        <span
+                          className={`text-xs font-medium leading-tight ${
+                            isMuted ? 'line-through decoration-amber-400/70' : ''
+                          }`}
+                        >
+                          {tok.text}
+                        </span>
                         <span className="text-[9px] font-mono text-gatefold-text-3 mt-0.5">
-                          {dur.toFixed(2)}s
+                          {isMuted ? 'OFF' : `${dur.toFixed(2)}s`}
                         </span>
                       </button>
                     );
@@ -398,16 +465,71 @@ export const SubtitleInspector: React.FC = () => {
                 </div>
               )}
 
-              {/* Active Word Timing Controls */}
+              {/* Active Word Timing & Split/Merge/Mute Controls */}
               {activeToken && (
-                <div className="p-2.5 rounded-lg bg-gatefold-surface border border-gatefold-line space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-gatefold-text">
+                <div className="p-2.5 rounded-lg bg-gatefold-surface border border-gatefold-line space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-gatefold-text truncate">
                       Word #{safeTokenIdx + 1}: "{activeToken.text}"
                     </span>
-                    <span className="font-mono text-[10px] text-gatefold-accent">
+                    <span className="font-mono text-[10px] text-gatefold-accent shrink-0">
                       {(activeToken.endTime - activeToken.startTime).toFixed(2)}s
                     </span>
+                  </div>
+
+                  {/* Word Area Split / Merge / Mute Action Bar */}
+                  <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                    <button
+                      type="button"
+                      disabled={activeTokenCharCount <= 1}
+                      onClick={() => splitTokenIntoChars(activeLine.id, safeTokenIdx)}
+                      title="Split this word into individual characters"
+                      className="py-1 px-2 rounded bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-[11px] font-medium text-gatefold-text flex items-center justify-center gap-1 disabled:opacity-35 disabled:pointer-events-none"
+                    >
+                      <Scissors className="w-3 h-3 text-gatefold-accent" />
+                      <span>Split to Chars ({activeTokenCharCount})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleTokenAnimDisabled(activeLine.id, safeTokenIdx)}
+                      title="Enable or disable vocal highlight/bounce animation for this word area"
+                      className={`py-1 px-2 rounded border text-[11px] font-medium flex items-center justify-center gap-1 transition-colors ${
+                        activeToken.disableAnim
+                          ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                          : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                      }`}
+                    >
+                      <Ban className="w-3 h-3" />
+                      <span>{activeToken.disableAnim ? 'Anim: OFF (Static)' : 'Anim: ON (Active)'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={safeTokenIdx <= 0}
+                      onClick={() => {
+                        mergeTokenWithNeighbor(activeLine.id, safeTokenIdx, 'prev');
+                        setSelectedTokenIdx(Math.max(0, safeTokenIdx - 1));
+                      }}
+                      title="Merge this word/char with the previous word on the left"
+                      className="py-1 px-2 rounded bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-[11px] font-medium text-gatefold-text flex items-center justify-center gap-1 disabled:opacity-35 disabled:pointer-events-none"
+                    >
+                      <Merge className="w-3 h-3 text-gatefold-accent rotate-180" />
+                      <span>← Merge Left</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={safeTokenIdx >= activeLine.tokens.length - 1}
+                      onClick={() => {
+                        mergeTokenWithNeighbor(activeLine.id, safeTokenIdx, 'next');
+                      }}
+                      title="Merge this word/char with the next word on the right"
+                      className="py-1 px-2 rounded bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-[11px] font-medium text-gatefold-text flex items-center justify-center gap-1 disabled:opacity-35 disabled:pointer-events-none"
+                    >
+                      <Merge className="w-3 h-3 text-gatefold-accent" />
+                      <span>Merge Right →</span>
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">

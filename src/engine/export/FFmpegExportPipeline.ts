@@ -1,6 +1,6 @@
 import { tauriBridge, type ExportProgress, type ExportResult } from '../../services/tauriBridge';
 import type { SubtitleLine, WordAnimationStyle } from '../../types';
-import { parseMarkdownRuby, computeRubyPosition } from '../text/RubyLayout';
+import { tokenizeSubtitleText, computeRubyPosition } from '../text/RubyLayout';
 
 export interface ExportJobOptions {
   outputPath: string;
@@ -21,6 +21,10 @@ export interface ExportJobOptions {
     rubySizeRatio: number;
     wordTransitionMs?: number;
     wordAnimStyle?: WordAnimationStyle;
+    wordActiveColor?: string;
+    verticalPosition?: 'bottom' | 'center' | 'top';
+    xOffset?: number;
+    yOffset?: number;
   };
   audioSourcePath?: string;
   onProgress?: (progress: ExportProgress) => void;
@@ -108,7 +112,11 @@ export class FFmpegExportPipeline {
 
     const { ctx, getImageData } = createSafeOffscreenContext(options.width, options.height);
 
-    const isTransparent = options.mode === 'webm_alpha' || options.mode === 'prores_alpha';
+    const hasVideoBackground = Boolean(
+      options.audioSourcePath && /\.(mp4|webm|mkv|mov)$/i.test(options.audioSourcePath)
+    );
+    const isTransparent =
+      options.mode === 'webm_alpha' || options.mode === 'prores_alpha' || hasVideoBackground;
     const startTime = performance.now();
 
     for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
@@ -185,16 +193,17 @@ export class FFmpegExportPipeline {
     currentTime: number,
     options: ExportJobOptions
   ): void {
-    const scale = options.height / 1080;
+    const scale = options.height / 720;
     const baseFontSize = options.style.fontSize * scale;
     const rubyFontSize = baseFontSize * options.style.rubySizeRatio;
     const outlineThickness = options.style.outlineThickness * scale;
 
-    const tokens = parseMarkdownRuby(line.text);
+    const autoTokens = tokenizeSubtitleText(line.text);
     const lineSpan = Math.max(0.1, line.endTime - line.startTime);
-    const fallbackStep = lineSpan / Math.max(1, tokens.length);
+    const fallbackStep = lineSpan / Math.max(1, autoTokens.length);
     const transitionSec = Math.max(0.01, (options.style.wordTransitionMs ?? 140) / 1000);
     const animStyle = options.style.wordAnimStyle ?? 'pop';
+    const activeHighlightColor = options.style.wordActiveColor || options.style.outlineColor;
 
     ctx.save();
     ctx.font = `700 ${baseFontSize}px ${options.style.fontFamily}, sans-serif`;
@@ -208,9 +217,27 @@ export class FFmpegExportPipeline {
       clusterWidth: number;
       startTime: number;
       endTime: number;
+      disableAnim: boolean;
     }
 
-    const measured: MeasuredToken[] = tokens.map((t, idx) => {
+    const sourceTokens =
+      line.tokens && line.tokens.length > 0
+        ? line.tokens.map((t) => ({
+            base: t.text,
+            ruby: t.ruby,
+            isRuby: Boolean(t.ruby),
+            startTime: t.startTime,
+            endTime: t.endTime,
+            disableAnim: Boolean(t.disableAnim),
+          }))
+        : autoTokens.map((t, idx) => ({
+            ...t,
+            startTime: line.startTime + idx * fallbackStep,
+            endTime: line.startTime + (idx + 1) * fallbackStep,
+            disableAnim: false,
+          }));
+
+    const measured: MeasuredToken[] = sourceTokens.map((t) => {
       ctx.font = `700 ${baseFontSize}px ${options.style.fontFamily}, sans-serif`;
       const bw = ctx.measureText(t.base).width;
       let rw = 0;
@@ -218,26 +245,32 @@ export class FFmpegExportPipeline {
         ctx.font = `500 ${rubyFontSize}px ${options.style.fontFamily}, sans-serif`;
         rw = ctx.measureText(t.ruby).width;
       }
-      const stored = line.tokens[idx];
-      const startTime = stored ? stored.startTime : line.startTime + idx * fallbackStep;
-      const endTime = stored ? stored.endTime : startTime + fallbackStep;
       return {
         ...t,
         baseWidth: bw,
         rubyWidth: rw,
         clusterWidth: Math.max(bw, rw),
-        startTime,
-        endTime,
       };
     });
 
     const totalWidth = measured.reduce((sum, m) => sum + m.clusterWidth, 0);
-    const baselineY = options.height * 0.82;
-    let currentX = (options.width - totalWidth) / 2;
+    const scaledXOffset = Math.round((options.style.xOffset ?? 0) * scale);
+    const scaledYOffset = Math.round((options.style.yOffset ?? 60) * scale);
+    const vPos = options.style.verticalPosition ?? 'bottom';
+
+    const baselineY =
+      vPos === 'top'
+        ? scaledYOffset + baseFontSize
+        : vPos === 'center'
+        ? options.height / 2 + scaledYOffset
+        : options.height - scaledYOffset;
+
+    let currentX = (options.width - totalWidth) / 2 + scaledXOffset;
 
     for (const m of measured) {
-      const isTokenActive = currentTime >= m.startTime && currentTime < m.endTime;
-      const isTokenPassed = currentTime >= m.endTime;
+      const isTokenActive =
+        !m.disableAnim && currentTime >= m.startTime && currentTime < m.endTime;
+      const isTokenPassed = !m.disableAnim && currentTime >= m.endTime;
       const enterProgress = isTokenActive
         ? Math.max(0, Math.min(1, (currentTime - m.startTime) / transitionSec))
         : 0;
@@ -282,7 +315,7 @@ export class FFmpegExportPipeline {
 
       // Draw fill (active word highlight)
       const isHighlighted = isTokenActive || (isTokenPassed && animStyle === 'sweep');
-      ctx.fillStyle = isHighlighted ? options.style.outlineColor : options.style.primaryColor;
+      ctx.fillStyle = isHighlighted ? activeHighlightColor : options.style.primaryColor;
       ctx.fillText(m.base, metrics.baseX, tokenBaselineY);
 
       if (m.isRuby && m.ruby) {
@@ -306,9 +339,9 @@ export class FFmpegExportPipeline {
       ctx.lineWidth = Math.max(2, outlineThickness * 0.7);
       ctx.strokeStyle = options.style.secondaryOutlineColor;
       const transY = baselineY + baseFontSize * 0.65;
-      ctx.strokeText(line.translation.trim(), options.width / 2, transY);
+      ctx.strokeText(line.translation.trim(), options.width / 2 + scaledXOffset, transY);
       ctx.fillStyle = '#bfc3ca';
-      ctx.fillText(line.translation.trim(), options.width / 2, transY);
+      ctx.fillText(line.translation.trim(), options.width / 2 + scaledXOffset, transY);
     }
 
     ctx.restore();

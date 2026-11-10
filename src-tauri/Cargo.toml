@@ -3,6 +3,7 @@ name = "sub-stellar"
 version = "1.0.0-alpha.7"
 description = "SubStellar Next-Gen Animated Subtitle & Lyrics Studio"
 authors = ["SayMaven"]
+license = "MIT OR Apache-2.0"
 edition = "2021"
 
 [lib]

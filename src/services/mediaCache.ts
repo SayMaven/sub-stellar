@@ -210,3 +210,59 @@ export async function saveProjectToDisk(options: {
   return { saved: true, path: defaultFilename };
 }
 
+export async function saveExportTextToDisk(options: {
+  content: string;
+  defaultFilename: string;
+  ext: 'ass' | 'srt';
+  targetPath?: string | null;
+}): Promise<{ saved: boolean; path: string | null }> {
+  const { content, defaultFilename, ext, targetPath } = options;
+
+  // 1. Native Tauri Desktop Path
+  if (tauriBridge.isAvailable()) {
+    let chosenPath = targetPath && targetPath.trim() ? targetPath.trim() : null;
+    if (!chosenPath) {
+      chosenPath = await tauriBridge.exportSaveDialog(defaultFilename, ext);
+    }
+    if (!chosenPath) {
+      return { saved: false, path: null };
+    }
+    const writtenPath = await tauriBridge.writeProjectFile(chosenPath, content);
+    return { saved: true, path: writtenPath };
+  }
+
+  // 2. Chromium / WebView2 File System Access API
+  const win = (typeof window !== 'undefined' ? window : undefined) as
+    | (Window & SaveFilePickerWindow)
+    | undefined;
+  if (win && typeof win.showSaveFilePicker === 'function') {
+    try {
+      const handle = await win.showSaveFilePicker({
+        suggestedName: defaultFilename,
+        types: [
+          {
+            description:
+              ext === 'ass'
+                ? 'Advanced SubStation Alpha (.ass)'
+                : 'SubRip Subtitle (.srt)',
+            accept: { 'text/plain': [`.${ext}`] },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      return { saved: true, path: handle.name };
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return { saved: false, path: null };
+      }
+    }
+  }
+
+  // 3. Standard Browser Download Fallback
+  downloadFile(defaultFilename, content, 'text/plain;charset=utf-8');
+  return { saved: true, path: defaultFilename };
+}
+
+

@@ -20,6 +20,8 @@ pub fn run() {
             commands::project_io::project_write_file,
             commands::project_io::project_open_dialog,
             commands::project_io::media_open_dialog,
+            commands::project_io::export_save_dialog,
+            commands::project_io::reveal_in_explorer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running substellar application");

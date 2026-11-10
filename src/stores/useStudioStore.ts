@@ -160,6 +160,11 @@ interface StudioStoreState {
   updateLineTiming: (id: string, startTime: number, endTime: number) => void;
   updateTokenTiming: (lineId: string, tokenIndex: number, startTime: number, endTime: number) => void;
   resetTokenTimingsEvenly: (lineId: string) => void;
+  splitTokenIntoChars: (lineId: string, tokenIndex: number) => void;
+  splitAllTokensIntoChars: (lineId: string) => void;
+  mergeTokenWithNeighbor: (lineId: string, tokenIndex: number, direction: 'prev' | 'next') => void;
+  toggleTokenAnimDisabled: (lineId: string, tokenIndex: number) => void;
+  setAllTokensAnimDisabled: (lineId: string, disabled: boolean) => void;
   resolveOverlappingLines: () => number;
   setTokensForLine: (lineId: string, tokens: RubyToken[], serializedText?: string) => void;
   exportProjectJson: () => string;
@@ -464,6 +469,157 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       lines: lines.map((l) =>
         l.id === lineId
           ? { ...l, tokens: buildEvenTokens(l.text, l.startTime, l.endTime) }
+          : l
+      ),
+    });
+  },
+
+  splitTokenIntoChars: (lineId: string, tokenIndex: number) => {
+    const { lines } = get();
+    set({
+      lines: lines.map((l) => {
+        if (l.id !== lineId) return l;
+        if (tokenIndex < 0 || tokenIndex >= l.tokens.length) return l;
+
+        const target = l.tokens[tokenIndex];
+        const chars = Array.from(target.text).filter((ch) => ch.trim().length > 0);
+        if (chars.length <= 1) return l;
+
+        const span = Math.max(0.05 * chars.length, target.endTime - target.startTime);
+        const step = span / chars.length;
+        const rubyChars = target.ruby ? Array.from(target.ruby) : [];
+        const splitRubyEvenly = rubyChars.length === chars.length;
+
+        const replacement: RubyToken[] = chars.map((ch, idx) => ({
+          text: ch,
+          ruby: splitRubyEvenly ? rubyChars[idx] : idx === 0 ? target.ruby : undefined,
+          startTime: idx === 0 ? target.startTime : roundTime(target.startTime + idx * step),
+          endTime:
+            idx === chars.length - 1
+              ? target.endTime
+              : roundTime(target.startTime + (idx + 1) * step),
+          disableAnim: target.disableAnim,
+        }));
+
+        const nextTokens = [
+          ...l.tokens.slice(0, tokenIndex),
+          ...replacement,
+          ...l.tokens.slice(tokenIndex + 1),
+        ];
+
+        return {
+          ...l,
+          tokens: nextTokens,
+        };
+      }),
+    });
+  },
+
+  splitAllTokensIntoChars: (lineId: string) => {
+    const { lines } = get();
+    set({
+      lines: lines.map((l) => {
+        if (l.id !== lineId) return l;
+        const nextTokens: RubyToken[] = [];
+
+        for (const tok of l.tokens) {
+          const chars = Array.from(tok.text).filter((ch) => ch.trim().length > 0);
+          if (chars.length <= 1) {
+            nextTokens.push({ ...tok });
+            continue;
+          }
+          const span = Math.max(0.05 * chars.length, tok.endTime - tok.startTime);
+          const step = span / chars.length;
+          const rubyChars = tok.ruby ? Array.from(tok.ruby) : [];
+          const splitRubyEvenly = rubyChars.length === chars.length;
+
+          chars.forEach((ch, idx) => {
+            nextTokens.push({
+              text: ch,
+              ruby: splitRubyEvenly ? rubyChars[idx] : idx === 0 ? tok.ruby : undefined,
+              startTime: idx === 0 ? tok.startTime : roundTime(tok.startTime + idx * step),
+              endTime:
+                idx === chars.length - 1
+                  ? tok.endTime
+                  : roundTime(tok.startTime + (idx + 1) * step),
+              disableAnim: tok.disableAnim,
+            });
+          });
+        }
+
+        return {
+          ...l,
+          tokens: nextTokens,
+        };
+      }),
+    });
+  },
+
+  mergeTokenWithNeighbor: (lineId: string, tokenIndex: number, direction: 'prev' | 'next') => {
+    const { lines } = get();
+    set({
+      lines: lines.map((l) => {
+        if (l.id !== lineId) return l;
+        const firstIdx = direction === 'prev' ? tokenIndex - 1 : tokenIndex;
+        const secondIdx = direction === 'prev' ? tokenIndex : tokenIndex + 1;
+        if (firstIdx < 0 || secondIdx >= l.tokens.length) return l;
+
+        const first = l.tokens[firstIdx];
+        const second = l.tokens[secondIdx];
+
+        const bothLatinWords =
+          /^[a-zA-Z0-9]+$/.test(first.text) && /^[a-zA-Z0-9]+$/.test(second.text);
+        const joinedText = bothLatinWords && l.text.includes(`${first.text} ${second.text}`)
+          ? `${first.text} ${second.text}`
+          : `${first.text}${second.text}`;
+        const joinedRuby =
+          first.ruby || second.ruby ? `${first.ruby || ''}${second.ruby || ''}` : undefined;
+
+        const merged: RubyToken = {
+          text: joinedText,
+          ruby: joinedRuby,
+          startTime: first.startTime,
+          endTime: second.endTime,
+          disableAnim: Boolean(first.disableAnim && second.disableAnim),
+        };
+
+        const nextTokens = [
+          ...l.tokens.slice(0, firstIdx),
+          merged,
+          ...l.tokens.slice(secondIdx + 1),
+        ];
+
+        return {
+          ...l,
+          tokens: nextTokens,
+        };
+      }),
+    });
+  },
+
+  toggleTokenAnimDisabled: (lineId: string, tokenIndex: number) => {
+    const { lines } = get();
+    set({
+      lines: lines.map((l) => {
+        if (l.id !== lineId) return l;
+        if (tokenIndex < 0 || tokenIndex >= l.tokens.length) return l;
+        const nextTokens = l.tokens.map((t, idx) =>
+          idx === tokenIndex ? { ...t, disableAnim: !t.disableAnim } : t
+        );
+        return { ...l, tokens: nextTokens };
+      }),
+    });
+  },
+
+  setAllTokensAnimDisabled: (lineId: string, disabled: boolean) => {
+    const { lines } = get();
+    set({
+      lines: lines.map((l) =>
+        l.id === lineId
+          ? {
+              ...l,
+              tokens: l.tokens.map((t) => ({ ...t, disableAnim: disabled })),
+            }
           : l
       ),
     });

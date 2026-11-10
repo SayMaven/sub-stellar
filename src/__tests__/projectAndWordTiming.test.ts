@@ -144,4 +144,46 @@ describe('Phase 8: Canvas Resolution, Project Save/Load, Line CRUD & Per-Word Vo
     const lines = useStudioStore.getState().lines;
     expect(lines[0].endTime).toBeLessThanOrEqual(lines[1].startTime);
   });
+
+  it('splits words into individual characters, merges neighboring tokens, and mutes per-word vocal animation', () => {
+    const store = useStudioStore.getState();
+    // Line 1 tokens: ['もう', '何', 'も', 'いらない']
+    store.splitTokenIntoChars('line-1', 0);
+    let line1 = useStudioStore.getState().lines.find((l) => l.id === 'line-1')!;
+    expect(line1.tokens[0].text).toBe('も');
+    expect(line1.tokens[1].text).toBe('う');
+    expect(line1.tokens[0].startTime).toBe(12.0);
+    expect(line1.tokens[1].endTime).toBe(12.8);
+
+    // Merge 'も' and 'う' back together using merge right ('next')
+    useStudioStore.getState().mergeTokenWithNeighbor('line-1', 0, 'next');
+    line1 = useStudioStore.getState().lines.find((l) => l.id === 'line-1')!;
+    expect(line1.tokens[0].text).toBe('もう');
+    expect(line1.tokens[0].startTime).toBe(12.0);
+    expect(line1.tokens[0].endTime).toBe(12.8);
+
+    // Toggle per-word vocal animation disable
+    useStudioStore.getState().toggleTokenAnimDisabled('line-1', 0);
+    line1 = useStudioStore.getState().lines.find((l) => l.id === 'line-1')!;
+    expect(line1.tokens[0].disableAnim).toBe(true);
+
+    // Split entire line into characters
+    useStudioStore.getState().splitAllTokensIntoChars('line-1');
+    line1 = useStudioStore.getState().lines.find((l) => l.id === 'line-1')!;
+    expect(line1.tokens.map((t) => t.text)).toEqual([
+      'も',
+      'う',
+      '何',
+      'も',
+      'い',
+      'ら',
+      'な',
+      'い',
+    ]);
+
+    // Mute entire line
+    useStudioStore.getState().setAllTokensAnimDisabled('line-1', true);
+    line1 = useStudioStore.getState().lines.find((l) => l.id === 'line-1')!;
+    expect(line1.tokens.every((t) => t.disableAnim)).toBe(true);
+  });
 });

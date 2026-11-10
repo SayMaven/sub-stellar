@@ -23,10 +23,10 @@ import {
 } from 'lucide-react';
 import { usePerfStore } from '../../stores/usePerfStore';
 import { useStudioStore } from '../../stores/useStudioStore';
-import { downloadFile, generateAss, generateSrt } from '../../engine/text/SubtitleExporter';
+import { generateAss, generateSrt } from '../../engine/text/SubtitleExporter';
 import { getCanvasPixelDimensions } from '../../engine/layout/layoutMath';
 import { parseLrc } from '../../services/lyrics/lrcParser';
-import { saveProjectToDisk } from '../../services/mediaCache';
+import { saveProjectToDisk, saveExportTextToDisk } from '../../services/mediaCache';
 import { tauriBridge } from '../../services/tauriBridge';
 import type { AspectRatio, CanvasResolutionPreset } from '../../types';
 
@@ -208,23 +208,49 @@ export const Header: React.FC = () => {
     e.target.value = '';
   };
 
-  const handleQuickExportAss = () => {
-    const slug = (track.title || 'substellar_project')
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, '_');
+  const handleQuickExportAss = async () => {
+    setOpenMenu(null);
+    const slug =
+      (track.title || 'substellar_project').toLowerCase().replace(/[^a-z0-9_-]/g, '_') ||
+      'substellar_project';
     const dims = getCanvasPixelDimensions(aspectRatio, canvasResolution);
     const ass = generateAss(lines, style, track, dims);
-    downloadFile(`${slug}.ass`, ass, 'text/plain;charset=utf-8');
-    setOpenMenu(null);
+    try {
+      const res = await saveExportTextToDisk({
+        content: ass,
+        defaultFilename: `${slug}.ass`,
+        ext: 'ass',
+      });
+      if (res.saved && res.path) {
+        const baseName = res.path.split(/[/\\]/).pop() || res.path;
+        setSavedToast(baseName);
+        setTimeout(() => setSavedToast(null), 2800);
+      }
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to export .ASS file.');
+    }
   };
 
-  const handleQuickExportSrt = () => {
-    const slug = (track.title || 'substellar_project')
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, '_');
-    const srt = generateSrt(lines);
-    downloadFile(`${slug}.srt`, srt, 'text/plain;charset=utf-8');
+  const handleQuickExportSrt = async () => {
     setOpenMenu(null);
+    const slug =
+      (track.title || 'substellar_project').toLowerCase().replace(/[^a-z0-9_-]/g, '_') ||
+      'substellar_project';
+    const srt = generateSrt(lines);
+    try {
+      const res = await saveExportTextToDisk({
+        content: srt,
+        defaultFilename: `${slug}.srt`,
+        ext: 'srt',
+      });
+      if (res.saved && res.path) {
+        const baseName = res.path.split(/[/\\]/).pop() || res.path;
+        setSavedToast(baseName);
+        setTimeout(() => setSavedToast(null), 2800);
+      }
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to export .SRT file.');
+    }
   };
 
   const getQualityBadgeColor = () => {

@@ -249,6 +249,19 @@ export const tauriBridge = {
     return null;
   },
 
+  async exportSaveDialog(defaultName: string, ext: string): Promise<string | null> {
+    if (isTauriEnvironment()) {
+      return invokeTauri<string | null>('export_save_dialog', { defaultName, ext });
+    }
+    return null;
+  },
+
+  async revealInExplorer(path: string): Promise<void> {
+    if (isTauriEnvironment()) {
+      await invokeTauri<void>('reveal_in_explorer', { path });
+    }
+  },
+
   async lyricsHttpGet(url: string, headers?: Record<string, string>): Promise<string> {
     if (isTauriEnvironment()) {
       // Inside the desktop app every request MUST go through the Rust allowlist proxy.

@@ -51,6 +51,7 @@ export interface RubyToken {
   ruby?: string;
   startTime: number;
   endTime: number;
+  disableAnim?: boolean;
 }
 
 export interface SubtitleLine {

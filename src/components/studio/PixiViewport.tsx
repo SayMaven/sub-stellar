@@ -19,6 +19,7 @@ interface BuiltTokenNode {
   activeRuby: Text | null;
   startTime: number;
   endTime: number;
+  disableAnim: boolean;
 }
 
 interface BuiltLineState {
@@ -159,6 +160,18 @@ export const PixiViewport: React.FC = () => {
 
     for (let idx = 0; idx < tokens.length; idx++) {
       const token = tokens[idx];
+      if (token.disableAnim) {
+        token.activeBase.alpha = 0;
+        token.inactiveBase.alpha = 1;
+        if (token.activeRuby && token.inactiveRuby) {
+          token.activeRuby.alpha = 0;
+          token.inactiveRuby.alpha = 1;
+        }
+        token.container.y = 0;
+        token.container.scale.set(1);
+        continue;
+      }
+
       const isTokenActive = currentTime >= token.startTime && currentTime < token.endTime;
       const isTokenPassed = currentTime >= token.endTime;
 
@@ -440,10 +453,7 @@ export const PixiViewport: React.FC = () => {
     if (!activeLine || !activeLine.text.trim()) return;
 
     const autoSegmented = tokenizeSubtitleText(activeLine.text);
-    const useStoredTokens =
-      activeLine.tokens &&
-      (activeLine.tokens.length > 1 ||
-        (activeLine.tokens.length === 1 && autoSegmented.length <= 1));
+    const useStoredTokens = Boolean(activeLine.tokens && activeLine.tokens.length > 0);
 
     const rubyTokens = useStoredTokens
       ? activeLine.tokens.map((t) => ({
@@ -452,6 +462,7 @@ export const PixiViewport: React.FC = () => {
           isRuby: Boolean(t.ruby),
           startTime: t.startTime,
           endTime: t.endTime,
+          disableAnim: Boolean(t.disableAnim),
         }))
       : autoSegmented.map((t, i, arr) => {
           const step =
@@ -460,6 +471,7 @@ export const PixiViewport: React.FC = () => {
             ...t,
             startTime: activeLine.startTime + i * step,
             endTime: activeLine.startTime + (i + 1) * step,
+            disableAnim: false,
           };
         });
 
@@ -686,6 +698,7 @@ export const PixiViewport: React.FC = () => {
         activeRuby,
         startTime: token.startTime,
         endTime: token.endTime,
+        disableAnim: token.disableAnim,
       });
     });
 

@@ -2,6 +2,7 @@
   "name": "sub-stellar",
   "private": true,
   "version": "1.0.0-alpha.7",
+  "license": "MIT OR Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -8,15 +8,19 @@ import {
   Loader2,
   Save,
   FolderOpen,
+  FileCheck,
+  ExternalLink,
+  Video,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
-import { generateAss, generateSrt, downloadFile } from '../../engine/text/SubtitleExporter';
+import { generateAss, generateSrt } from '../../engine/text/SubtitleExporter';
 import { getCanvasPixelDimensions } from '../../engine/layout/layoutMath';
 import {
   tauriBridge,
   type HardwareCapabilities,
   type ExportProgress,
 } from '../../services/tauriBridge';
+import { saveProjectToDisk, saveExportTextToDisk } from '../../services/mediaCache';
 import { FFmpegExportPipeline } from '../../engine/export/FFmpegExportPipeline';
 import type { CanvasResolutionPreset } from '../../types';
 
@@ -32,12 +36,20 @@ export const ExportDrawer: React.FC = () => {
     exportProjectJson,
     importProjectJson,
     saveToLocalStorage,
+    projectFilePath,
+    setProjectFilePath,
+    loadLocalMediaFromPath,
   } = useStudioStore();
 
   const [format, setFormat] = useState<'ass' | 'srt' | 'mp4' | 'webm' | 'prores'>('ass');
+  const [mp4RenderMethod, setMp4RenderMethod] = useState<'canvas_pipe' | 'ass_burnin'>(
+    'canvas_pipe'
+  );
   const [fps, setFps] = useState<number>(60);
   const [selectedEncoder, setSelectedEncoder] = useState<string>('libx264');
   const [hardwareCaps, setHardwareCaps] = useState<HardwareCapabilities | null>(null);
+  const [targetOutputPath, setTargetOutputPath] = useState<string>('');
+  const [lastSavedPath, setLastSavedPath] = useState<string | null>(null);
 
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
@@ -61,14 +73,121 @@ export const ExportDrawer: React.FC = () => {
 
   const targetDims = getCanvasPixelDimensions(aspectRatio, canvasResolution);
 
-  const handleSaveProject = () => {
-    const baseName = (track.title || 'substellar_project')
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, '_');
+  const getFileExtension = (fmt: typeof format): 'ass' | 'srt' | 'mp4' | 'webm' | 'mov' => {
+    if (fmt === 'ass') return 'ass';
+    if (fmt === 'srt') return 'srt';
+    if (fmt === 'webm') return 'webm';
+    if (fmt === 'prores') return 'mov';
+    return 'mp4';
+  };
+
+  const getDefaultExportFilename = (fmt: typeof format): string => {
+    const baseName =
+      (track.title || 'substellar_project').toLowerCase().replace(/[^a-z0-9_-]/g, '_') ||
+      'substellar_project';
+    const ext = getFileExtension(fmt);
+    if (fmt === 'ass' || fmt === 'srt') {
+      return `${baseName}.${ext}`;
+    }
+    return `${baseName}_${canvasResolution}.${ext}`;
+  };
+
+  // Keep default target filename synced when format or resolution changes (unless user picked an explicit path with matching extension)
+  useEffect(() => {
+    const ext = getFileExtension(format);
+    if (!targetOutputPath) {
+      // If we have a mediaFilePath or projectFilePath, default to its folder so the user immediately sees the full directory
+      const refPath = track.mediaFilePath || projectFilePath;
+      const defaultFile = getDefaultExportFilename(format);
+      if (refPath && (refPath.includes('\\') || refPath.includes('/'))) {
+        const sep = refPath.includes('\\') ? '\\' : '/';
+        const dir = refPath.substring(0, refPath.lastIndexOf(sep));
+        if (dir) {
+          setTargetOutputPath(`${dir}${sep}${defaultFile}`);
+          return;
+        }
+      }
+      setTargetOutputPath(defaultFile);
+      return;
+    }
+
+    // Update extension if user switched format tab
+    const cleaned = targetOutputPath.replace(/\.(ass|srt|mp4|webm|mov)$/i, '');
+    setTargetOutputPath(`${cleaned}.${ext}`);
+  }, [format, canvasResolution, track.title, track.mediaFilePath, projectFilePath]);
+
+  const handleBrowseOutputPath = async () => {
+    const ext = getFileExtension(format);
+    const defaultName =
+      targetOutputPath.split(/[/\\]/).pop() || getDefaultExportFilename(format);
+    if (tauriBridge.isAvailable()) {
+      try {
+        const chosen = await tauriBridge.exportSaveDialog(defaultName, ext);
+        if (chosen) {
+          setTargetOutputPath(chosen);
+          setErrorMessage(null);
+        }
+      } catch (err) {
+        setErrorMessage(
+          err instanceof Error ? err.message : 'Failed to open target save dialog.'
+        );
+      }
+    }
+  };
+
+  const handlePickSourceVideoForRender = async () => {
+    if (!tauriBridge.isAvailable()) return;
+    try {
+      const chosen = await tauriBridge.openMediaDialog();
+      if (chosen) {
+        await loadLocalMediaFromPath(chosen);
+        saveToLocalStorage();
+      }
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to select source video.');
+    }
+  };
+
+  const handleSaveProject = async () => {
+    const baseName =
+      (track.title || 'substellar_project').toLowerCase().replace(/[^a-z0-9_-]/g, '_') ||
+      'substellar_project';
     const json = exportProjectJson();
     saveToLocalStorage();
-    downloadFile(`${baseName}.substellar`, json, 'application/json;charset=utf-8');
-    setExportSuccess(`Project saved to ${baseName}.substellar (${lines.length} subtitle lines).`);
+    try {
+      const res = await saveProjectToDisk({
+        json,
+        defaultFilename: `${baseName}.substellar`,
+        existingPath: projectFilePath,
+        forceSaveAs: true,
+      });
+      if (res.saved && res.path) {
+        setProjectFilePath(res.path);
+        setLastSavedPath(res.path);
+        setExportSuccess(`Project saved to: ${res.path} (${lines.length} subtitle lines).`);
+      }
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to save project.');
+    }
+  };
+
+  const handleTriggerOpenProject = async () => {
+    if (tauriBridge.isAvailable()) {
+      try {
+        const opened = await tauriBridge.openProjectDialog();
+        if (opened) {
+          importProjectJson(opened.contents);
+          setProjectFilePath(opened.path);
+          saveToLocalStorage();
+          setExportSuccess(`Loaded project file: ${opened.path}`);
+          setErrorMessage(null);
+        }
+        return;
+      } catch (err) {
+        setErrorMessage(err instanceof Error ? err.message : 'Failed to open project file.');
+      }
+    }
+    projectFileInputRef.current?.click();
   };
 
   const handleOpenProject = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,6 +197,7 @@ export const ExportDrawer: React.FC = () => {
     reader.onload = () => {
       try {
         importProjectJson(String(reader.result || ''));
+        setProjectFilePath(file.name);
         saveToLocalStorage();
         setExportSuccess(`Loaded project file: ${file.name}`);
         setErrorMessage(null);
@@ -101,9 +221,8 @@ export const ExportDrawer: React.FC = () => {
   };
 
   const handleExport = async () => {
-    const baseName = (track.title || 'substellar_project')
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, '_');
+    const ext = getFileExtension(format);
+    const defaultFilename = getDefaultExportFilename(format);
 
     setIsExporting(true);
     setExportSuccess(null);
@@ -111,27 +230,92 @@ export const ExportDrawer: React.FC = () => {
     setProgress(null);
 
     try {
-      if (format === 'ass') {
-        const assText = generateAss(lines, style, track, targetDims);
-        downloadFile(`${baseName}.ass`, assText, 'text/plain;charset=utf-8');
-        setExportSuccess(
-          `Exported ${lines.length} lines to ${baseName}.ass (${targetDims.width}×${targetDims.height}) with Furigana & per-word karaoke timing.`
-        );
+      if (format === 'ass' || format === 'srt') {
+        const textContent =
+          format === 'ass'
+            ? generateAss(lines, style, track, targetDims)
+            : generateSrt(lines);
+
+        // Always confirm or use the selected path via saveExportTextToDisk
+        let finalTargetPath: string | null = null;
+        if (tauriBridge.isAvailable()) {
+          finalTargetPath = await tauriBridge.exportSaveDialog(
+            targetOutputPath.split(/[/\\]/).pop() || defaultFilename,
+            ext
+          );
+          if (!finalTargetPath) {
+            setIsExporting(false);
+            return;
+          }
+          setTargetOutputPath(finalTargetPath);
+        }
+
+        const saved = await saveExportTextToDisk({
+          content: textContent,
+          defaultFilename,
+          ext: format,
+          targetPath: finalTargetPath,
+        });
+
+        if (saved.saved && saved.path) {
+          setLastSavedPath(saved.path);
+          setExportSuccess(
+            format === 'ass'
+              ? `Saved ${lines.length} subtitle lines (${targetDims.width}×${targetDims.height}) to: ${saved.path}`
+              : `Saved ${lines.length} SRT subtitle lines to: ${saved.path}`
+          );
+        }
         setIsExporting(false);
         return;
       }
 
-      if (format === 'srt') {
-        const srtText = generateSrt(lines);
-        downloadFile(`${baseName}.srt`, srtText, 'text/plain;charset=utf-8');
-        setExportSuccess(`Exported ${lines.length} lines to ${baseName}.srt.`);
-        setIsExporting(false);
-        return;
+      // Video Render (.mp4, .webm, .mov)
+      let outputPath = targetOutputPath.trim() || defaultFilename;
+      if (tauriBridge.isAvailable()) {
+        const chosen = await tauriBridge.exportSaveDialog(
+          outputPath.split(/[/\\]/).pop() || defaultFilename,
+          ext
+        );
+        if (!chosen) {
+          setIsExporting(false);
+          return;
+        }
+        outputPath = chosen;
+        setTargetOutputPath(chosen);
       }
 
       const { width, height } = targetDims;
-      const ext = format === 'webm' ? 'webm' : format === 'prores' ? 'mov' : 'mp4';
-      const outputPath = `${baseName}_${canvasResolution}.${ext}`;
+
+      // Fast Hardware ASS Burn-in mode (requires source video path on disk)
+      if (format === 'mp4' && mp4RenderMethod === 'ass_burnin') {
+        if (!track.mediaFilePath) {
+          setErrorMessage(
+            'Fast ASS Hardware Burn-in requires a local source video file on disk. Please select a local video file above or switch to "Full Canvas Overlay Pipe".'
+          );
+          setIsExporting(false);
+          return;
+        }
+        const assContent = generateAss(lines, style, track, targetDims);
+        const tempAssPath = outputPath.replace(/\.mp4$/i, '.burnin.ass');
+        await tauriBridge.writeProjectFile(tempAssPath, assContent);
+        const burnResult = await tauriBridge.ffmpegExportAssBurnin(
+          track.mediaFilePath,
+          tempAssPath,
+          outputPath,
+          selectedEncoder
+        );
+        if (burnResult.success) {
+          const sizeMb = (burnResult.file_size_bytes / (1024 * 1024)).toFixed(2);
+          setLastSavedPath(burnResult.output_path);
+          setExportSuccess(
+            `Hardware ASS Burn-in completed in ${burnResult.elapsed_seconds.toFixed(1)}s (${sizeMb} MB) -> ${burnResult.output_path}`
+          );
+        } else {
+          setErrorMessage(burnResult.error_message || 'Hardware ASS burn-in failed.');
+        }
+        setIsExporting(false);
+        return;
+      }
 
       const mode =
         format === 'webm' ? 'webm_alpha' : format === 'prores' ? 'prores_alpha' : 'mp4_burnin';
@@ -147,17 +331,22 @@ export const ExportDrawer: React.FC = () => {
         height,
         fps,
         duration: Math.max(1, duration),
+        audioSourcePath: track.mediaFilePath,
         lines,
         style: {
           fontFamily: style.fontFamily,
           fontSize: style.fontSize,
           primaryColor: style.fillColor,
+          wordActiveColor: style.wordActiveColor,
           outlineColor: style.innerStrokeColor,
           secondaryOutlineColor: style.outerStrokeColor,
           outlineThickness: style.outerStrokeWidth,
           rubySizeRatio: style.rubyScale,
           wordTransitionMs: style.wordTransitionMs,
           wordAnimStyle: style.wordAnimStyle,
+          verticalPosition: style.verticalPosition,
+          xOffset: style.xOffset,
+          yOffset: style.yOffset,
         },
         onProgress: (prog) => {
           setProgress(prog);
@@ -166,8 +355,9 @@ export const ExportDrawer: React.FC = () => {
 
       if (result.success) {
         const sizeMb = (result.file_size_bytes / (1024 * 1024)).toFixed(2);
+        setLastSavedPath(result.output_path);
         setExportSuccess(
-          `Render completed in ${result.elapsed_seconds.toFixed(1)}s (${sizeMb} MB) -> ${result.output_path}`
+          `Video render completed in ${result.elapsed_seconds.toFixed(1)}s (${sizeMb} MB) -> ${result.output_path}`
         );
       } else {
         setErrorMessage(result.error_message || 'Video export failed.');
@@ -196,13 +386,18 @@ export const ExportDrawer: React.FC = () => {
 
         {/* Project File Save / Open Card */}
         <div className="gatefold-card-strong p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <h4 className="text-xs font-semibold text-gatefold-text">
               SubStellar Project File (.substellar)
             </h4>
             <p className="text-[11px] text-gatefold-text-3 mt-0.5">
               Preserves all subtitle lines, translations, per-word vocal timings, ruby tags, and canvas resolution ({aspectRatio} • {canvasResolution}).
             </p>
+            {projectFilePath && (
+              <div className="text-[10px] font-mono text-gatefold-accent mt-1 truncate">
+                Active project: {projectFilePath}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <input
@@ -213,18 +408,18 @@ export const ExportDrawer: React.FC = () => {
               className="hidden"
             />
             <button
-              onClick={() => projectFileInputRef.current?.click()}
+              onClick={() => void handleTriggerOpenProject()}
               className="px-3 py-2 rounded-lg bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-xs font-semibold text-gatefold-text flex items-center gap-1.5"
             >
               <FolderOpen className="w-3.5 h-3.5 text-gatefold-accent" />
               <span>Open Project</span>
             </button>
             <button
-              onClick={handleSaveProject}
+              onClick={() => void handleSaveProject()}
               className="px-3 py-2 rounded-lg bg-gatefold-accent text-gatefold-bg text-xs font-semibold hover:opacity-90 flex items-center gap-1.5"
             >
               <Save className="w-3.5 h-3.5" />
-              <span>Save Project</span>
+              <span>Save Project As...</span>
             </button>
           </div>
         </div>
@@ -291,6 +486,115 @@ export const ExportDrawer: React.FC = () => {
               </button>
             ))}
           </div>
+
+          {/* Target Output Location & Info */}
+          <div className="p-3.5 rounded-lg bg-gatefold-surface border border-gatefold-line space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[10px] font-mono text-gatefold-text-2 uppercase tracking-wider flex items-center gap-1.5">
+                <FolderOpen className="w-3.5 h-3.5 text-gatefold-accent" />
+                <span>Target Output File & Location (.{getFileExtension(format)})</span>
+              </label>
+              <span className="text-[10px] font-mono text-gatefold-text-3">
+                {lines.length} subtitle lines • {targetDims.width}×{targetDims.height}px
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={targetOutputPath}
+                onChange={(e) => setTargetOutputPath(e.target.value)}
+                placeholder={getDefaultExportFilename(format)}
+                className="flex-1 px-2.5 py-1.5 text-xs font-mono bg-gatefold-bg border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+              />
+              {tauriBridge.isAvailable() && (
+                <button
+                  type="button"
+                  onClick={() => void handleBrowseOutputPath()}
+                  className="px-3 py-1.5 rounded bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-xs font-semibold text-gatefold-accent flex items-center gap-1.5 shrink-0"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  <span>Browse / Pilih Lokasi...</span>
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-gatefold-text-3 leading-relaxed">
+              Saat tombol Export / Render ditekan, dialog Windows Explorer Save As akan terbuka agar Anda bisa memastikan lokasi penyimpanan file hasil ekspor.
+            </p>
+          </div>
+
+          {/* Source Video & Render Pipeline Info (when rendering video) */}
+          {(format === 'mp4' || format === 'webm' || format === 'prores') && (
+            <div className="p-3.5 rounded-lg bg-gatefold-surface border border-gatefold-line space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-mono uppercase text-gatefold-text-2 flex items-center gap-1.5">
+                    <Video className="w-3.5 h-3.5 text-gatefold-accent" />
+                    <span>Source Video / Audio Input for Render</span>
+                  </div>
+                  <div className="text-xs font-mono text-gatefold-text mt-1 truncate">
+                    {track.mediaFilePath ? (
+                      <span className="text-emerald-400">{track.mediaFilePath}</span>
+                    ) : (
+                      <span className="text-amber-300">
+                        No disk file path linked ({track.title}) — subtitles will render on studio canvas background unless you pick a source video file.
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {tauriBridge.isAvailable() && (
+                  <button
+                    type="button"
+                    onClick={() => void handlePickSourceVideoForRender()}
+                    className="px-2.5 py-1.5 rounded bg-gatefold-bg hover:bg-gatefold-hover border border-gatefold-line text-[11px] font-semibold text-gatefold-text shrink-0"
+                  >
+                    Select Source Video...
+                  </button>
+                )}
+              </div>
+
+              {format === 'mp4' && (
+                <div className="pt-2 border-t border-gatefold-line space-y-1.5">
+                  <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase">
+                    MP4 Subtitle Render Pipeline
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setMp4RenderMethod('canvas_pipe')}
+                      className={`p-2.5 rounded border text-left transition-colors ${
+                        mp4RenderMethod === 'canvas_pipe'
+                          ? 'bg-gatefold-accent/15 border-gatefold-accent text-gatefold-accent'
+                          : 'bg-gatefold-bg border-gatefold-line text-gatefold-text-2 hover:text-gatefold-text'
+                      }`}
+                    >
+                      <div className="text-xs font-semibold">
+                        Full Canvas Overlay Pipe (Recommended)
+                      </div>
+                      <div className="text-[10px] text-gatefold-text-3 mt-0.5">
+                        Renders exact SubStellar vocal animations, Furigana & double-stroke onto source video + audio.
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMp4RenderMethod('ass_burnin')}
+                      className={`p-2.5 rounded border text-left transition-colors ${
+                        mp4RenderMethod === 'ass_burnin'
+                          ? 'bg-gatefold-accent/15 border-gatefold-accent text-gatefold-accent'
+                          : 'bg-gatefold-bg border-gatefold-line text-gatefold-text-2 hover:text-gatefold-text'
+                      }`}
+                    >
+                      <div className="text-xs font-semibold">
+                        Fast Hardware ASS Burn-in (Direct FFmpeg)
+                      </div>
+                      <div className="text-[10px] text-gatefold-text-3 mt-0.5">
+                        Ultra-fast native FFmpeg libass burn-in directly on your source video file.
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Canvas & Export Resolution Specifications */}
           <div className="space-y-3 pt-3 border-t border-gatefold-line">
@@ -406,32 +710,54 @@ export const ExportDrawer: React.FC = () => {
             </div>
           )}
 
-          {/* Success Feedback */}
+          {/* Success Feedback & Saved Location Info */}
           {exportSuccess && (
-            <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-2 text-xs text-emerald-300">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-              <span>{exportSuccess}</span>
+            <div className="p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 space-y-2 text-xs text-emerald-300">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2 min-w-0">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-emerald-200">{exportSuccess}</div>
+                    {lastSavedPath && (
+                      <div className="text-[11px] font-mono text-emerald-300/90 mt-1 break-all flex items-center gap-1.5">
+                        <FileCheck className="w-3.5 h-3.5 shrink-0" />
+                        <span>Lokasi File: {lastSavedPath}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {lastSavedPath && tauriBridge.isAvailable() && (
+                  <button
+                    type="button"
+                    onClick={() => void tauriBridge.revealInExplorer(lastSavedPath)}
+                    className="px-2.5 py-1.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-[11px] font-semibold flex items-center gap-1.5 shrink-0"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Buka di Explorer</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
           {/* Export Trigger Button */}
           <button
-            onClick={handleExport}
+            onClick={() => void handleExport()}
             disabled={isExporting || lines.length === 0}
             className="w-full py-2.5 px-4 bg-gatefold-accent text-gatefold-bg font-semibold text-xs rounded-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {isExporting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Rendering Frame Pipe...</span>
+                <span>Rendering / Exporting...</span>
               </>
             ) : (
               <>
                 <Download className="w-4 h-4" />
                 <span>
                   {format === 'ass' || format === 'srt'
-                    ? `Download .${format.toUpperCase()} Subtitle File`
-                    : `Start Hardware Video Render (${format.toUpperCase()} • ${targetDims.width}×${targetDims.height})`}
+                    ? `Save & Export .${format.toUpperCase()} Subtitle File...`
+                    : `Choose Save Location & Render Video (${format.toUpperCase()} • ${targetDims.width}×${targetDims.height})`}
                 </span>
               </>
             )}

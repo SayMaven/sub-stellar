@@ -4,7 +4,9 @@
 
 ### Next-Generation Animated & Particle Subtitle Studio
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+**[English](README.md)** • **[Bahasa Indonesia](README.id.md)** • **[日本語](README.ja.md)** • **[简体中文](README.zh-CN.md)**
+
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2.2-24C8D8?logo=tauri&logoColor=white)](https://tauri.app)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev)
 [![PixiJS v8](https://img.shields.io/badge/PixiJS-v8.6-E72264?logo=pixijs&logoColor=white)](https://pixijs.com)
@@ -12,128 +14,113 @@
 [![Platform: Windows | macOS | Linux](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-informational)](#)
 [![Performance](https://img.shields.io/badge/Low--End%20Ready-RAM%20%3C%20120MB%20%7C%2060%20FPS-success)](#)
 
-*Software desktop profesional untuk pembuatan subtitle video tingkat lanjut dengan efek partikel kosmik, pendaran glow, Furigana otomatis, dan integrasi YouTube 1-klik, dibalut desain visual Gatefold yang elegan.*
+*A professional desktop studio for crafting animated lyric & subtitle videos with cosmic particle effects, double-stroke glow typography, automatic Japanese Furigana, per-word vocal synchronization, and 1-click YouTube integration — wrapped in an obsidian Gatefold interface.*
 
-[Fitur Utama](#fitur-utama) • [Tech Stack](#tech-stack) • [Panduan Pengguna](#panduan-pengguna) • [Shortcut Keyboard](#shortcut-keyboard) • [Dokumentasi](#dokumentasi-lengkap)
+[Key Features](#key-features) • [Tech Stack](#tech-stack) • [Quick Start](#quick-start) • [Keyboard Shortcuts](#keyboard-shortcuts) • [License](#license--acknowledgments)
 
 </div>
 
 ---
 
-## Mengapa SubStellar?
+## Why SubStellar?
 
-Membuat video lirik lagu beranimasi estetik saat ini terpecah di dua kutub ekstrem:
-* **Terlalu Sulit:** Software subtitle klasik (**Aegisub**) membutuhkan keahlian script Lua rumit (`kara-templater` / `PyonFX`).
-* **Terlalu Kaku & Berat:** Editor mainstream (**CapCut / Premiere / After Effects**) tidak memiliki dukungan bawaan untuk Furigana (bacaan hiragana di atas kanji), boros RAM (sering memakan 16GB+), dan lambat untuk sinkronisasi lirik manual per kata.
+Creating expressive animated lyric and subtitle videos today usually forces creators into one of two extremes:
+* **Too Complex:** Traditional subtitle tools (**Aegisub**) require writing complex Lua automation scripts (`kara-templater` / `PyonFX`) for word animations and particle effects.
+* **Too Heavy & Rigid:** Mainstream video editors (**CapCut / Premiere Pro / After Effects**) lack native support for Japanese Furigana (ruby readings above Kanji), consume massive amounts of RAM (often 16 GB+), and make manual per-word vocal timing tedious.
 
-**SubStellar** hadir sebagai solusi seimbang: **Semudah 1-klik di CapCut, seindah efek partikel di After Effects, seringan Aegisub**—bahkan dapat berjalan mulus (60 FPS konstan) di laptop low-end dengan RAM 4 GB dan Intel HD Graphics.
+**SubStellar** bridges the gap: **as intuitive as CapCut, as visually expressive as After Effects, and as lightweight as Aegisub**—engineered to maintain a rock-solid 60 FPS even on low-end laptops with 4 GB RAM and integrated Intel HD Graphics.
 
 ---
 
-## Fitur Utama
+## Key Features
 
-- **1-Klik Integrasi YouTube:** Cukup tempel tautan video YouTube; sistem mengunduh video/audio dan mengekstrak thumbnail secara otomatis tanpa perlu Google API Key.
-- **Multi-Source Synced Lyrics:** Pencarian lirik otomatis dari 5 database online (LRCLIB, NetEase Cloud Music, QQ Music, Kugou, Musixmatch) dengan sinkronisasi suku kata (*word-level timing*).
-- **Furigana / Ruby Text Otomatis:** Tokenisasi kanji Jepang otomatis ke bacaan Hiragana menggunakan NLP Kuroshiro + Kuromoji, dilengkapi editor klik-untuk-koreksi manual `{漢字|かんじ}`.
-- **Real-Time Particle Engine (PixiJS v8):** Ribuan partikel bintang (*stardust*), kilau (*sparkles*), dan aura kosmik yang meletup mengikuti ketukan vokal lirik pada 60 FPS stabil.
-- **Estetika Gatefold & Ambient Dynamic Palette:** Antarmuka gelap obsidian elegan dengan pencahayaan latar (*aurora backlight*) yang warnanya beradaptasi secara dinamis dari poster album/video via OKLCH.
-- **Waveform Timeline Presisi:** Navigasi audio dengan visualisasi waveform instan yang diproses di background Web Worker tanpa pernah membekukan (*freeze*) antarmuka.
-- **Ekspor Fleksibel (FFmpeg):**
-  - **Burn-in Video (MP4):** Video langsung jadi dengan hardware acceleration (`NVENC` / `QSV` / `AMF` / `CPU`).
-  - **Transparent Alpha Video (WebM VP9 & ProRes 4444):** Hanya subtitle dan partikel berlatar belakang transparan untuk di-*overlay* ke Premiere Pro, DaVinci Resolve, atau CapCut PC.
-  - **Format Standar:** Ekspor ke format script `.ass` dan `.lrc`.
-- **Dioptimalkan untuk Hardware Low-End:** RAM idle < 120MB, Zero-GC Object Pooling, dan auto-fallback CPU hemat daya.
+- **1-Click YouTube Media Downloader (`yt-dlp`):** Paste any YouTube URL, choose your target video resolution (`360p` to `4K`) or audio stream, and download directly into the studio with automatic thumbnail & palette extraction—no Google API key required.
+- **Multi-Source Synced Lyrics Engine:** Search and import synchronized lyrics from 5 online providers (LRCLIB, NetEase Cloud Music, QQ Music, Kugou, Musixmatch) or local `.lrc` and `.srt` files.
+- **Granular Per-Word & Per-Character Vocal Timing:**
+  - Automatic smart tokenization for Latin, CJK (Japanese/Chinese), and mixed scripts.
+  - **Split & Merge Controls:** Split any word into individual characters (`Split to Chars` / `All Chars`) or merge neighboring tokens (`← Merge Left` / `Merge Right →`).
+  - **Per-Word Animation Mute:** Disable vocal animation on specific words or punctuation (`Anim: OFF (Static)`) so non-sung tokens remain still without triggering motion or particles.
+  - **Word-to-Word Transition Styles:** Choose between **Pop Bounce**, **Karaoke Sweep**, and **Vocal Float** with customizable transition duration (`0ms–500ms`) and draggable word boundaries directly on the waveform timeline.
+- **Furigana / Ruby Text & Secondary Translations:** Supports `{漢字|かんじ}` inline ruby syntax with visual click-to-edit controls, plus dedicated secondary translation subtitles rendered simultaneously.
+- **Real-Time Zero-GC Particle Engine (PixiJS v8):** Hundreds of stardust, sakura, and cosmic ember particles burst on vocal beats at 60 FPS using pre-allocated object pooling and reused GPU textures to prevent memory leaks.
+- **Unlimited Typography & Position Customization:** Customize fill colors, active word highlight color, gradient stops, double-stroke outlines, vertical anchor (`Bottom` / `Center` / `Top`), and unrestricted `X/Y` pixel offsets with both sliders and direct numeric inputs.
+- **Gatefold 3-Zone Workspace & Resizable Inspector:** Obsidian dark UI with dynamic OKLCH ambient backlighting, classic top menu bar (`File`, `Subtitle`, `View`, `Export`), multi-lane non-overlapping timeline, and a draggable divider to resize the right inspector sidebar.
+- **Native Project Save/Open & Hardware Video Render (FFmpeg):**
+  - Save and restore complete `.substellar` project files via native OS Explorer dialogs, backed by automatic session recovery (`localStorage` + IndexedDB media cache).
+  - **Full Video Render (`.mp4`, `.webm`, `.mov`):** Composite animated subtitles and particles directly onto your source video with audio via the RGBA frame pipe or ultra-fast native FFmpeg `ass=` hardware burn-in (`NVENC` / `QSV` / `AMF` / `VideoToolbox` / `libx264`).
+  - **Subtitle File Export:** Export `.ass` (with full `\k` karaoke tags & Furigana positioning) and `.srt` with target path confirmation and **Show in Explorer**.
 
 ---
 
 ## Tech Stack
 
-| Lapisan | Pilihan Teknologi | Peran |
+| Layer | Technology | Role |
 | :--- | :--- | :--- |
-| **Desktop Shell** | **Tauri v2 (Rust 1.94+)** | Runtime ringan (~40MB RAM awal), native IPC kencang, sidecar security sandbox. |
-| **Frontend** | **React 19 + TypeScript (Strict)** | UI deklaratif, state orchestration, strict null safety. |
-| **Rendering Canvas** | **PixiJS v8 (WebGPU / WebGL)** | Engine partikel `ParticleContainer`, multi-stroke text, dan glow shaders. |
-| **Desain & Theming** | **Tailwind CSS + Gatefold CSS Engine** | Token variabel CSS `@property` interpolasi warna OKLCH. |
-| **State Management**| **Zustand (Transient Updates)** | Sinkronisasi timecode audio 60 FPS tanpa re-render pohon React. |
-| **Media Processing** | **FFmpeg (Tauri Sidecar)** | Ekstraksi waveform, hardware encoding, zero-disk I/O render pipe. |
-| **Downloader** | **yt-dlp (Sidecar) + Innertube API** | Scraping dan ekstraksi media YouTube. |
-| **NLP Morfologi** | **Kuroshiro + Kuromoji** | Deteksi kanji offline & Furigana generator. |
+| **Desktop Shell** | **Tauri v2 (Rust 1.94+)** | Ultra-lightweight native runtime, file dialogs, and secure process management. |
+| **Frontend** | **React 19 + TypeScript (Strict)** | Declarative studio UI, strict type safety, and zero-re-render playback loop. |
+| **Rendering Canvas** | **PixiJS v8 (WebGPU / WebGL)** | Zero-allocation 60 FPS subtitle layout, double-stroke typography, and particle bursts. |
+| **Design & Theming** | **Tailwind CSS + Gatefold OKLCH** | Perceptually uniform OKLCH color tokens and ambient dynamic palette extraction. |
+| **State Management** | **Zustand** | High-frequency playhead synchronization (`getState()` in RAF) without React tree thrashing. |
+| **Media & Render** | **FFmpeg (Native / Sidecar)** | Hardware encoder probing, RGBA video overlay compositing, and ASS hardware burn-in. |
+| **Media Fetcher** | **yt-dlp + Rust Allowlist Proxy** | Multi-resolution YouTube video/audio downloading and CORS-free lyrics fetching. |
 
 ---
 
-## Memulai (Quick Start)
+## Quick Start
 
-### Prasyarat Sistem
-* [Node.js](https://nodejs.org/) v20+ atau v24+
-* [Rust & Cargo](https://rustup.rs/) v1.80+ (v1.94 direkomendasikan)
-* Git
+### Prerequisites
+* [Node.js](https://nodejs.org/) v20+ or v24+
+* [Rust & Cargo](https://rustup.rs/) v1.80+ (v1.94+ recommended)
+* [FFmpeg](https://ffmpeg.org/) & [yt-dlp](https://github.com/yt-dlp/yt-dlp) available in system `PATH` (for video rendering and YouTube downloading)
 
-### Instalasi & Mode Pengembangan
+### Installation & Development
 
 ```bash
-# 1. Kloning repositori
+# 1. Clone the repository
 git clone https://github.com/SayMaven/sub-stellar.git
 cd sub-stellar
 
-# 2. Install dependensi frontend
+# 2. Install frontend dependencies
 npm install
 
-# 3. Jalankan aplikasi dalam mode pengembangan desktop (Tauri v2)
+# 3. Launch the Tauri v2 desktop development app
 npm run tauri dev
 ```
 
-### Build Installer Produksi
+### Production Build
 
 ```bash
-# Build paket installer Windows (.msi / .exe)
+# Build native desktop installer (.msi / .exe / .dmg / .AppImage)
 npm run tauri build
 ```
 
 ---
 
-## Shortcut Keyboard
+## Keyboard Shortcuts
 
-| Tombol | Fungsi |
+| Shortcut | Action |
 | :--- | :--- |
-| **`Space`** | Putar / Jeda Audio (Play/Pause) |
-| **`←` / `→`** | Mundur / Maju 1 frame sub-detik |
-| **`Shift + ← / →`** | Mundur / Maju 1 detik |
-| **`↑` / `↓`** | Pindah ke baris lirik Sebelumnya / Berikutnya |
-| **`C` / `Ctrl + K`** | Potong kata / suku kata pada posisi kursor |
-| **`L`** | Aktifkan / Nonaktifkan loop pemutaran baris aktif |
-| **`Ctrl + F`** | Buka Quick Search / Tempel URL YouTube |
-| **`Ctrl + S`** | Simpan Proyek (`.substellar`) |
-| **`Ctrl + E`** | Buka Dialog Ekspor Video |
-| **`Ctrl + Z` / `Ctrl + Shift + Z`** | Undo / Redo |
-| **`Ctrl + Q`** | Ganti Mode Performa (Low / Balanced / Ultra) |
-| **`Ctrl + Shift + D`** | Buka Telemetri Monitor (FPS, RAM, Partikel) |
+| **`Space`** | Play / Pause media playback |
+| **`Ctrl + N`** | Add new empty subtitle line at playhead |
+| **`Ctrl + S`** | Save Project (`.substellar`) |
+| **`Ctrl + Shift + S`** | Save Project As (`.substellar`) |
+| **`Delete`** | Delete selected subtitle line |
+| **`Ctrl + K`** | Open YouTube Media Downloader |
+| **`Ctrl + Q`** | Cycle Hardware Quality Profile (`Low` / `Balanced` / `Ultra`) |
+| **`Ctrl + Shift + D`** | Toggle Real-Time Performance Telemetry (FPS, Frame Time, Particles) |
 
 ---
 
-## Dokumentasi Lengkap
+## License & Acknowledgments
 
-Untuk panduan mendalam dan spesifikasi arsitektur teknis, silakan merujuk ke direktori `docs/`:
+SubStellar is dual-licensed under your choice of either:
 
-* [Product Requirements Document (PRD)](docs/PRD.md): Analisis kebutuhan fungsional & non-fungsional, personas, kompetitor, dan KPI.
-* [Master Plan Teknis](docs/MASTER_PLAN.md): Rencana peta jalan menyeluruh fase 1 s/d 6.
-* [Software Architecture Design](docs/ARCHITECTURE.md): Desain modular micro-kernel, diagram alur data, dan justifikasi teknologi.
-* [Code Quality & Engineering Practices](docs/ENGINEERING_PRACTICES.md): Standar coding, prinsip SOLID, konvensi commit, dan git flow.
-* [Testing & Quality Assurance Plan](docs/TESTING.md): Unit test, E2E Playwright, zero-GC memory leak test, dan CI matrix.
-* [Security Architecture & Threat Mitigation](docs/SECURITY.md): Tauri capabilities, sandboxing, input sanitization, dan code signing.
-* [Performance & Optimization Guide](docs/PERFORMANCE.md): Panduan 60 FPS, downsampling waveform off-thread, dan optimasi low-end.
-* [UI/UX & Accessibility Design Guide](docs/UI_UX.md): Panduan sistem desain Gatefold, aksesibilitas WCAG, dan lokalisasi i18n.
-* [Architecture Decision Records (ADR)](docs/adr/): Catatan keputusan penting arsitektural.
-* [User Manual & Help Center](docs/USER_MANUAL.md): Panduan langkah demi langkah bagi pengguna.
-* [API & IPC Documentation](docs/API.md): Dokumentasi command Tauri Rust dan interface TypeScript.
+* **[MIT License](LICENSE-MIT)** ([http://opensource.org/licenses/MIT](http://opensource.org/licenses/MIT))
+* **[Apache License, Version 2.0](LICENSE-APACHE)** ([http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0))
 
----
+See [LICENSE](LICENSE) for details.
 
-## Lisensi & Penghargaan
-
-Proyek ini dilisensikan di bawah [MIT License](LICENSE).
-
-**Penghargaan Khusus & Inspirasi:**
-* **[Gatefold](https://github.com/SayMaven/gatefold-foobar2000):** Inspirasi bahasa desain tema modern OKLCH dan arsitektur pencarian lirik multi-source.
-* **[PixiJS](https://pixijs.com):** Engine rendering 2D WebGL/WebGPU performa tinggi.
-* **[Tauri](https://tauri.app):** Framework desktop masa depan yang ringan dan aman.
-* **[Kuroshiro & Kuromoji](https://github.com/hexenq/kuroshiro):** Engine morfologi bahasa Jepang di web browser.
+**Special Thanks & Inspiration:**
+* **[Gatefold](https://github.com/SayMaven/gatefold-foobar2000):** Inspiration for the OKLCH design language and multi-source lyrics architecture.
+* **[PixiJS](https://pixijs.com):** High-performance 2D WebGL/WebGPU rendering engine.
+* **[Tauri](https://tauri.app):** Lightweight, secure cross-platform desktop framework.

@@ -54,6 +54,7 @@ export const MainStage: React.FC = () => {
   const stageAreaRef = useRef<HTMLDivElement>(null);
   const [areaSize, setAreaSize] = useState({ width: 0, height: 0 });
   const [timelineHeight, setTimelineHeight] = useState(TIMELINE_DEFAULT_HEIGHT);
+  const [inspectorWidth, setInspectorWidth] = useState<number>(320);
 
   useEffect(() => {
     const el = stageAreaRef.current;
@@ -74,6 +75,44 @@ export const MainStage: React.FC = () => {
   );
 
   const pixelDims = getCanvasPixelDimensions(aspectRatio, canvasResolution);
+
+  const clampInspectorWidth = useCallback((w: number) => {
+    const available = workspaceRef.current?.clientWidth ?? 1280;
+    const maxW = Math.max(280, Math.min(640, Math.floor(available * 0.55)));
+    return Math.min(maxW, Math.max(240, Math.round(w)));
+  }, []);
+
+  const handleInspectorResizeDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const handle = e.currentTarget;
+      handle.setPointerCapture(e.pointerId);
+      const startX = e.clientX;
+      const startWidth = inspectorWidth;
+
+      const onMove = (ev: PointerEvent) => {
+        setInspectorWidth(clampInspectorWidth(startWidth + (startX - ev.clientX)));
+      };
+      const onUp = (ev: PointerEvent) => {
+        handle.releasePointerCapture(ev.pointerId);
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+      };
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+    },
+    [inspectorWidth, clampInspectorWidth]
+  );
+
+  const handleInspectorResizeKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      setInspectorWidth((w) => clampInspectorWidth(w + 20));
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      setInspectorWidth((w) => clampInspectorWidth(w - 20));
+    }
+  };
 
   const handleResizePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -227,7 +266,7 @@ export const MainStage: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Workspace Split: Viewport (Left) + Subtitle Inspector (Right, always mounted) */}
+      {/* Main Workspace Split: Viewport (Left) + Resizable Divider + Subtitle Inspector (Right) */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* Canvas Stage Area: scrolls when zoomed beyond fit */}
         <div ref={stageAreaRef} className="flex-1 min-w-0 min-h-0 flex overflow-auto p-3">
@@ -245,7 +284,20 @@ export const MainStage: React.FC = () => {
           )}
         </div>
 
-        <SubtitleInspector />
+        {/* Vertical Resize Handle between Video Stage and Inspector Sidebar */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize inspector sidebar (Drag or Double-click to reset)"
+          title="Drag left/right to resize Inspector sidebar (Double-click to reset to 320px)"
+          tabIndex={0}
+          onPointerDown={handleInspectorResizeDown}
+          onKeyDown={handleInspectorResizeKey}
+          onDoubleClick={() => setInspectorWidth(320)}
+          className="w-1.5 shrink-0 cursor-col-resize bg-gatefold-line hover:bg-gatefold-accent/60 focus-visible:bg-gatefold-accent focus:outline-none transition-colors"
+        />
+
+        <SubtitleInspector width={inspectorWidth} />
       </div>
 
       {/* Timeline resize handle */}

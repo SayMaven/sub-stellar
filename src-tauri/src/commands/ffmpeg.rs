@@ -265,10 +265,16 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
         "-",
     ]);
 
-    // Optional audio source input
+    // Optional media (video or audio) source input
+    let mut is_video_source = false;
     let has_audio = if let Some(ref audio_path) = config.audio_source_path {
         if Path::new(audio_path).exists() {
             cmd.args(["-i", audio_path]);
+            let lower = audio_path.to_lowercase();
+            is_video_source = lower.ends_with(".mp4")
+                || lower.ends_with(".webm")
+                || lower.ends_with(".mkv")
+                || lower.ends_with(".mov");
             true
         } else {
             false
@@ -291,7 +297,7 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
                 "26",
             ]);
             if has_audio {
-                cmd.args(["-c:a", "libopus", "-b:a", "128k", "-shortest"]);
+                cmd.args(["-map", "0:v", "-map", "1:a?", "-c:a", "libopus", "-b:a", "128k", "-shortest"]);
             }
         }
         "prores_alpha" => {
@@ -304,11 +310,22 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
                 "yuva444p10le",
             ]);
             if has_audio {
-                cmd.args(["-c:a", "pcm_s16le", "-shortest"]);
+                cmd.args(["-map", "0:v", "-map", "1:a?", "-c:a", "pcm_s16le", "-shortest"]);
             }
         }
         _ => {
-            // Default: mp4_burnin
+            // Default: mp4_burnin (Composites RGBA subtitle overlay [0:v] over source video [1:v] when present)
+            if is_video_source {
+                let filter = format!(
+                    "[1:v]scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1[bg];[bg][0:v]overlay=0:0:shortest=1[outv]",
+                    w = config.width,
+                    h = config.height
+                );
+                cmd.args(["-filter_complex", &filter, "-map", "[outv]", "-map", "1:a?"]);
+            } else if has_audio {
+                cmd.args(["-map", "0:v", "-map", "1:a?"]);
+            }
+
             let enc = config
                 .encoder
                 .clone()

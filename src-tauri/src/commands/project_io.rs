@@ -199,6 +199,62 @@ mod win_dialog {
             None
         }
     }
+
+    pub fn show_save_export_dialog(default_name: &str, ext: &str) -> Option<String> {
+        let filter = match ext {
+            "ass" => "Advanced SubStation Alpha (*.ass)\0*.ass\0All Files (*.*)\0*.*\0\0",
+            "srt" => "SubRip Subtitle (*.srt)\0*.srt\0All Files (*.*)\0*.*\0\0",
+            "mp4" => "MP4 Video (*.mp4)\0*.mp4\0All Files (*.*)\0*.*\0\0",
+            "webm" => "WebM Transparent Video (*.webm)\0*.webm\0All Files (*.*)\0*.*\0\0",
+            "mov" => "Apple ProRes 4444 Video (*.mov)\0*.mov\0All Files (*.*)\0*.*\0\0",
+            _ => "All Files (*.*)\0*.*\0\0",
+        };
+        let filter_wide: Vec<u16> = std::ffi::OsStr::new(filter).encode_wide().collect();
+        let title_wide = to_wide_null("Choose Export Save Location");
+        let def_ext_wide = to_wide_null(ext);
+
+        let mut file_buf = vec![0u16; 1024];
+        let initial_wide: Vec<u16> = std::ffi::OsStr::new(default_name).encode_wide().collect();
+        let copy_len = initial_wide.len().min(file_buf.len() - 1);
+        file_buf[..copy_len].copy_from_slice(&initial_wide[..copy_len]);
+
+        let mut ofn = OPENFILENAMEW {
+            l_struct_size: std::mem::size_of::<OPENFILENAMEW>() as u32,
+            hwnd_owner: ptr::null_mut(),
+            h_instance: ptr::null_mut(),
+            lpstr_filter: filter_wide.as_ptr(),
+            lpstr_custom_filter: ptr::null_mut(),
+            n_max_cust_filter: 0,
+            n_filter_index: 1,
+            lpstr_file: file_buf.as_mut_ptr(),
+            n_max_file: file_buf.len() as u32,
+            lpstr_file_title: ptr::null_mut(),
+            n_max_file_title: 0,
+            lpstr_initial_dir: ptr::null(),
+            lpstr_title: title_wide.as_ptr(),
+            flags: OFN_EXPLORER | OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR,
+            n_file_offset: 0,
+            n_file_extension: 0,
+            lpstr_def_ext: def_ext_wide.as_ptr(),
+            l_cust_data: 0,
+            lpfn_hook: ptr::null_mut(),
+            lp_template_name: ptr::null(),
+            pv_reserved: ptr::null_mut(),
+            dw_reserved: 0,
+            flags_ex: 0,
+        };
+
+        let ok = unsafe { GetSaveFileNameW(&mut ofn) };
+        if ok != 0 {
+            let end = file_buf.iter().position(|&c| c == 0).unwrap_or(file_buf.len());
+            let path = OsString::from_wide(&file_buf[..end])
+                .to_string_lossy()
+                .into_owned();
+            Some(path)
+        } else {
+            None
+        }
+    }
 }
 
 #[tauri::command]
@@ -276,5 +332,51 @@ pub async fn media_open_dialog() -> Result<Option<String>, String> {
         Ok(None)
     }
 }
+
+#[tauri::command]
+pub async fn export_save_dialog(default_name: String, ext: String) -> Result<Option<String>, String> {
+    let clean_ext = ext.trim().trim_start_matches('.').to_lowercase();
+    let safe_default = if default_name.trim().is_empty() {
+        format!("substellar_export.{}", clean_ext)
+    } else if default_name.to_lowercase().ends_with(&format!(".{}", clean_ext)) {
+        default_name
+    } else {
+        format!("{}.{}", default_name, clean_ext)
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            win_dialog::show_save_export_dialog(&safe_default, &clean_ext)
+        })
+        .await
+        .map_err(|e| format!("Failed to open export save dialog: {}", e))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (safe_default, clean_ext);
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub fn reveal_in_explorer(path: String) -> Result<(), String> {
+    let target = PathBuf::from(path.trim());
+    if !target.exists() {
+        return Err(format!("File does not exist: {}", target.display()));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(format!("/select,{}", target.display()))
+            .spawn()
+            .map_err(|e| format!("Failed to launch Explorer: {}", e))?;
+    }
+
+    Ok(())
+}
+
 
 
