@@ -32,6 +32,36 @@ Format penulisan mengacu pada Keep a Changelog dan menganut prinsip Semantic Ver
 
 ---
 
+## [1.0.0-alpha.6] - 2026-11-10 (Fase 6 Selesai: FFmpeg Hardware Auto-Probing & Export Pipeline)
+
+### Ditambahkan (Added)
+- FFmpeg Tiered Hardware Encoder Auto-Probing (`src-tauri/src/commands/ffmpeg.rs`):
+  - Deteksi ketersediaan binary FFmpeg otomatis pada system PATH dan bundel sidecar.
+  - Probing bertingkat untuk encoder akselerasi GPU perangkat keras:
+    1. `h264_nvenc` (NVIDIA NVENC)
+    2. `h264_qsv` (Intel QuickSync)
+    3. `h264_amf` (AMD AMF)
+    4. `libx264` (CPU fallback hemat daya: `-preset veryfast -crf 22`)
+  - Deteksi dan validasi otomatis dukungan transparent alpha video:
+    - `libvpx-vp9` (`yuva420p` untuk WebM Alpha overlay)
+    - `prores_ks` (`yuva444p10le` untuk Apple ProRes 4444 Alpha MOV)
+- Zero-Disk I/O Memory Pipe Engine (`FFmpegExportPipeline.ts` & Rust stdin pipe):
+  - Streaming buffer mentah RGBA langsung dari memori kanvas offscreen ke stdin child process FFmpeg tanpa ribuan file PNG sementara.
+  - Sesi ekspor terisolasi thread-safe (`ActiveExportSession`) dengan reporting persentase, total frame, dan frame rate render real-time.
+  - Mekanisme pembatalan instan (`cancel`) dengan pembersihan file parsial dan terminasi proses anak yang anggun.
+- Fast Direct ASS Subtitle Burn-In (`ffmpeg_export_ass_burnin`):
+  - Pembakaran subtitle vector `.ass` langsung ke video sumber menggunakan encoder hardware GPU (`h264_nvenc`, `h264_qsv`, `h264_amf`).
+- Export Center UI Upgrade (`src/components/export/ExportDrawer.tsx`):
+  - Format selector 5-in-1: ASS Vector Subtitles, SRT Subtitles, MP4 Video Burn-in, WebM Alpha (VP9), dan ProRes 4444 MOV.
+  - Pemilih resolusi (1080p Full HD, 720p HD Low-End, 4K Ultra HD) dan framerate (60 FPS, 30 FPS, 24 FPS).
+  - Indikator status GPU encoder hardware aktif, progress bar live encoding, speed counter (FPS), dan tombol Cancel.
+- Quality Gates & Tests:
+  - 58 dari 58 unit test Vitest lulus 100% (penambahan `ffmpegExport.test.ts`).
+  - 9 dari 9 pengujian Rust backend lulus 100% (penambahan `test_find_ffmpeg`, `test_ffmpeg_check_binary`, `test_probe_hardware_capabilities`).
+  - `npm run build` berhasil sempurna dalam produksi Vite.
+
+---
+
 ## [1.0.0-alpha.5] - 2026-11-10 (Fase 5 Selesai: Overhaul UI Menyeluruh, Audio Waveform Worker & Timeline Scrubber)
 
 ### Ditambahkan (Added)

@@ -11,7 +11,47 @@ export interface SystemInfo {
 export interface HardwareCapabilities {
   gpu_accelerated: boolean;
   recommended_quality: string;
+  primary_encoder: string;
   available_encoders: string[];
+  supports_alpha_webm: boolean;
+  supports_alpha_prores: boolean;
+  ffmpeg_found: boolean;
+  ffmpeg_version: string;
+}
+
+export interface FFmpegInfo {
+  found: boolean;
+  version: string;
+  path: string;
+}
+
+export interface ExportPipeConfig {
+  session_id: string;
+  output_path: string;
+  mode: 'mp4_burnin' | 'webm_alpha' | 'prores_alpha';
+  encoder?: string;
+  width: number;
+  height: number;
+  fps: number;
+  total_frames: number;
+  audio_source_path?: string;
+  audio_bitrate?: string;
+}
+
+export interface ExportProgress {
+  session_id: string;
+  frames_written: number;
+  total_frames: number;
+  percentage: number;
+  fps: number;
+}
+
+export interface ExportResult {
+  success: boolean;
+  output_path: string;
+  file_size_bytes: number;
+  elapsed_seconds: number;
+  error_message?: string;
 }
 
 export interface YouTubeFormat {
@@ -69,9 +109,63 @@ export const tauriBridge = {
       return {
         gpu_accelerated: true,
         recommended_quality: 'balanced',
+        primary_encoder: 'libx264',
         available_encoders: ['libx264'],
+        supports_alpha_webm: true,
+        supports_alpha_prores: true,
+        ffmpeg_found: false,
+        ffmpeg_version: 'Web Browser Fallback',
       };
     }
+  },
+
+  async ffmpegCheckBinary(): Promise<FFmpegInfo> {
+    try {
+      return await invokeTauri<FFmpegInfo>('ffmpeg_check_binary');
+    } catch {
+      return {
+        found: false,
+        version: '',
+        path: '',
+      };
+    }
+  },
+
+  async ffmpegStartExportPipe(config: ExportPipeConfig): Promise<string> {
+    return invokeTauri<string>('ffmpeg_start_export_pipe', { config });
+  },
+
+  async ffmpegWriteFrameChunk(sessionId: string, chunk: Uint8Array): Promise<ExportProgress> {
+    return invokeTauri<ExportProgress>('ffmpeg_write_frame_chunk', {
+      sessionId,
+      chunk: Array.from(chunk),
+    });
+  },
+
+  async ffmpegFinishExport(sessionId: string): Promise<ExportResult> {
+    return invokeTauri<ExportResult>('ffmpeg_finish_export', { sessionId });
+  },
+
+  async ffmpegCancelExport(sessionId: string): Promise<void> {
+    try {
+      await invokeTauri<void>('ffmpeg_cancel_export', { sessionId });
+    } catch {
+      // Graceful fallback for non-Tauri / test environments
+    }
+  },
+
+  async ffmpegExportAssBurnin(
+    videoInput: string,
+    assPath: string,
+    outputPath: string,
+    encoder?: string
+  ): Promise<ExportResult> {
+    return invokeTauri<ExportResult>('ffmpeg_export_ass_burnin', {
+      videoInput,
+      assPath,
+      outputPath,
+      encoder,
+    });
   },
 
   async checkYtDlp(): Promise<YtDlpStatus> {
