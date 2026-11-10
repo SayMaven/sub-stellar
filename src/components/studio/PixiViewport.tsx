@@ -286,7 +286,7 @@ export const PixiViewport: React.FC = () => {
         backgroundAlpha: 0,
         antialias: profile.bloomEnabled,
         resolution: profile.renderScale,
-        autoDensity: true,
+        autoDensity: false,
       });
 
       if (!isMounted) {
@@ -296,6 +296,9 @@ export const PixiViewport: React.FC = () => {
 
       localApp = app;
       appRef.current = app;
+      app.canvas.style.width = '100%';
+      app.canvas.style.height = '100%';
+      app.canvas.style.display = 'block';
       containerRef.current.innerHTML = '';
       containerRef.current.appendChild(app.canvas);
 
@@ -465,7 +468,8 @@ export const PixiViewport: React.FC = () => {
     const scaledOuterStroke = Math.max(0, Math.round(style.outerStrokeWidth * scaleFactor));
     const scaledInnerStroke = Math.max(0, Math.round(style.innerStrokeWidth * scaleFactor));
     const scaledGlowBlur = Math.max(0, style.glowBlur * scaleFactor);
-    const scaledYOffset = Math.round(style.yOffset * scaleFactor);
+    const scaledXOffset = Math.round((style.xOffset ?? 0) * scaleFactor);
+    const scaledYOffset = Math.round((style.yOffset ?? 60) * scaleFactor);
 
     // Generous canvas padding so outer stroke & dropShadow glow never clip into a box
     const textPadding = Math.ceil(
@@ -689,10 +693,10 @@ export const PixiViewport: React.FC = () => {
       style.verticalPosition === 'top'
         ? scaledYOffset
         : style.verticalPosition === 'center'
-        ? canvasHeight / 2
+        ? (canvasHeight - scaledFontSize) / 2 + scaledYOffset
         : canvasHeight - scaledYOffset - scaledFontSize;
 
-    lineContainer.x = (canvasWidth - currentX) / 2;
+    lineContainer.x = (canvasWidth - currentX) / 2 + scaledXOffset;
     lineContainer.y = baseY;
 
     let transText: Text | null = null;
@@ -711,7 +715,7 @@ export const PixiViewport: React.FC = () => {
       });
       transText = new Text({ text: activeLine.translation, style: transStyle });
       transText.anchor.set(0.5, 0);
-      transText.x = canvasWidth / 2;
+      transText.x = canvasWidth / 2 + scaledXOffset;
       transText.y = transBaseY;
       subtitleGroup.addChild(transText);
     }
@@ -798,7 +802,7 @@ export const PixiViewport: React.FC = () => {
       {/* 4. PixiJS Interactive Canvas Viewport (Overlay with Furigana & Particles) */}
       <div
         ref={containerRef}
-        className="absolute inset-0 z-10 w-full h-full flex items-center justify-center pointer-events-none [&>canvas]:w-full [&>canvas]:h-full [&>canvas]:object-contain"
+        className="absolute inset-0 z-10 w-full h-full flex items-center justify-center pointer-events-none [&>canvas]:!w-full [&>canvas]:!h-full [&>canvas]:object-contain"
       />
     </div>
   );

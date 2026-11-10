@@ -78,6 +78,7 @@ export interface SubtitleStyle {
   rubyActiveColor: string;
   translationFillColor: string;
   verticalPosition: 'bottom' | 'center' | 'top';
+  xOffset: number;
   yOffset: number;
   rubyScale: number;
   showSafeGuides: boolean;

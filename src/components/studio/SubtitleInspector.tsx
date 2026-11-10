@@ -799,16 +799,29 @@ export const SubtitleInspector: React.FC = () => {
                   <span className="font-semibold text-gatefold-text">
                     Word Transition Duration
                   </span>
-                  <span className="font-mono text-gatefold-accent">
-                    {style.wordTransitionMs}ms
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={0}
+                      max={5000}
+                      step={10}
+                      value={style.wordTransitionMs}
+                      onChange={(e) =>
+                        setStyle({
+                          wordTransitionMs: Math.max(0, parseInt(e.target.value, 10) || 0),
+                        })
+                      }
+                      className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-accent focus:border-gatefold-accent focus:outline-none"
+                    />
+                    <span className="text-[10px] font-mono text-gatefold-text-3">ms</span>
+                  </div>
                 </div>
                 <input
                   type="range"
                   min={0}
-                  max={500}
+                  max={1000}
                   step={10}
-                  value={style.wordTransitionMs}
+                  value={Math.min(1000, style.wordTransitionMs)}
                   onChange={(e) =>
                     setStyle({ wordTransitionMs: parseInt(e.target.value, 10) })
                   }
@@ -820,84 +833,238 @@ export const SubtitleInspector: React.FC = () => {
               </div>
             </div>
 
+            {/* Subtitle Position & Alignment (Anchor + X Offset + Y Offset) */}
+            <div className="space-y-2.5 pb-3 border-b border-gatefold-line">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold">
+                  Position & Alignment
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setStyle({
+                      verticalPosition: 'bottom',
+                      xOffset: 0,
+                      yOffset: 60,
+                    })
+                  }
+                  title="Reset subtitle position to default bottom-center (0, 60)"
+                  className="text-[10px] font-mono text-gatefold-text-3 hover:text-gatefold-accent flex items-center gap-1"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset Pos</span>
+                </button>
+              </div>
+
+              {/* Vertical Anchor Selector */}
+              <div className="grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    { id: 'bottom', label: 'Bottom' },
+                    { id: 'center', label: 'Center' },
+                    { id: 'top', label: 'Top' },
+                  ] as const
+                ).map((pos) => (
+                  <button
+                    key={pos.id}
+                    type="button"
+                    onClick={() => setStyle({ verticalPosition: pos.id })}
+                    className={`py-1 px-2 rounded border text-[11px] font-medium transition-colors ${
+                      style.verticalPosition === pos.id
+                        ? 'border-gatefold-accent bg-gatefold-accent/15 text-gatefold-accent'
+                        : 'border-gatefold-line bg-gatefold-surface text-gatefold-text-3 hover:text-gatefold-text'
+                    }`}
+                  >
+                    {pos.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* X-Position Offset */}
+              <div className="space-y-1 pt-1">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-gatefold-text">X-Position Offset</span>
+                  <div className="flex items-center gap-1">
+                    {(style.xOffset ?? 0) !== 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setStyle({ xOffset: 0 })}
+                        className="px-1.5 py-0.5 rounded bg-gatefold-surface-2 hover:bg-gatefold-hover text-[10px] font-mono text-gatefold-text-3"
+                        title="Center horizontally (X = 0)"
+                      >
+                        0
+                      </button>
+                    )}
+                    <input
+                      type="number"
+                      step={5}
+                      value={style.xOffset ?? 0}
+                      onChange={(e) =>
+                        setStyle({
+                          xOffset: parseInt(e.target.value, 10) || 0,
+                        })
+                      }
+                      className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                    />
+                    <span className="text-[10px] font-mono text-gatefold-text-3">px</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min={-640}
+                  max={640}
+                  step={2}
+                  value={Math.max(-640, Math.min(640, style.xOffset ?? 0))}
+                  onChange={(e) => setStyle({ xOffset: parseInt(e.target.value, 10) })}
+                  className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+                />
+              </div>
+
+              {/* Y-Position Offset */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-gatefold-text">Y-Position Offset</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      step={5}
+                      value={style.yOffset}
+                      onChange={(e) =>
+                        setStyle({
+                          yOffset: parseInt(e.target.value, 10) || 0,
+                        })
+                      }
+                      className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                    />
+                    <span className="text-[10px] font-mono text-gatefold-text-3">px</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min={-120}
+                  max={600}
+                  step={2}
+                  value={Math.max(-120, Math.min(600, style.yOffset))}
+                  onChange={(e) => setStyle({ yOffset: parseInt(e.target.value, 10) })}
+                  className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+                />
+              </div>
+            </div>
+
             {/* Font & Size */}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <div className="flex justify-between items-center">
                 <span className="font-semibold text-gatefold-text">Font Size</span>
-                <span className="font-mono text-gatefold-text-3">{style.fontSize}px</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={8}
+                    max={500}
+                    value={style.fontSize}
+                    onChange={(e) =>
+                      setStyle({ fontSize: Math.max(8, parseInt(e.target.value, 10) || 24) })
+                    }
+                    className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                  />
+                  <span className="text-[10px] font-mono text-gatefold-text-3">px</span>
+                </div>
               </div>
               <input
                 type="range"
-                min={24}
-                max={96}
-                value={style.fontSize}
+                min={14}
+                max={160}
+                value={Math.min(160, style.fontSize)}
                 onChange={(e) => setStyle({ fontSize: parseInt(e.target.value, 10) })}
                 className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
               />
             </div>
 
             {/* Ruby Scale */}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <div className="flex justify-between items-center">
                 <span className="font-semibold text-gatefold-text">Furigana Scale</span>
-                <span className="font-mono text-gatefold-text-3">
-                  {Math.round(style.rubyScale * 100)}%
-                </span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={10}
+                    max={200}
+                    value={Math.round(style.rubyScale * 100)}
+                    onChange={(e) =>
+                      setStyle({
+                        rubyScale: Math.max(10, parseInt(e.target.value, 10) || 45) / 100,
+                      })
+                    }
+                    className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                  />
+                  <span className="text-[10px] font-mono text-gatefold-text-3">%</span>
+                </div>
               </div>
               <input
                 type="range"
-                min={30}
-                max={70}
-                value={Math.round(style.rubyScale * 100)}
+                min={20}
+                max={100}
+                value={Math.min(100, Math.round(style.rubyScale * 100))}
                 onChange={(e) => setStyle({ rubyScale: parseInt(e.target.value, 10) / 100 })}
                 className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
               />
             </div>
 
             {/* Outer Stroke */}
-            <div className="space-y-2 pt-2 border-t border-gatefold-line">
+            <div className="space-y-1.5 pt-2 border-t border-gatefold-line">
               <div className="flex justify-between items-center">
                 <span className="font-semibold text-gatefold-text">Outer Stroke (Dark)</span>
-                <span className="font-mono text-gatefold-text-3">{style.outerStrokeWidth}px</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={0}
+                    max={200}
+                    value={style.outerStrokeWidth}
+                    onChange={(e) =>
+                      setStyle({
+                        outerStrokeWidth: Math.max(0, parseInt(e.target.value, 10) || 0),
+                      })
+                    }
+                    className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                  />
+                  <span className="text-[10px] font-mono text-gatefold-text-3">px</span>
+                </div>
               </div>
               <input
                 type="range"
                 min={0}
-                max={20}
-                value={style.outerStrokeWidth}
+                max={40}
+                value={Math.min(40, style.outerStrokeWidth)}
                 onChange={(e) => setStyle({ outerStrokeWidth: parseInt(e.target.value, 10) })}
                 className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
               />
             </div>
 
             {/* Inner Glow Stroke */}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <div className="flex justify-between items-center">
                 <span className="font-semibold text-gatefold-text">Inner Glow Width</span>
-                <span className="font-mono text-gatefold-text-3">{style.innerStrokeWidth}px</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={style.innerStrokeWidth}
+                    onChange={(e) =>
+                      setStyle({
+                        innerStrokeWidth: Math.max(0, parseInt(e.target.value, 10) || 0),
+                      })
+                    }
+                    className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                  />
+                  <span className="text-[10px] font-mono text-gatefold-text-3">px</span>
+                </div>
               </div>
               <input
                 type="range"
                 min={0}
-                max={10}
-                value={style.innerStrokeWidth}
+                max={24}
+                value={Math.min(24, style.innerStrokeWidth)}
                 onChange={(e) => setStyle({ innerStrokeWidth: parseInt(e.target.value, 10) })}
-                className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
-              />
-            </div>
-
-            {/* Y-Offset Position */}
-            <div className="space-y-2 pt-2 border-t border-gatefold-line">
-              <div className="flex justify-between items-center">
-                <span className="font-semibold text-gatefold-text">Y-Position Offset</span>
-                <span className="font-mono text-gatefold-text-3">{style.yOffset}px</span>
-              </div>
-              <input
-                type="range"
-                min={20}
-                max={160}
-                value={style.yOffset}
-                onChange={(e) => setStyle({ yOffset: parseInt(e.target.value, 10) })}
                 className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
               />
             </div>

@@ -33,6 +33,7 @@ describe('SubtitleExporter (.ass & .srt)', () => {
     rubyActiveColor: '#5affb5',
     translationFillColor: '#bfc3ca',
     verticalPosition: 'bottom',
+    xOffset: 0,
     yOffset: 80,
     rubyScale: 0.45,
     showSafeGuides: true,
