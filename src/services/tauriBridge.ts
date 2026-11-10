@@ -75,6 +75,11 @@ export interface YtDlpStatus {
   version: string | null;
 }
 
+export interface OpenedProjectFile {
+  path: string;
+  contents: string;
+}
+
 function isTauriEnvironment(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
@@ -217,6 +222,31 @@ export const tauriBridge = {
     if (!isTauriEnvironment()) return path;
     const { convertFileSrc } = await import('@tauri-apps/api/core');
     return convertFileSrc(path);
+  },
+
+  async saveProjectDialog(defaultName: string): Promise<string | null> {
+    if (isTauriEnvironment()) {
+      return invokeTauri<string | null>('project_save_dialog', { defaultName });
+    }
+    return null;
+  },
+
+  async writeProjectFile(path: string, contents: string): Promise<string> {
+    return invokeTauri<string>('project_write_file', { path, contents });
+  },
+
+  async openProjectDialog(): Promise<OpenedProjectFile | null> {
+    if (isTauriEnvironment()) {
+      return invokeTauri<OpenedProjectFile | null>('project_open_dialog');
+    }
+    return null;
+  },
+
+  async openMediaDialog(): Promise<string | null> {
+    if (isTauriEnvironment()) {
+      return invokeTauri<string | null>('media_open_dialog');
+    }
+    return null;
   },
 
   async lyricsHttpGet(url: string, headers?: Record<string, string>): Promise<string> {

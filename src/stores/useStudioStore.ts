@@ -11,6 +11,8 @@ import type {
   SubStellarProjectFile,
 } from '../types';
 import { tokenizeSubtitleText } from '../engine/text/RubyLayout';
+import { cacheActiveMediaFile, clearCachedMediaFile } from '../services/mediaCache';
+import { tauriBridge } from '../services/tauriBridge';
 
 export const AUTOSAVE_STORAGE_KEY = 'substellar:project-autosave:v1';
 
@@ -123,12 +125,14 @@ interface StudioStoreState {
   isLooping: boolean;
   status: ProjectStatus;
   errorMessage: string | null;
+  projectFilePath: string | null;
   track: TrackMetadata;
   lines: SubtitleLine[];
   selectedLineId: string | null;
   style: SubtitleStyle;
 
   setActiveTab: (tab: StudioTab) => void;
+  setProjectFilePath: (path: string | null) => void;
   setAspectRatio: (aspect: AspectRatio) => void;
   setCanvasResolution: (res: CanvasResolutionPreset) => void;
   setZoom: (zoom: number) => void;
@@ -155,12 +159,14 @@ interface StudioStoreState {
   updateLineTiming: (id: string, startTime: number, endTime: number) => void;
   updateTokenTiming: (lineId: string, tokenIndex: number, startTime: number, endTime: number) => void;
   resetTokenTimingsEvenly: (lineId: string) => void;
+  resolveOverlappingLines: () => number;
   setTokensForLine: (lineId: string, tokens: RubyToken[], serializedText?: string) => void;
   exportProjectJson: () => string;
   importProjectJson: (jsonString: string) => void;
   saveToLocalStorage: () => void;
   loadSampleTrack: () => void;
   loadLocalMedia: (file: File) => void;
+  loadLocalMediaFromPath: (filePath: string) => Promise<void>;
   clearProject: () => void;
   setErrorMessage: (msg: string | null) => void;
 }
@@ -179,6 +185,7 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
   isLooping: false,
   status: 'ready',
   errorMessage: null,
+  projectFilePath: null,
   track: {
     id: 'sample-track-1',
     title: 'Stellar Night Flight',
@@ -192,6 +199,7 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
   style: DEFAULT_SUBTITLE_STYLE,
 
   setActiveTab: (tab: StudioTab) => set({ activeTab: tab }),
+  setProjectFilePath: (path: string | null) => set({ projectFilePath: path }),
   setAspectRatio: (aspect: AspectRatio) => set({ aspectRatio: aspect }),
   setCanvasResolution: (res: CanvasResolutionPreset) => set({ canvasResolution: res }),
   setZoom: (zoom: number) => set({ zoom: Math.min(200, Math.max(50, zoom)) }),
@@ -460,6 +468,49 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
     });
   },
 
+  resolveOverlappingLines: () => {
+    const { lines } = get();
+    if (lines.length <= 1) return 0;
+
+    const sorted = [...lines].sort((a, b) => a.startTime - b.startTime);
+    let fixedCount = 0;
+
+    const resolved = sorted.map((line, idx) => {
+      const next = sorted[idx + 1];
+      if (!next) return line;
+      if (line.endTime <= next.startTime) return line;
+
+      fixedCount++;
+      const clampedEnd = roundTime(Math.max(line.startTime + 0.15, next.startTime - 0.02));
+      const oldSpan = Math.max(0.05, line.endTime - line.startTime);
+      const newSpan = Math.max(0.05, clampedEnd - line.startTime);
+
+      const scaledTokens: RubyToken[] = line.tokens.map((tok, i) => {
+        const relStart = (tok.startTime - line.startTime) / oldSpan;
+        const relEnd = (tok.endTime - line.startTime) / oldSpan;
+        return {
+          ...tok,
+          startTime: i === 0 ? line.startTime : roundTime(line.startTime + relStart * newSpan),
+          endTime:
+            i === line.tokens.length - 1
+              ? clampedEnd
+              : roundTime(line.startTime + relEnd * newSpan),
+        };
+      });
+
+      return {
+        ...line,
+        endTime: clampedEnd,
+        tokens: scaledTokens,
+      };
+    });
+
+    if (fixedCount > 0) {
+      set({ lines: resolved });
+    }
+    return fixedCount;
+  },
+
   setTokensForLine: (lineId: string, tokens: RubyToken[], serializedText?: string) => {
     const { lines } = get();
     set({
@@ -533,7 +584,10 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       coverUrl: parsed.track?.coverUrl,
       audioUrl: parsed.track?.audioUrl,
       videoUrl: parsed.track?.videoUrl,
+      mediaFilePath: parsed.track?.mediaFilePath,
     };
+
+    const hasMedia = Boolean(nextTrack.videoUrl || nextTrack.audioUrl || nextTrack.mediaFilePath);
 
     set({
       aspectRatio: parsed.aspectRatio || '16:9',
@@ -544,7 +598,7 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       lines: nextLines,
       selectedLineId: nextLines[0]?.id || null,
       currentTime: nextLines[0]?.startTime ?? 0,
-      status: nextLines.length > 0 ? 'ready' : 'idle',
+      status: nextLines.length > 0 || hasMedia ? 'ready' : 'idle',
       errorMessage: null,
     });
   },
@@ -560,9 +614,11 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
   },
 
   loadSampleTrack: () => {
+    void clearCachedMediaFile();
     set({
       status: 'ready',
       errorMessage: null,
+      projectFilePath: null,
       track: {
         id: 'sample-track-1',
         title: 'Stellar Night Flight',
@@ -579,16 +635,46 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
   },
 
   loadLocalMedia: (file: File) => {
+    const prevTrack = get().track;
+    if (prevTrack.videoUrl?.startsWith('blob:') && typeof URL.revokeObjectURL === 'function') {
+      try {
+        URL.revokeObjectURL(prevTrack.videoUrl);
+      } catch {
+        // Ignore
+      }
+    }
+    if (prevTrack.audioUrl?.startsWith('blob:') && typeof URL.revokeObjectURL === 'function') {
+      try {
+        URL.revokeObjectURL(prevTrack.audioUrl);
+      } catch {
+        // Ignore
+      }
+    }
+
     const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mkv|mov)$/i.test(file.name);
     const url = URL.createObjectURL(file);
+    const nativePath = (file as File & { path?: string }).path;
+
+    // Only cache in IndexedDB when no native file path is available (and capped at 50 MB)
+    if (!nativePath) {
+      void cacheActiveMediaFile(file, isVideo);
+    }
 
     if (typeof document !== 'undefined') {
       const media = document.createElement(isVideo ? 'video' : 'audio');
       media.src = url;
       media.preload = 'metadata';
 
+      const cleanupProbe = () => {
+        media.onloadedmetadata = null;
+        media.onerror = null;
+        media.removeAttribute('src');
+        media.load();
+      };
+
       media.onloadedmetadata = () => {
         const duration = media.duration && !isNaN(media.duration) ? media.duration : 180;
+        cleanupProbe();
         set({
           track: {
             id: `local-${Date.now()}`,
@@ -597,6 +683,7 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
             duration,
             videoUrl: isVideo ? url : undefined,
             audioUrl: !isVideo ? url : undefined,
+            mediaFilePath: nativePath,
           },
           duration,
           currentTime: 0,
@@ -606,6 +693,7 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       };
 
       media.onerror = () => {
+        cleanupProbe();
         set({
           track: {
             id: `local-${Date.now()}`,
@@ -614,6 +702,82 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
             duration: 180,
             videoUrl: isVideo ? url : undefined,
             audioUrl: !isVideo ? url : undefined,
+            mediaFilePath: nativePath,
+          },
+          duration: 180,
+          currentTime: 0,
+          status: 'ready',
+          errorMessage: null,
+        });
+      };
+    }
+  },
+
+  loadLocalMediaFromPath: async (filePath: string) => {
+    const prevTrack = get().track;
+    if (prevTrack.videoUrl?.startsWith('blob:') && typeof URL.revokeObjectURL === 'function') {
+      try {
+        URL.revokeObjectURL(prevTrack.videoUrl);
+      } catch {
+        // Ignore
+      }
+    }
+    if (prevTrack.audioUrl?.startsWith('blob:') && typeof URL.revokeObjectURL === 'function') {
+      try {
+        URL.revokeObjectURL(prevTrack.audioUrl);
+      } catch {
+        // Ignore
+      }
+    }
+
+    const isVideo = /\.(mp4|webm|mkv|mov)$/i.test(filePath);
+    const playableUrl = await tauriBridge.toPlayableUrl(filePath);
+    const filename = filePath.split(/[/\\]/).pop() || 'Local Media';
+    const title = filename.replace(/\.[^/.]+$/, '');
+
+    if (typeof document !== 'undefined') {
+      const media = document.createElement(isVideo ? 'video' : 'audio');
+      media.src = playableUrl;
+      media.preload = 'metadata';
+
+      const cleanupProbe = () => {
+        media.onloadedmetadata = null;
+        media.onerror = null;
+        media.removeAttribute('src');
+        media.load();
+      };
+
+      media.onloadedmetadata = () => {
+        const duration = media.duration && !isNaN(media.duration) ? media.duration : 180;
+        cleanupProbe();
+        set({
+          track: {
+            id: `local-${Date.now()}`,
+            title,
+            artist: 'Local Media',
+            duration,
+            videoUrl: isVideo ? playableUrl : undefined,
+            audioUrl: !isVideo ? playableUrl : undefined,
+            mediaFilePath: filePath,
+          },
+          duration,
+          currentTime: 0,
+          status: 'ready',
+          errorMessage: null,
+        });
+      };
+
+      media.onerror = () => {
+        cleanupProbe();
+        set({
+          track: {
+            id: `local-${Date.now()}`,
+            title,
+            artist: 'Local Media',
+            duration: 180,
+            videoUrl: isVideo ? playableUrl : undefined,
+            audioUrl: !isVideo ? playableUrl : undefined,
+            mediaFilePath: filePath,
           },
           duration: 180,
           currentTime: 0,
@@ -625,9 +789,26 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
   },
 
   clearProject: () => {
+    const prevTrack = get().track;
+    if (prevTrack.videoUrl?.startsWith('blob:') && typeof URL.revokeObjectURL === 'function') {
+      try {
+        URL.revokeObjectURL(prevTrack.videoUrl);
+      } catch {
+        // Ignore
+      }
+    }
+    if (prevTrack.audioUrl?.startsWith('blob:') && typeof URL.revokeObjectURL === 'function') {
+      try {
+        URL.revokeObjectURL(prevTrack.audioUrl);
+      } catch {
+        // Ignore
+      }
+    }
+    void clearCachedMediaFile();
     set({
       status: 'idle',
       errorMessage: null,
+      projectFilePath: null,
       track: {
         id: '',
         title: 'Untitled Project',

@@ -44,5 +44,26 @@ describe('PlaybackEngine', () => {
 
     expect(mockMedia.currentTime).toBe(45.5);
   });
+
+  it('syncs user seek to mediaElement even while video is actively playing', () => {
+    const mockMedia = {
+      currentTime: 10,
+      volume: 1,
+      muted: false,
+      paused: false,
+      seeking: false,
+      play: vi.fn().mockResolvedValue(undefined),
+      pause: vi.fn(),
+    } as unknown as HTMLMediaElement;
+
+    playbackEngine.bindMediaElement(mockMedia);
+    useStudioStore.setState({ isPlaying: true, currentTime: 10 });
+
+    // User drags timeline scrubber while video is playing
+    useStudioStore.getState().seek(62.4);
+
+    expect(useStudioStore.getState().currentTime).toBe(62.4);
+    expect(mockMedia.currentTime).toBe(62.4);
+  });
 });
 

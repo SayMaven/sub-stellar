@@ -20,13 +20,15 @@ export class PlaybackEngine {
   private rafId: number | null = null;
   private lastTimestamp: number = 0;
   private isRunning: boolean = false;
+  private lastDrivenTime: number = -1;
+  private lastUserSeekAt: number = 0;
 
   constructor() {
     this.initStoreSubscriber();
   }
 
   private initStoreSubscriber(): void {
-    // Listen to isPlaying state changes from useStudioStore
+    // Listen to isPlaying and currentTime state changes from useStudioStore
     useStudioStore.subscribe((state, prevState) => {
       if (state.isPlaying !== prevState.isPlaying) {
         if (state.isPlaying) {
@@ -46,8 +48,11 @@ export class PlaybackEngine {
         }
       }
 
-      // If user seeks while paused or dragging
-      if (Math.abs(state.currentTime - prevState.currentTime) > 0.05 && !this.isRunning) {
+      // If user seeks (whether paused OR while video is playing!)
+      if (
+        Math.abs(state.currentTime - prevState.currentTime) > 0.001 &&
+        Math.abs(state.currentTime - this.lastDrivenTime) > 0.02
+      ) {
         this.syncSeek(state.currentTime);
       }
     });
@@ -56,17 +61,26 @@ export class PlaybackEngine {
   public bindMediaElement(el: HTMLMediaElement | null): void {
     this.mediaElement = el;
     if (this.mediaElement) {
-      const { volume, isMuted, currentTime } = useStudioStore.getState();
+      const { volume, isMuted, currentTime, isPlaying } = useStudioStore.getState();
       this.mediaElement.volume = volume;
       this.mediaElement.muted = isMuted;
       if (Math.abs(this.mediaElement.currentTime - currentTime) > 0.1) {
-        this.mediaElement.currentTime = currentTime;
+        try {
+          this.mediaElement.currentTime = currentTime;
+        } catch {
+          // Ignore if metadata not yet loaded
+        }
+      }
+      if (isPlaying && this.mediaElement.paused) {
+        this.mediaElement.play().catch(() => {});
       }
     }
   }
 
   public syncSeek(time: number): void {
-    if (this.mediaElement && Math.abs(this.mediaElement.currentTime - time) > 0.05) {
+    this.lastDrivenTime = time;
+    this.lastUserSeekAt = performance.now();
+    if (this.mediaElement && Math.abs(this.mediaElement.currentTime - time) > 0.03) {
       try {
         this.mediaElement.currentTime = time;
       } catch {
@@ -81,6 +95,14 @@ export class PlaybackEngine {
     this.lastTimestamp = performance.now();
 
     if (this.mediaElement) {
+      const { currentTime } = useStudioStore.getState();
+      if (Math.abs(this.mediaElement.currentTime - currentTime) > 0.15) {
+        try {
+          this.mediaElement.currentTime = currentTime;
+        } catch {
+          // Safe catch
+        }
+      }
       this.mediaElement.play().catch(() => {
         // Fallback to synthetic clock if audio play was blocked by browser autoplay policy
       });
@@ -96,7 +118,12 @@ export class PlaybackEngine {
       let nextTime = store.currentTime;
 
       if (this.mediaElement && !this.mediaElement.paused) {
-        nextTime = this.mediaElement.currentTime;
+        // While media decoder is actively seeking after user drag, keep user's target time
+        if (this.mediaElement.seeking || now - this.lastUserSeekAt < 90) {
+          nextTime = store.currentTime;
+        } else {
+          nextTime = this.mediaElement.currentTime;
+        }
       } else {
         nextTime += deltaSeconds;
       }
@@ -104,15 +131,18 @@ export class PlaybackEngine {
       if (nextTime >= store.duration && store.duration > 0) {
         if (store.isLooping) {
           nextTime = 0;
+          this.lastDrivenTime = 0;
           if (this.mediaElement) this.mediaElement.currentTime = 0;
           useStudioStore.setState({ currentTime: 0 });
         } else {
           nextTime = store.duration;
+          this.lastDrivenTime = nextTime;
           this.stop();
           useStudioStore.setState({ isPlaying: false, currentTime: store.duration });
           return;
         }
       } else {
+        this.lastDrivenTime = nextTime;
         useStudioStore.setState({ currentTime: nextTime });
       }
 

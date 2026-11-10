@@ -24,24 +24,30 @@ export const SubtitleInspector: React.FC = () => {
   const [tab, setTab] = useState<'text' | 'colors' | 'style' | 'particles' | 'presets'>('text');
   const [selectedTokenIdx, setSelectedTokenIdx] = useState<number>(0);
 
-  const {
-    lines,
-    selectedLineId,
-    setSelectedLineId,
-    addLine,
-    duplicateLine,
-    deleteLine,
-    updateLineText,
-    updateLineTranslation,
-    updateLineTiming,
-    updateTokenTiming,
-    resetTokenTimingsEvenly,
-    currentTime,
-    style,
-    setStyle,
-    seek,
-    setActiveTab,
-  } = useStudioStore();
+  const lines = useStudioStore((s) => s.lines);
+  const selectedLineId = useStudioStore((s) => s.selectedLineId);
+  const setSelectedLineId = useStudioStore((s) => s.setSelectedLineId);
+  const addLine = useStudioStore((s) => s.addLine);
+  const duplicateLine = useStudioStore((s) => s.duplicateLine);
+  const deleteLine = useStudioStore((s) => s.deleteLine);
+  const updateLineText = useStudioStore((s) => s.updateLineText);
+  const updateLineTranslation = useStudioStore((s) => s.updateLineTranslation);
+  const updateLineTiming = useStudioStore((s) => s.updateLineTiming);
+  const updateTokenTiming = useStudioStore((s) => s.updateTokenTiming);
+  const resetTokenTimingsEvenly = useStudioStore((s) => s.resetTokenTimingsEvenly);
+  const style = useStudioStore((s) => s.style);
+  const setStyle = useStudioStore((s) => s.setStyle);
+  const seek = useStudioStore((s) => s.seek);
+  const setActiveTab = useStudioStore((s) => s.setActiveTab);
+
+  // Only re-render when the active token index changes, not at 60 FPS!
+  const playingTokenIdx = useStudioStore((s) => {
+    const line = s.lines.find((l) => l.id === s.selectedLineId) || s.lines[0];
+    if (!line || !line.tokens) return -1;
+    return line.tokens.findIndex(
+      (t) => s.currentTime >= t.startTime && s.currentTime < t.endTime
+    );
+  });
 
   const activeIndex = lines.findIndex((l) => l.id === selectedLineId);
   const activeLine = lines[activeIndex] || lines[0];
@@ -109,8 +115,9 @@ export const SubtitleInspector: React.FC = () => {
 
   const handleSnapTokenEndToPlayhead = () => {
     if (!activeToken) return;
-    if (currentTime > activeToken.startTime + 0.05 && currentTime <= activeLine.endTime) {
-      updateTokenTiming(activeLine.id, safeTokenIdx, activeToken.startTime, currentTime);
+    const nowTime = useStudioStore.getState().currentTime;
+    if (nowTime > activeToken.startTime + 0.05 && nowTime <= activeLine.endTime) {
+      updateTokenTiming(activeLine.id, safeTokenIdx, activeToken.startTime, nowTime);
       if (safeTokenIdx < activeLine.tokens.length - 1) {
         setSelectedTokenIdx(safeTokenIdx + 1);
       }
@@ -361,8 +368,7 @@ export const SubtitleInspector: React.FC = () => {
                 <div className="flex flex-wrap gap-1.5">
                   {activeLine.tokens.map((tok, i) => {
                     const isSel = i === safeTokenIdx;
-                    const isPlayingNow =
-                      currentTime >= tok.startTime && currentTime < tok.endTime;
+                    const isPlayingNow = i === playingTokenIdx;
                     const dur = Math.max(0.05, tok.endTime - tok.startTime);
                     return (
                       <button
@@ -490,7 +496,7 @@ export const SubtitleInspector: React.FC = () => {
                       title="Set this word's end time to the current playhead and advance to the next word"
                     >
                       <Crosshair className="w-3 h-3" />
-                      <span>Set Word End to Playhead ({currentTime.toFixed(2)}s)</span>
+                      <span>Set Word End to Current Playhead</span>
                     </button>
                   </div>
                 </div>

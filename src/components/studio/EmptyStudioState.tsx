@@ -2,13 +2,37 @@ import React, { useRef, useState } from 'react';
 import { UploadCloud, Sparkles, Video, FileText, HardDrive } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { parseLrc } from '../../services/lyrics/lrcParser';
+import { tauriBridge } from '../../services/tauriBridge';
 
 export const EmptyStudioState: React.FC = () => {
-  const { loadSampleTrack, loadLocalMedia, importLyrics, importProjectJson, setActiveTab } =
-    useStudioStore();
+  const {
+    loadSampleTrack,
+    loadLocalMedia,
+    loadLocalMediaFromPath,
+    saveToLocalStorage,
+    importLyrics,
+    importProjectJson,
+    setActiveTab,
+  } = useStudioStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const subtitleInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleChooseMediaClick = async () => {
+    if (tauriBridge.isAvailable()) {
+      try {
+        const chosenPath = await tauriBridge.openMediaDialog();
+        if (chosenPath) {
+          await loadLocalMediaFromPath(chosenPath);
+          saveToLocalStorage();
+        }
+        return;
+      } catch {
+        // fallback to input
+      }
+    }
+    fileInputRef.current?.click();
+  };
 
   const processSelectedFile = (file: File) => {
     const ext = file.name.toLowerCase();
@@ -114,7 +138,7 @@ export const EmptyStudioState: React.FC = () => {
         {/* Action Buttons */}
         <div className="w-full space-y-2 pt-2">
           <button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => void handleChooseMediaClick()}
             className="w-full py-2.5 px-4 rounded-lg bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-xs font-semibold text-gatefold-text transition-all flex items-center justify-center gap-2"
           >
             <HardDrive className="w-4 h-4 text-gatefold-accent" />

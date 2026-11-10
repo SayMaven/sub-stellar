@@ -16,6 +16,10 @@ pub fn run() {
             commands::ytdl::ytdl_check_binary,
             commands::ytdl::ytdl_download_media,
             commands::lyrics_proxy::lyrics_http_get,
+            commands::project_io::project_save_dialog,
+            commands::project_io::project_write_file,
+            commands::project_io::project_open_dialog,
+            commands::project_io::media_open_dialog,
         ])
         .run(tauri::generate_context!())
         .expect("error while running substellar application");

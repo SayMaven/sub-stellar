@@ -7,28 +7,34 @@ import {
   Volume2,
   Plus,
   Trash2,
+  Wand2,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { waveformManager } from '../../engine/audio/WaveformManager';
 import { RubyEditorModal } from '../furigana/RubyEditorModal';
 
 export const TimelineDrawer: React.FC = () => {
-  const {
-    currentTime,
-    duration,
-    seek,
-    lines,
-    selectedLineId,
-    setSelectedLineId,
-    addLine,
-    deleteLine,
-    updateLineTiming,
-    updateTokenTiming,
-    track,
-    loadSampleTrack,
-  } = useStudioStore();
+  const duration = useStudioStore((s) => s.duration);
+  const isPlaying = useStudioStore((s) => s.isPlaying);
+  const seek = useStudioStore((s) => s.seek);
+  const lines = useStudioStore((s) => s.lines);
+  const selectedLineId = useStudioStore((s) => s.selectedLineId);
+  const setSelectedLineId = useStudioStore((s) => s.setSelectedLineId);
+  const addLine = useStudioStore((s) => s.addLine);
+  const deleteLine = useStudioStore((s) => s.deleteLine);
+  const updateLineTiming = useStudioStore((s) => s.updateLineTiming);
+  const updateTokenTiming = useStudioStore((s) => s.updateTokenTiming);
+  const resolveOverlappingLines = useStudioStore((s) => s.resolveOverlappingLines);
+  const track = useStudioStore((s) => s.track);
+  const loadSampleTrack = useStudioStore((s) => s.loadSampleTrack);
 
-  const [zoom, setZoom] = useState<number>(1); // 1x, 2x, 4x
+  // Only re-render when the active subtitle line ID changes, not at 60 FPS!
+  const activeLineId = useStudioStore((s) => {
+    const found = s.lines.find((l) => s.currentTime >= l.startTime && s.currentTime <= l.endTime);
+    return found ? found.id : null;
+  });
+
+  const [zoom, setZoom] = useState<number>(2); // Default 2x for clearer block separation (1x..16x)
   const [peaks, setPeaks] = useState<Float32Array | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
@@ -36,6 +42,7 @@ export const TimelineDrawer: React.FC = () => {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const playheadRef = useRef<HTMLDivElement>(null);
 
   // Load downsampled waveform peaks via Web Worker
   useEffect(() => {
@@ -215,11 +222,10 @@ export const TimelineDrawer: React.FC = () => {
     window.addEventListener('pointerup', onPointerUp);
   };
 
-  const playheadPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
   const editingLine = lines.find((l) => l.id === editingLineId);
 
   const rulerTicks = useMemo(() => {
-    const interval = zoom >= 4 ? 5 : zoom >= 2 ? 15 : 30;
+    const interval = zoom >= 8 ? 2 : zoom >= 4 ? 5 : zoom >= 2 ? 15 : 30;
     const ticks: { time: number; label: string; left: number }[] = [];
     if (duration <= 0) return ticks;
     for (let tm = 0; tm <= duration; tm += interval) {
@@ -247,6 +253,77 @@ export const TimelineDrawer: React.FC = () => {
       observer.disconnect();
     };
   }, []);
+
+  // Direct DOM playhead & auto-scroll update via store subscription (0 React re-renders per frame!)
+  useEffect(() => {
+    const syncPlayhead = (time: number) => {
+      if (playheadRef.current && duration > 0) {
+        const pct = Math.max(0, Math.min(100, (time / duration) * 100));
+        playheadRef.current.style.left = `${pct}%`;
+      }
+      const el = containerRef.current;
+      if (!el || !isPlaying || isScrubbing || duration <= 0) return;
+      const totalW = el.clientWidth * zoom;
+      const playheadX = (time / duration) * totalW;
+      const viewStart = el.scrollLeft;
+      const viewEnd = viewStart + el.clientWidth;
+
+      if (playheadX > viewEnd - 80 || playheadX < viewStart) {
+        el.scrollLeft = Math.max(0, playheadX - el.clientWidth * 0.25);
+      }
+    };
+
+    syncPlayhead(useStudioStore.getState().currentTime);
+
+    let lastTime = useStudioStore.getState().currentTime;
+    const unsubscribe = useStudioStore.subscribe((state) => {
+      if (state.currentTime !== lastTime) {
+        lastTime = state.currentTime;
+        syncPlayhead(state.currentTime);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [duration, isPlaying, isScrubbing, zoom]);
+
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.ctrlKey || e.altKey) {
+      e.preventDefault();
+      if (e.deltaY < 0) {
+        setZoom((z) => Math.min(16, z * 2));
+      } else if (e.deltaY > 0) {
+        setZoom((z) => Math.max(1, z / 2));
+      }
+    }
+  };
+
+  // Compute multi-lane packing (0 or 1) and count genuinely overlapping lines
+  const { laneById, hasMultiLane, overlapCount } = useMemo(() => {
+    const sorted = [...lines].sort((a, b) => a.startTime - b.startTime);
+    const map = new Map<string, number>();
+    const laneEnds = [-1, -1];
+    let overlaps = 0;
+    let multi = false;
+
+    for (let i = 0; i < sorted.length; i++) {
+      const line = sorted[i];
+      const next = sorted[i + 1];
+      if (next && line.endTime > next.startTime + 0.02) {
+        overlaps++;
+      }
+
+      if (line.startTime >= laneEnds[0] - 0.02) {
+        map.set(line.id, 0);
+        laneEnds[0] = line.endTime;
+      } else {
+        map.set(line.id, 1);
+        laneEnds[1] = Math.max(laneEnds[1], line.endTime);
+        multi = true;
+      }
+    }
+
+    return { laneById: map, hasMultiLane: multi, overlapCount: overlaps };
+  }, [lines]);
 
   const totalPx = viewport.width * zoom;
   const visibleFrom = duration > 0 ? ((viewport.scrollLeft - 200) / totalPx) * duration : 0;
@@ -292,6 +369,17 @@ export const TimelineDrawer: React.FC = () => {
               <span>Delete</span>
             </button>
           )}
+
+          {overlapCount > 0 && (
+            <button
+              onClick={() => resolveOverlappingLines()}
+              className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 text-[10px] font-sans font-medium"
+              title="Auto-trim overlapping subtitle line end times so no two lines collide"
+            >
+              <Wand2 className="w-3 h-3" />
+              <span>Fix Overlaps ({overlapCount})</span>
+            </button>
+          )}
         </div>
 
         {/* Zoom Controls */}
@@ -301,18 +389,18 @@ export const TimelineDrawer: React.FC = () => {
             onClick={() => setZoom((z) => Math.max(1, z / 2))}
             disabled={zoom <= 1}
             className="p-1 rounded hover:bg-gatefold-hover text-gatefold-text-3 hover:text-gatefold-text disabled:opacity-30"
-            title="Zoom Out"
+            title="Zoom Out (Ctrl+Scroll)"
           >
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
-          <span className="text-[10px] font-semibold text-gatefold-accent min-w-6 text-center">
+          <span className="text-[10px] font-semibold text-gatefold-accent min-w-7 text-center">
             {zoom}x
           </span>
           <button
-            onClick={() => setZoom((z) => Math.min(4, z * 2))}
-            disabled={zoom >= 4}
+            onClick={() => setZoom((z) => Math.min(16, z * 2))}
+            disabled={zoom >= 16}
             className="p-1 rounded hover:bg-gatefold-hover text-gatefold-text-3 hover:text-gatefold-text disabled:opacity-30"
-            title="Zoom In"
+            title="Zoom In (Ctrl+Scroll)"
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
@@ -322,6 +410,7 @@ export const TimelineDrawer: React.FC = () => {
       {/* Scroller Area */}
       <div
         ref={containerRef}
+        onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -346,7 +435,7 @@ export const TimelineDrawer: React.FC = () => {
             ref={canvasRef}
             width={Math.max(300, Math.round(viewport.width * zoom * (window.devicePixelRatio || 1)))}
             height={70}
-            className="absolute inset-x-0 top-5 h-16 w-full pointer-events-none opacity-40"
+            className="absolute inset-x-0 top-5 h-14 w-full pointer-events-none opacity-40"
           />
 
           {/* Empty State when no lines */}
@@ -369,40 +458,47 @@ export const TimelineDrawer: React.FC = () => {
               </button>
             </div>
           ) : (
-            /* Subtitle Blocks Track */
-            <div className="absolute inset-x-0 bottom-2.5 h-14 flex items-center">
+            /* Subtitle Blocks Track (Supports 1 or 2 staggered lanes so blocks never collide) */
+            <div className="absolute inset-x-0 bottom-1.5 h-16">
               {visibleLines.map((line) => {
                 const leftPercent = (line.startTime / duration) * 100;
-                const widthPercent = ((line.endTime - line.startTime) / duration) * 100;
+                const widthPercent = Math.max(0.15, ((line.endTime - line.startTime) / duration) * 100);
                 const isSelected = selectedLineId === line.id;
-                const isCurrent = currentTime >= line.startTime && currentTime <= line.endTime;
+                const isCurrent = activeLineId === line.id;
                 const lineSpan = Math.max(0.05, line.endTime - line.startTime);
+                const lane = laneById.get(line.id) ?? 0;
+                const blockPxWidth = (widthPercent / 100) * totalPx;
 
                 return (
                   <div
                     key={line.id}
+                    title={`${line.text || '(Empty)'} [${line.startTime.toFixed(2)}s - ${line.endTime.toFixed(2)}s]`}
                     onClick={(e) => {
                       e.stopPropagation();
                       setSelectedLineId(line.id);
                       seek(line.startTime);
                     }}
                     onPointerDown={(e) => handleBlockDrag(e, line.id, 'move')}
-                    className={`absolute h-11 rounded-lg px-2 flex items-center justify-between text-xs font-medium cursor-grab active:cursor-grabbing border select-none group overflow-hidden ${
+                    className={`absolute rounded-md px-1.5 flex items-center justify-between text-xs font-medium cursor-grab active:cursor-grabbing border select-none group overflow-hidden ${
+                      hasMultiLane ? 'h-7' : 'h-11 top-2.5'
+                    } ${
                       isCurrent
-                        ? 'bg-gatefold-accent/30 text-gatefold-accent border-gatefold-accent'
+                        ? 'bg-gatefold-accent/30 text-gatefold-accent border-gatefold-accent z-20'
                         : isSelected
-                        ? 'bg-gatefold-surface-2 text-gatefold-text border-gatefold-accent ring-1 ring-gatefold-accent/50'
-                        : 'bg-gatefold-surface/90 text-gatefold-text-2 border-gatefold-line hover:border-gatefold-line-2'
+                        ? 'bg-gatefold-surface-2 text-gatefold-text border-gatefold-accent ring-1 ring-gatefold-accent/50 z-20'
+                        : 'bg-gatefold-surface text-gatefold-text-2 border-gatefold-line hover:border-gatefold-line-2 z-10'
                     }`}
                     style={{
                       left: `${leftPercent}%`,
-                      width: `${Math.max(4, widthPercent)}%`,
+                      width: `calc(${widthPercent}% - 2px)`,
+                      minWidth: '8px',
+                      top: hasMultiLane ? (lane === 0 ? '2px' : '32px') : undefined,
                     }}
                   >
                     {/* Left Trim Handle */}
                     <div
                       onPointerDown={(e) => handleBlockDrag(e, line.id, 'start')}
-                      className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-gatefold-accent/60 rounded-l-lg z-20 transition-colors"
+                      className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-gatefold-accent/60 rounded-l-md z-20 transition-colors"
                       title="Trim Line Start"
                     />
 
@@ -424,38 +520,42 @@ export const TimelineDrawer: React.FC = () => {
                       })}
 
                     {/* Line Content & Syllables */}
-                    <div className="flex items-center gap-1.5 overflow-hidden pl-1 pr-1 pointer-events-none z-10">
-                      <span className="truncate font-semibold">
-                        {line.text.trim() ? line.text : '(Empty Subtitle)'}
+                    <div className="flex items-center gap-1 overflow-hidden pl-0.5 pr-0.5 pointer-events-none z-10 min-w-0">
+                      <span className="truncate font-semibold text-[11px]">
+                        {line.text.trim() ? line.text : '(Empty)'}
                       </span>
-                      {line.tokens && line.tokens.length > 1 && (
-                        <span className="text-[9px] font-mono text-gatefold-text-3 px-1 py-0.2 rounded bg-gatefold-surface border border-gatefold-line shrink-0">
-                          {line.tokens.length} words
+                      {blockPxWidth >= 110 && line.tokens && line.tokens.length > 1 && (
+                        <span className="text-[9px] font-mono text-gatefold-text-3 px-1 py-0.2 rounded bg-gatefold-bg/60 border border-gatefold-line shrink-0">
+                          {line.tokens.length}w
                         </span>
                       )}
                     </div>
 
-                    {/* Quick Edit Furigana Trigger */}
-                    <div className="flex items-center gap-1 shrink-0 z-20">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingLineId(line.id);
-                        }}
-                        className="p-1 rounded hover:bg-gatefold-accent hover:text-gatefold-bg text-gatefold-text-3 transition-colors opacity-0 group-hover:opacity-100"
-                        title="Edit Furigana & Word Durations"
-                      >
-                        <Sparkles className="w-3 h-3" />
-                      </button>
-                      <span className="text-[9px] font-mono text-gatefold-text-3">
-                        {(line.endTime - line.startTime).toFixed(1)}s
-                      </span>
-                    </div>
+                    {/* Quick Edit Furigana Trigger (only shown when block is wide enough or hovered) */}
+                    {blockPxWidth >= 64 && (
+                      <div className="flex items-center gap-1 shrink-0 z-20">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingLineId(line.id);
+                          }}
+                          className="p-0.5 rounded hover:bg-gatefold-accent hover:text-gatefold-bg text-gatefold-text-3 transition-colors opacity-0 group-hover:opacity-100"
+                          title="Edit Furigana & Word Durations"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                        </button>
+                        {blockPxWidth >= 90 && (
+                          <span className="text-[9px] font-mono text-gatefold-text-3">
+                            {(line.endTime - line.startTime).toFixed(1)}s
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     {/* Right Trim Handle */}
                     <div
                       onPointerDown={(e) => handleBlockDrag(e, line.id, 'end')}
-                      className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-gatefold-accent/60 rounded-r-lg z-20 transition-colors"
+                      className="absolute right-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-gatefold-accent/60 rounded-r-md z-20 transition-colors"
                       title="Trim Line End"
                     />
                   </div>
@@ -467,8 +567,15 @@ export const TimelineDrawer: React.FC = () => {
           {/* Draggable Playhead Scrubber */}
           {duration > 0 && (
             <div
+              ref={playheadRef}
               className="absolute top-0 bottom-0 w-0.5 bg-red-400 z-30 pointer-events-none"
-              style={{ left: `${playheadPercent}%` }}
+              style={{
+                left: `${
+                  duration > 0
+                    ? Math.max(0, Math.min(100, (useStudioStore.getState().currentTime / duration) * 100))
+                    : 0
+                }%`,
+              }}
             >
               <div className="w-3 h-3 -ml-1.25 bg-red-400 rounded-full shadow-md" />
             </div>

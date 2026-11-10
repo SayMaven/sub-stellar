@@ -30,27 +30,25 @@ const RESOLUTION_PRESETS: { id: CanvasResolutionPreset; label: string }[] = [
 ];
 
 export const MainStage: React.FC = () => {
-  const {
-    aspectRatio,
-    setAspectRatio,
-    canvasResolution,
-    setCanvasResolution,
-    zoom,
-    setZoom,
-    lines,
-    track,
-    errorMessage,
-    setErrorMessage,
-    loadSampleTrack,
-    addLine,
-  } = useStudioStore();
+  const aspectRatio = useStudioStore((s) => s.aspectRatio);
+  const setAspectRatio = useStudioStore((s) => s.setAspectRatio);
+  const canvasResolution = useStudioStore((s) => s.canvasResolution);
+  const setCanvasResolution = useStudioStore((s) => s.setCanvasResolution);
+  const zoom = useStudioStore((s) => s.zoom);
+  const setZoom = useStudioStore((s) => s.setZoom);
+  const linesCount = useStudioStore((s) => s.lines.length);
+  const track = useStudioStore((s) => s.track);
+  const errorMessage = useStudioStore((s) => s.errorMessage);
+  const setErrorMessage = useStudioStore((s) => s.setErrorMessage);
+  const loadSampleTrack = useStudioStore((s) => s.loadSampleTrack);
+  const addLine = useStudioStore((s) => s.addLine);
 
   const hasLoadedMedia = Boolean(
-    track.videoUrl || track.audioUrl || track.coverUrl || (track.id && track.duration > 0 && lines.length > 0)
+    track.videoUrl || track.audioUrl || track.coverUrl || (track.id && track.duration > 0 && linesCount > 0)
   );
-  const isCompletelyEmpty = lines.length === 0 && !hasLoadedMedia;
+  const isCompletelyEmpty = linesCount === 0 && !hasLoadedMedia;
 
-  const { profile } = usePerfStore();
+  const profile = usePerfStore((s) => s.profile);
 
   const workspaceRef = useRef<HTMLDivElement>(null);
   const stageAreaRef = useRef<HTMLDivElement>(null);

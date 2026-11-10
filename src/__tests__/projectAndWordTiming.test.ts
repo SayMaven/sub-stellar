@@ -133,4 +133,15 @@ describe('Phase 8: Canvas Resolution, Project Save/Load, Line CRUD & Per-Word Vo
     expect(restored.style.wordAnimStyle).toBe('float');
     expect(restored.lines[0].translation).toBe('Custom translation');
   });
+
+  it('resolves overlapping subtitle lines automatically via resolveOverlappingLines', () => {
+    const store = useStudioStore.getState();
+    // Force line-1 endTime (20.0s) to overlap past line-2 startTime (17.0s)
+    store.updateLineTiming('line-1', 12.0, 20.0);
+    const fixed = useStudioStore.getState().resolveOverlappingLines();
+    expect(fixed).toBe(1);
+
+    const lines = useStudioStore.getState().lines;
+    expect(lines[0].endTime).toBeLessThanOrEqual(lines[1].startTime);
+  });
 });

@@ -99,6 +99,7 @@ export interface TrackMetadata {
   coverUrl?: string;
   audioUrl?: string;
   videoUrl?: string;
+  mediaFilePath?: string;
 }
 
 export interface SubStellarProjectFile {

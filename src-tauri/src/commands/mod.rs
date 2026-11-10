@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 pub mod ytdl;
 pub mod lyrics_proxy;
 pub mod ffmpeg;
+pub mod project_io;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {

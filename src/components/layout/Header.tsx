@@ -26,37 +26,44 @@ import { useStudioStore } from '../../stores/useStudioStore';
 import { downloadFile, generateAss, generateSrt } from '../../engine/text/SubtitleExporter';
 import { getCanvasPixelDimensions } from '../../engine/layout/layoutMath';
 import { parseLrc } from '../../services/lyrics/lrcParser';
+import { saveProjectToDisk } from '../../services/mediaCache';
+import { tauriBridge } from '../../services/tauriBridge';
 import type { AspectRatio, CanvasResolutionPreset } from '../../types';
 
 type MenuCategory = 'file' | 'subtitle' | 'view' | 'export' | null;
 
 export const Header: React.FC = () => {
-  const { mode, cycleQualityMode, toggleTelemetry, metrics } = usePerfStore();
-  const {
-    setActiveTab,
-    track,
-    lines,
-    selectedLineId,
-    style,
-    setStyle,
-    aspectRatio,
-    setAspectRatio,
-    canvasResolution,
-    setCanvasResolution,
-    setZoom,
-    addLine,
-    duplicateLine,
-    deleteLine,
-    setLines,
-    clearProject,
-    loadSampleTrack,
-    loadLocalMedia,
-    importLyrics,
-    exportProjectJson,
-    importProjectJson,
-    saveToLocalStorage,
-    setErrorMessage,
-  } = useStudioStore();
+  const mode = usePerfStore((s) => s.mode);
+  const cycleQualityMode = usePerfStore((s) => s.cycleQualityMode);
+  const toggleTelemetry = usePerfStore((s) => s.toggleTelemetry);
+  const fps = usePerfStore((s) => s.metrics.fps);
+
+  const setActiveTab = useStudioStore((s) => s.setActiveTab);
+  const track = useStudioStore((s) => s.track);
+  const lines = useStudioStore((s) => s.lines);
+  const selectedLineId = useStudioStore((s) => s.selectedLineId);
+  const style = useStudioStore((s) => s.style);
+  const setStyle = useStudioStore((s) => s.setStyle);
+  const aspectRatio = useStudioStore((s) => s.aspectRatio);
+  const setAspectRatio = useStudioStore((s) => s.setAspectRatio);
+  const canvasResolution = useStudioStore((s) => s.canvasResolution);
+  const setCanvasResolution = useStudioStore((s) => s.setCanvasResolution);
+  const setZoom = useStudioStore((s) => s.setZoom);
+  const addLine = useStudioStore((s) => s.addLine);
+  const duplicateLine = useStudioStore((s) => s.duplicateLine);
+  const deleteLine = useStudioStore((s) => s.deleteLine);
+  const setLines = useStudioStore((s) => s.setLines);
+  const clearProject = useStudioStore((s) => s.clearProject);
+  const loadSampleTrack = useStudioStore((s) => s.loadSampleTrack);
+  const loadLocalMedia = useStudioStore((s) => s.loadLocalMedia);
+  const loadLocalMediaFromPath = useStudioStore((s) => s.loadLocalMediaFromPath);
+  const importLyrics = useStudioStore((s) => s.importLyrics);
+  const exportProjectJson = useStudioStore((s) => s.exportProjectJson);
+  const importProjectJson = useStudioStore((s) => s.importProjectJson);
+  const saveToLocalStorage = useStudioStore((s) => s.saveToLocalStorage);
+  const projectFilePath = useStudioStore((s) => s.projectFilePath);
+  const setProjectFilePath = useStudioStore((s) => s.setProjectFilePath);
+  const setErrorMessage = useStudioStore((s) => s.setErrorMessage);
 
   const projectInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
@@ -64,7 +71,7 @@ export const Header: React.FC = () => {
   const menuContainerRef = useRef<HTMLDivElement>(null);
 
   const [openMenu, setOpenMenu] = useState<MenuCategory>(null);
-  const [savedToast, setSavedToast] = useState(false);
+  const [savedToast, setSavedToast] = useState<string | null>(null);
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -72,24 +79,63 @@ export const Header: React.FC = () => {
         setOpenMenu(null);
       }
     };
+    const handleProjectSaved = (e: Event) => {
+      const custom = e as CustomEvent<{ path?: string }>;
+      const rawPath = custom.detail?.path || 'Saved';
+      const baseName = rawPath.split(/[/\\]/).pop() || rawPath;
+      setSavedToast(baseName);
+      setTimeout(() => setSavedToast(null), 2400);
+    };
     window.addEventListener('mousedown', handleOutsideClick);
-    return () => window.removeEventListener('mousedown', handleOutsideClick);
+    window.addEventListener('substellar:project-saved', handleProjectSaved);
+    return () => {
+      window.removeEventListener('mousedown', handleOutsideClick);
+      window.removeEventListener('substellar:project-saved', handleProjectSaved);
+    };
   }, []);
 
-  const handleSaveProject = () => {
+  const handleSaveProject = async (forceSaveAs = false) => {
+    setOpenMenu(null);
     try {
       const json = exportProjectJson();
       saveToLocalStorage();
-      const slug = (track.title || 'substellar_project')
-        .toLowerCase()
-        .replace(/[^a-z0-9_-]/g, '_');
-      downloadFile(`${slug}.substellar`, json, 'application/json;charset=utf-8');
-      setSavedToast(true);
-      setTimeout(() => setSavedToast(false), 1800);
+      const slug =
+        (track.title || 'substellar_project').toLowerCase().replace(/[^a-z0-9_-]/g, '_') ||
+        'substellar_project';
+      const res = await saveProjectToDisk({
+        json,
+        defaultFilename: `${slug}.substellar`,
+        existingPath: projectFilePath,
+        forceSaveAs,
+      });
+      if (res.saved && res.path) {
+        setProjectFilePath(res.path);
+        const baseName = res.path.split(/[/\\]/).pop() || res.path;
+        setSavedToast(baseName);
+        setTimeout(() => setSavedToast(null), 2400);
+      }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Failed to save project.');
     }
+  };
+
+  const handleTriggerOpenProject = async () => {
     setOpenMenu(null);
+    if (tauriBridge.isAvailable()) {
+      try {
+        const opened = await tauriBridge.openProjectDialog();
+        if (opened) {
+          importProjectJson(opened.contents);
+          setProjectFilePath(opened.path);
+          saveToLocalStorage();
+          setActiveTab('studio');
+        }
+        return;
+      } catch (err) {
+        setErrorMessage(err instanceof Error ? err.message : 'Failed to open project file.');
+      }
+    }
+    projectInputRef.current?.click();
   };
 
   const handleOpenProjectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -99,6 +145,7 @@ export const Header: React.FC = () => {
     reader.onload = () => {
       try {
         importProjectJson(String(reader.result || ''));
+        setProjectFilePath(file.name);
         saveToLocalStorage();
       } catch (err) {
         setErrorMessage(
@@ -108,6 +155,24 @@ export const Header: React.FC = () => {
     };
     reader.readAsText(file);
     e.target.value = '';
+  };
+
+  const handleTriggerOpenMedia = async () => {
+    setOpenMenu(null);
+    if (tauriBridge.isAvailable()) {
+      try {
+        const chosenPath = await tauriBridge.openMediaDialog();
+        if (chosenPath) {
+          await loadLocalMediaFromPath(chosenPath);
+          saveToLocalStorage();
+          setActiveTab('studio');
+        }
+        return;
+      } catch (err) {
+        setErrorMessage(err instanceof Error ? err.message : 'Failed to open media file.');
+      }
+    }
+    mediaInputRef.current?.click();
   };
 
   const handleImportMediaFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -255,10 +320,7 @@ export const Header: React.FC = () => {
                 </button>
 
                 <button
-                  onClick={() => {
-                    projectInputRef.current?.click();
-                    setOpenMenu(null);
-                  }}
+                  onClick={() => void handleTriggerOpenProject()}
                   className="w-full px-3 py-1.5 hover:bg-gatefold-hover flex items-center justify-between text-left text-gatefold-text"
                 >
                   <span className="flex items-center gap-2">
@@ -268,23 +330,31 @@ export const Header: React.FC = () => {
                 </button>
 
                 <button
-                  onClick={handleSaveProject}
+                  onClick={() => void handleSaveProject(false)}
                   className="w-full px-3 py-1.5 hover:bg-gatefold-hover flex items-center justify-between text-left text-gatefold-text"
                 >
                   <span className="flex items-center gap-2">
                     <Save className="w-3.5 h-3.5 text-gatefold-accent" />
-                    <span>Save Project (.substellar)</span>
+                    <span>Save Project</span>
                   </span>
                   <kbd className="text-[10px] font-mono text-gatefold-text-3">Ctrl+S</kbd>
+                </button>
+
+                <button
+                  onClick={() => void handleSaveProject(true)}
+                  className="w-full px-3 py-1.5 hover:bg-gatefold-hover flex items-center justify-between text-left text-gatefold-text"
+                >
+                  <span className="flex items-center gap-2">
+                    <Save className="w-3.5 h-3.5 text-gatefold-accent" />
+                    <span>Save Project As (.substellar)...</span>
+                  </span>
+                  <kbd className="text-[10px] font-mono text-gatefold-text-3">Ctrl+Shift+S</kbd>
                 </button>
 
                 <div className="my-1 border-t border-gatefold-line" />
 
                 <button
-                  onClick={() => {
-                    mediaInputRef.current?.click();
-                    setOpenMenu(null);
-                  }}
+                  onClick={() => void handleTriggerOpenMedia()}
                   className="w-full px-3 py-1.5 hover:bg-gatefold-hover flex items-center justify-between text-left text-gatefold-text"
                 >
                   <span className="flex items-center gap-2">
@@ -606,9 +676,12 @@ export const Header: React.FC = () => {
 
         {/* Saved Feedback Badge */}
         {savedToast && (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono">
-            <Check className="w-3 h-3" />
-            Saved
+          <span
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono max-w-[180px] truncate"
+            title={projectFilePath || savedToast}
+          >
+            <Check className="w-3 h-3 shrink-0" />
+            <span className="truncate">Saved: {savedToast}</span>
           </span>
         )}
 
@@ -647,7 +720,7 @@ export const Header: React.FC = () => {
         >
           <Zap className="w-3.5 h-3.5" />
           <span className="uppercase">{mode}</span>
-          <span className="text-[10px] opacity-75">({metrics.fps} FPS)</span>
+          <span className="text-[10px] opacity-75">({fps} FPS)</span>
         </button>
 
         <button

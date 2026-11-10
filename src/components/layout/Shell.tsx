@@ -6,7 +6,8 @@ import { TelemetryOverlay } from '../common/TelemetryOverlay';
 import { useStudioStore, AUTOSAVE_STORAGE_KEY } from '../../stores/useStudioStore';
 import { usePerfStore } from '../../stores/usePerfStore';
 import { isEditableTarget } from '../../engine/layout/layoutMath';
-import { downloadFile } from '../../engine/text/SubtitleExporter';
+import { restoreCachedMediaFile, saveProjectToDisk } from '../../services/mediaCache';
+import { tauriBridge } from '../../services/tauriBridge';
 
 const YouTubeDrawer = lazy(() =>
   import('../youtube/YouTubeDrawer').then((m) => ({ default: m.YouTubeDrawer }))
@@ -25,39 +26,86 @@ const SettingsModal = lazy(() =>
 );
 
 export const Shell: React.FC = () => {
-  const {
-    activeTab,
-    togglePlay,
-    stepTime,
-    setActiveTab,
-    toggleLoop,
-    selectedLineId,
-    deleteLine,
-    addLine,
-    exportProjectJson,
-    importProjectJson,
-    saveToLocalStorage,
-    track,
-    lines,
-    style,
-    aspectRatio,
-    canvasResolution,
-  } = useStudioStore();
-  const { cycleQualityMode, toggleTelemetry } = usePerfStore();
+  const activeTab = useStudioStore((s) => s.activeTab);
+  const togglePlay = useStudioStore((s) => s.togglePlay);
+  const stepTime = useStudioStore((s) => s.stepTime);
+  const setActiveTab = useStudioStore((s) => s.setActiveTab);
+  const toggleLoop = useStudioStore((s) => s.toggleLoop);
+  const selectedLineId = useStudioStore((s) => s.selectedLineId);
+  const deleteLine = useStudioStore((s) => s.deleteLine);
+  const addLine = useStudioStore((s) => s.addLine);
+  const exportProjectJson = useStudioStore((s) => s.exportProjectJson);
+  const importProjectJson = useStudioStore((s) => s.importProjectJson);
+  const saveToLocalStorage = useStudioStore((s) => s.saveToLocalStorage);
+  const setTrack = useStudioStore((s) => s.setTrack);
+  const projectFilePath = useStudioStore((s) => s.projectFilePath);
+  const setProjectFilePath = useStudioStore((s) => s.setProjectFilePath);
+  const track = useStudioStore((s) => s.track);
+  const lines = useStudioStore((s) => s.lines);
+  const style = useStudioStore((s) => s.style);
+  const aspectRatio = useStudioStore((s) => s.aspectRatio);
+  const canvasResolution = useStudioStore((s) => s.canvasResolution);
+  const cycleQualityMode = usePerfStore((s) => s.cycleQualityMode);
+  const toggleTelemetry = usePerfStore((s) => s.toggleTelemetry);
 
-  // Restore last auto-saved session on first mount (if available)
+  // Restore last auto-saved session + cached local video/audio on first mount
   useEffect(() => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY);
-        if (saved) {
-          importProjectJson(saved);
+    let isMounted = true;
+
+    async function restoreLastSession() {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY);
+          if (saved) {
+            importProjectJson(saved);
+          }
+        }
+      } catch {
+        // Ignore corrupt auto-save
+      }
+
+      const currentTrack = useStudioStore.getState().track;
+
+      // 1. If a native disk mediaFilePath exists (e.g. YouTube download or native file), restore asset URL
+      if (currentTrack.mediaFilePath && tauriBridge.isAvailable()) {
+        try {
+          const playable = await tauriBridge.toPlayableUrl(currentTrack.mediaFilePath);
+          const isAudioOnly = Boolean(currentTrack.audioUrl && !currentTrack.videoUrl);
+          if (isMounted) {
+            setTrack({
+              videoUrl: isAudioOnly ? undefined : playable,
+              audioUrl: isAudioOnly ? playable : undefined,
+            });
+          }
+          return;
+        } catch {
+          // Fall through to IndexedDB cache
         }
       }
-    } catch {
-      // Ignore corrupt auto-save
+
+      // 2. If videoUrl/audioUrl was a blob: URL from the previous session (or missing), restore from IndexedDB
+      const hasStaleBlob =
+        Boolean(currentTrack.videoUrl?.startsWith('blob:')) ||
+        Boolean(currentTrack.audioUrl?.startsWith('blob:')) ||
+        (!currentTrack.videoUrl && !currentTrack.audioUrl && currentTrack.id.startsWith('local-'));
+
+      if (hasStaleBlob) {
+        const cached = await restoreCachedMediaFile();
+        if (isMounted && cached) {
+          setTrack({
+            videoUrl: cached.isVideo ? cached.url : undefined,
+            audioUrl: !cached.isVideo ? cached.url : undefined,
+          });
+        }
+      }
     }
-  }, [importProjectJson]);
+
+    void restoreLastSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [importProjectJson, setTrack]);
 
   // Debounced auto-save to localStorage whenever project state changes
   useEffect(() => {
@@ -74,10 +122,22 @@ export const Shell: React.FC = () => {
         e.preventDefault();
         const json = exportProjectJson();
         saveToLocalStorage();
-        const slug = (track.title || 'substellar_project')
-          .toLowerCase()
-          .replace(/[^a-z0-9_-]/g, '_');
-        downloadFile(`${slug}.substellar`, json, 'application/json;charset=utf-8');
+        const slug =
+          (track.title || 'substellar_project').toLowerCase().replace(/[^a-z0-9_-]/g, '_') ||
+          'substellar_project';
+        void saveProjectToDisk({
+          json,
+          defaultFilename: `${slug}.substellar`,
+          existingPath: projectFilePath,
+          forceSaveAs: e.shiftKey,
+        }).then((res) => {
+          if (res.saved && res.path) {
+            setProjectFilePath(res.path);
+            window.dispatchEvent(
+              new CustomEvent('substellar:project-saved', { detail: { path: res.path } })
+            );
+          }
+        });
         return;
       }
 
@@ -131,6 +191,8 @@ export const Shell: React.FC = () => {
     activeTab,
     exportProjectJson,
     saveToLocalStorage,
+    projectFilePath,
+    setProjectFilePath,
     track.title,
   ]);
 

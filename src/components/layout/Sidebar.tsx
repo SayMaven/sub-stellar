@@ -28,7 +28,10 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export const Sidebar: React.FC = () => {
-  const { activeTab, setActiveTab, sidebarCollapsed, toggleSidebar } = useStudioStore();
+  const activeTab = useStudioStore((s) => s.activeTab);
+  const setActiveTab = useStudioStore((s) => s.setActiveTab);
+  const sidebarCollapsed = useStudioStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useStudioStore((s) => s.toggleSidebar);
 
   return (
     <nav

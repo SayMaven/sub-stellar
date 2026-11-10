@@ -105,6 +105,7 @@ export const YouTubeDrawer: React.FC = () => {
         ...trackFromMetadata(metadata),
         videoUrl: isAudio ? undefined : playable,
         audioUrl: isAudio ? playable : undefined,
+        mediaFilePath: localPath,
       });
       if (metadata.thumbnail_url) {
         extractFromCover(metadata.thumbnail_url);

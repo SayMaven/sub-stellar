@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Application, Container, Text, TextStyle, Graphics, FillGradient } from 'pixi.js';
 import { usePerfStore } from '../../stores/usePerfStore';
 import { useStudioStore } from '../../stores/useStudioStore';
@@ -10,6 +10,34 @@ import type { ParticlePresetType } from '../../types';
 import { Music, Play } from 'lucide-react';
 
 const CJK_TOKEN_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+
+interface BuiltTokenNode {
+  container: Container;
+  inactiveBase: Text;
+  activeBase: Text;
+  inactiveRuby: Text | null;
+  activeRuby: Text | null;
+  startTime: number;
+  endTime: number;
+}
+
+interface BuiltLineState {
+  lineId: string;
+  startTime: number;
+  endTime: number;
+  baseY: number;
+  transBaseY: number;
+  scaleFactor: number;
+  transitionSec: number;
+  wordAnimStyle: 'pop' | 'sweep' | 'float' | 'static';
+  particleEnabled: boolean;
+  particlePreset: ParticlePresetType;
+  particleBurstCount: number;
+  activeWordColorNum: number;
+  lineContainer: Container;
+  transText: Text | null;
+  tokens: BuiltTokenNode[];
+}
 
 function hexToNumber(hex: string, fallback = 0x8fb4ff): number {
   const cleaned = (hex || '').trim().replace(/^#/, '');
@@ -39,23 +67,200 @@ export const PixiViewport: React.FC = () => {
   const safeGuidesRef = useRef<Graphics | null>(null);
   const particleManagerRef = useRef<ParticleManager | null>(null);
   const lastActiveIndexRef = useRef<number>(-1);
+  const builtLineRef = useRef<BuiltLineState | null>(null);
+  const gradientsRef = useRef<FillGradient[]>([]);
+  const [pixiReady, setPixiReady] = useState(false);
 
-  const { profile, updateMetrics } = usePerfStore();
-  const {
-    currentTime,
-    lines,
-    style,
-    track,
-    isPlaying,
-    togglePlay,
-    selectedLineId,
-    aspectRatio,
-    canvasResolution,
-  } = useStudioStore();
+  const profile = usePerfStore((s) => s.profile);
+  const updateMetrics = usePerfStore((s) => s.updateMetrics);
+
+  // Use targeted selectors so PixiViewport NEVER re-renders at 60 FPS on currentTime ticks
+  const lines = useStudioStore((s) => s.lines);
+  const style = useStudioStore((s) => s.style);
+  const track = useStudioStore((s) => s.track);
+  const isPlaying = useStudioStore((s) => s.isPlaying);
+  const togglePlay = useStudioStore((s) => s.togglePlay);
+  const aspectRatio = useStudioStore((s) => s.aspectRatio);
+  const canvasResolution = useStudioStore((s) => s.canvasResolution);
+
+  const activeLineId = useStudioStore((s) => {
+    const byTime = s.lines.find(
+      (l) => s.currentTime >= l.startTime && s.currentTime <= l.endTime
+    );
+    if (byTime) return byTime.id;
+    if (!s.isPlaying) {
+      const fallback = s.lines.find((l) => l.id === s.selectedLineId) || s.lines[0];
+      return fallback ? fallback.id : null;
+    }
+    return null;
+  });
+
+  const activeLine = lines.find((l) => l.id === activeLineId) || null;
 
   const canvasDims = getCanvasPixelDimensions(aspectRatio, canvasResolution);
   const canvasWidth = canvasDims.width;
   const canvasHeight = canvasDims.height;
+
+  // Explicitly destroy all GPU textures, TextStyles, and FillGradients when clearing a subtitle line
+  const clearSubtitleGroup = useCallback(() => {
+    builtLineRef.current = null;
+
+    if (subtitleGroupRef.current) {
+      const removed = subtitleGroupRef.current.removeChildren();
+      for (const child of removed) {
+        try {
+          child.destroy({
+            children: true,
+            texture: true,
+            textureSource: true,
+            style: true,
+          });
+        } catch {
+          // Ignore already destroyed nodes
+        }
+      }
+    }
+
+    if (gradientsRef.current.length > 0) {
+      for (const grad of gradientsRef.current) {
+        try {
+          grad.destroy();
+        } catch {
+          // Ignore gradient cleanup errors
+        }
+      }
+      gradientsRef.current = [];
+    }
+  }, []);
+
+  // Zero-allocation per-frame animation of pre-built token nodes
+  const animateBuiltLine = useCallback((currentTime: number) => {
+    const built = builtLineRef.current;
+    if (!built) return;
+
+    const {
+      startTime,
+      endTime,
+      baseY,
+      transBaseY,
+      scaleFactor,
+      transitionSec,
+      wordAnimStyle,
+      particleEnabled,
+      particlePreset,
+      particleBurstCount,
+      activeWordColorNum,
+      lineContainer,
+      transText,
+      tokens,
+    } = built;
+
+    let currentActiveTokenIdx = -1;
+
+    for (let idx = 0; idx < tokens.length; idx++) {
+      const token = tokens[idx];
+      const isTokenActive = currentTime >= token.startTime && currentTime < token.endTime;
+      const isTokenPassed = currentTime >= token.endTime;
+
+      if (isTokenActive) {
+        currentActiveTokenIdx = idx;
+      }
+
+      let enterProgress = 0;
+      if (isTokenActive) {
+        enterProgress = easeOutCubic((currentTime - token.startTime) / transitionSec);
+      } else if (isTokenPassed && wordAnimStyle === 'sweep') {
+        enterProgress = 1;
+      }
+
+      const highlightAlpha =
+        isTokenActive
+          ? Math.max(0.35, enterProgress)
+          : isTokenPassed && wordAnimStyle === 'sweep'
+          ? 1
+          : 0;
+
+      token.activeBase.alpha = highlightAlpha;
+      token.inactiveBase.alpha = 1 - highlightAlpha * 0.92;
+
+      if (token.activeRuby && token.inactiveRuby) {
+        token.activeRuby.alpha = highlightAlpha;
+        token.inactiveRuby.alpha = 1 - highlightAlpha * 0.92;
+      }
+
+      let motionOffsetY = 0;
+      let scaleBoost = 1;
+      if (isTokenActive) {
+        const wordSpan = Math.max(0.05, token.endTime - token.startTime);
+        const wordPhase = Math.min(1, Math.max(0, (currentTime - token.startTime) / wordSpan));
+
+        if (wordAnimStyle === 'pop') {
+          motionOffsetY = -Math.round(9 * scaleFactor * enterProgress);
+          scaleBoost = 1 + 0.06 * Math.sin(enterProgress * Math.PI);
+        } else if (wordAnimStyle === 'float') {
+          motionOffsetY = -Math.round(11 * scaleFactor * Math.sin(wordPhase * Math.PI));
+        } else if (wordAnimStyle === 'sweep') {
+          motionOffsetY = -Math.round(4 * scaleFactor * enterProgress);
+        }
+      }
+
+      token.container.y = motionOffsetY;
+      token.container.scale.set(scaleBoost);
+    }
+
+    // Smooth line-level entry & exit fade/slide animation
+    const lineSpan = Math.max(0.2, endTime - startTime);
+    const entryWindow = Math.min(0.22, lineSpan * 0.25);
+    const exitWindow = Math.min(0.18, lineSpan * 0.2);
+    let lineAlpha = 1;
+    let lineSlideY = 0;
+
+    if (currentTime >= startTime && currentTime <= endTime) {
+      const sinceStart = currentTime - startTime;
+      const untilEnd = endTime - currentTime;
+      if (sinceStart < entryWindow) {
+        const p = easeOutCubic(sinceStart / entryWindow);
+        lineAlpha = p;
+        lineSlideY = Math.round((1 - p) * 12 * scaleFactor);
+      } else if (untilEnd < exitWindow) {
+        const p = Math.max(0, Math.min(1, untilEnd / exitWindow));
+        lineAlpha = p;
+      }
+    }
+
+    lineContainer.alpha = lineAlpha;
+    lineContainer.y = baseY + lineSlideY;
+
+    if (transText) {
+      transText.alpha = lineAlpha;
+      transText.y = transBaseY + lineSlideY;
+    }
+
+    // Trigger karaoke particle emission when active word switches
+    const particleManager = particleManagerRef.current;
+    if (
+      currentActiveTokenIdx !== -1 &&
+      currentActiveTokenIdx !== lastActiveIndexRef.current &&
+      particleManager &&
+      particleEnabled
+    ) {
+      lastActiveIndexRef.current = currentActiveTokenIdx;
+      const targetToken = tokens[currentActiveTokenIdx];
+      if (targetToken) {
+        const worldX = lineContainer.x + targetToken.container.x + 20 * scaleFactor;
+        const worldY = lineContainer.y - 10 * scaleFactor;
+        particleManager.emit(
+          particlePreset,
+          worldX,
+          worldY,
+          particleBurstCount,
+          activeWordColorNum
+        );
+      }
+    } else if (currentActiveTokenIdx === -1) {
+      lastActiveIndexRef.current = -1;
+    }
+  }, []);
 
   // Bind media element to playback engine
   useEffect(() => {
@@ -119,8 +324,9 @@ export const PixiViewport: React.FC = () => {
       const subtitleGroup = new Container();
       app.stage.addChild(subtitleGroup);
       subtitleGroupRef.current = subtitleGroup;
+      setPixiReady(true);
 
-      // Render Ticker
+      // Render Ticker — Zero GC / Zero Texture Allocations per frame
       let lastTime = performance.now();
       let frameCount = 0;
       let lastFpsCheck = performance.now();
@@ -131,8 +337,11 @@ export const PixiViewport: React.FC = () => {
         lastTime = now;
         frameCount++;
 
+        // Animate pre-built subtitle tokens for the current time without allocating textures
+        animateBuiltLine(useStudioStore.getState().currentTime);
+
         // Update particle physics without GC allocations
-        if (localParticleManager && style.particleEnabled) {
+        if (localParticleManager && useStudioStore.getState().style.particleEnabled) {
           localParticleManager.update(deltaSeconds);
         }
 
@@ -154,12 +363,14 @@ export const PixiViewport: React.FC = () => {
 
     return () => {
       isMounted = false;
+      setPixiReady(false);
+      clearSubtitleGroup();
       if (localParticleManager) {
         localParticleManager.destroy();
         particleManagerRef.current = null;
       }
       if (localApp) {
-        localApp.destroy(true, { children: true });
+        localApp.destroy(true, { children: true, texture: true, textureSource: true });
         appRef.current = null;
       }
     };
@@ -171,7 +382,8 @@ export const PixiViewport: React.FC = () => {
     profile.bloomEnabled,
     profile.renderScale,
     updateMetrics,
-    style.particleEnabled,
+    animateBuiltLine,
+    clearSubtitleGroup,
   ]);
 
   // Update Safe Guides visibility
@@ -213,18 +425,14 @@ export const PixiViewport: React.FC = () => {
     style.particleBurstCount,
   ]);
 
-  // Dynamic Subtitle, Ruby Text & Per-Word Vocal Timing/Transition Rendering
+  // Build PixiJS Text & FillGradient nodes ONLY when activeLine or style changes (NOT on currentTime!)
   useEffect(() => {
     const subtitleGroup = subtitleGroupRef.current;
-    const particleManager = particleManagerRef.current;
-    if (!subtitleGroup) return;
+    if (!subtitleGroup || !pixiReady) return;
 
-    subtitleGroup.removeChildren();
-
-    // Find active subtitle line based on currentTime, or selected line when paused
-    const activeLine =
-      lines.find((l) => currentTime >= l.startTime && currentTime <= l.endTime) ||
-      (!isPlaying ? lines.find((l) => l.id === selectedLineId) || lines[0] : null);
+    // Explicitly destroy previous line's GPU textures, styles, and gradients first
+    clearSubtitleGroup();
+    lastActiveIndexRef.current = -1;
 
     if (!activeLine || !activeLine.text.trim()) return;
 
@@ -261,14 +469,13 @@ export const PixiViewport: React.FC = () => {
 
     // Generous canvas padding so outer stroke & dropShadow glow never clip into a box
     const textPadding = Math.ceil(
-      (scaledOuterStroke + scaledInnerStroke + scaledGlowBlur + 18 * scaleFactor) * 1.8
+      (scaledOuterStroke + scaledInnerStroke + scaledGlowBlur + 14 * scaleFactor) * 1.4
     );
 
     const transitionSec = Math.max(0.01, (style.wordTransitionMs ?? 140) / 1000);
 
     const lineContainer = new Container();
     let currentX = 0;
-    let currentActiveTokenIdx = -1;
 
     const fillHex = style.fillColor || '#ffffff';
     const gradEndHex = style.fillGradientEndColor || '#b8d0ff';
@@ -280,45 +487,40 @@ export const PixiViewport: React.FC = () => {
     const rubyActiveHex = style.rubyActiveColor || '#5affb5';
     const transFillHex = style.translationFillColor || '#bfc3ca';
 
+    // Create at most 2 shared FillGradient instances per line and track them for explicit .destroy()
+    let normalFill: string | FillGradient = fillHex;
+    let activeFill: string | FillGradient = activeWordHex;
+    if (style.fillGradientEnabled) {
+      try {
+        const normGrad = new FillGradient({
+          end: { x: 0, y: 1 },
+          colorStops: [
+            { offset: 0, color: fillHex },
+            { offset: 1, color: gradEndHex },
+          ],
+        });
+        const actGrad = new FillGradient({
+          end: { x: 0, y: 1 },
+          colorStops: [
+            { offset: 0, color: activeWordHex },
+            { offset: 1, color: innerStrokeHex },
+          ],
+        });
+        gradientsRef.current.push(normGrad, actGrad);
+        normalFill = normGrad;
+        activeFill = actGrad;
+      } catch {
+        normalFill = fillHex;
+        activeFill = activeWordHex;
+      }
+    }
+
+    const builtTokens: BuiltTokenNode[] = [];
+
     rubyTokens.forEach((token, idx) => {
-      const tokenStart = token.startTime;
-      const tokenEnd = token.endTime;
-
-      const isTokenActive = currentTime >= tokenStart && currentTime < tokenEnd;
-      const isTokenPassed = currentTime >= tokenEnd;
-
-      if (isTokenActive) {
-        currentActiveTokenIdx = idx;
-      }
-
-      // Compute smooth transition progress (0..1) based on wordTransitionMs
-      let enterProgress = 0;
-      if (isTokenActive) {
-        enterProgress = easeOutCubic((currentTime - tokenStart) / transitionSec);
-      } else if (isTokenPassed && style.wordAnimStyle === 'sweep') {
-        enterProgress = 1;
-      }
-
       const tokenContainer = new Container();
-      const highlightActive = isTokenActive || (isTokenPassed && style.wordAnimStyle === 'sweep');
 
-      // Build fill (solid or vertical linear gradient)
-      let mainFill: string | FillGradient = highlightActive ? activeWordHex : fillHex;
-      if (style.fillGradientEnabled) {
-        try {
-          mainFill = new FillGradient({
-            end: { x: 0, y: 1 },
-            colorStops: [
-              { offset: 0, color: highlightActive ? activeWordHex : fillHex },
-              { offset: 1, color: highlightActive ? innerStrokeHex : gradEndHex },
-            ],
-          });
-        } catch {
-          mainFill = highlightActive ? activeWordHex : fillHex;
-        }
-      }
-
-      // Layer 1: Outer Dark Stroke + Soft DropShadow Glow (with generous padding so it never clips)
+      // Layer 1: Outer Dark Stroke + Soft DropShadow Glow
       if (scaledOuterStroke > 0 || scaledGlowBlur > 0) {
         const outerStyle = new TextStyle({
           fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
@@ -335,14 +537,12 @@ export const PixiViewport: React.FC = () => {
                 }
               : undefined,
           dropShadow:
-            scaledGlowBlur > 0 || isTokenActive
+            scaledGlowBlur > 0
               ? {
-                  alpha: isTokenActive ? 0.65 + 0.3 * enterProgress : 0.6,
+                  alpha: 0.65,
                   angle: Math.PI / 4,
-                  blur: isTokenActive
-                    ? scaledGlowBlur + 5 * scaleFactor * enterProgress
-                    : scaledGlowBlur,
-                  color: isTokenActive ? activeWordHex : glowHex,
+                  blur: scaledGlowBlur,
+                  color: glowHex,
                   distance: 0,
                 }
               : undefined,
@@ -353,17 +553,17 @@ export const PixiViewport: React.FC = () => {
         tokenContainer.addChild(outerText);
       }
 
-      // Layer 2: Inner Stroke + Main Fill / Gradient Fill
-      const baseStyle = new TextStyle({
+      // Layer 2A: Inactive Base Text
+      const inactiveBaseStyle = new TextStyle({
         fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
         fontSize: scaledFontSize,
         fontWeight: 'bold',
-        fill: mainFill,
+        fill: normalFill,
         padding: textPadding,
         stroke:
           scaledInnerStroke > 0
             ? {
-                color: highlightActive ? activeWordHex : innerStrokeHex,
+                color: innerStrokeHex,
                 width: scaledInnerStroke,
                 join: 'round',
               }
@@ -375,63 +575,92 @@ export const PixiViewport: React.FC = () => {
               }
             : undefined,
       });
+      const inactiveBase = new Text({ text: token.base, style: inactiveBaseStyle });
+      inactiveBase.x = 0;
+      inactiveBase.y = 0;
+      tokenContainer.addChild(inactiveBase);
 
-      const rubyStyle = new TextStyle({
+      // Layer 2B: Active Highlight Base Text (cross-faded via alpha on ticker)
+      const activeBaseStyle = new TextStyle({
         fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
-        fontSize: Math.round(scaledFontSize * style.rubyScale),
+        fontSize: scaledFontSize,
         fontWeight: 'bold',
-        fill: highlightActive ? rubyActiveHex : rubyFillHex,
-        padding: Math.ceil(textPadding * 0.6),
-        stroke: {
-          color: outerStrokeHex,
-          width: Math.max(2, Math.round(scaledOuterStroke * 0.55)),
-          join: 'round',
-        },
+        fill: activeFill,
+        padding: textPadding,
+        stroke:
+          scaledInnerStroke > 0
+            ? {
+                color: activeWordHex,
+                width: scaledInnerStroke,
+                join: 'round',
+              }
+            : scaledOuterStroke > 0
+            ? {
+                color: outerStrokeHex,
+                width: Math.max(1, Math.round(scaledOuterStroke * 0.4)),
+                join: 'round',
+              }
+            : undefined,
       });
+      const activeBase = new Text({ text: token.base, style: activeBaseStyle });
+      activeBase.x = 0;
+      activeBase.y = 0;
+      activeBase.alpha = 0;
+      tokenContainer.addChild(activeBase);
 
-      // Base Text Node
-      const baseText = new Text({ text: token.base, style: baseStyle });
-      baseText.x = 0;
-      baseText.y = 0;
-      tokenContainer.addChild(baseText);
-
-      // Ruby Text Node (if present)
+      // Ruby Text Nodes (if present)
+      let inactiveRuby: Text | null = null;
+      let activeRuby: Text | null = null;
       if (token.isRuby && token.ruby) {
-        const rubyText = new Text({ text: token.ruby, style: rubyStyle });
+        const inactiveRubyStyle = new TextStyle({
+          fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
+          fontSize: Math.round(scaledFontSize * style.rubyScale),
+          fontWeight: 'bold',
+          fill: rubyFillHex,
+          padding: Math.ceil(textPadding * 0.6),
+          stroke: {
+            color: outerStrokeHex,
+            width: Math.max(2, Math.round(scaledOuterStroke * 0.55)),
+            join: 'round',
+          },
+        });
+        const activeRubyStyle = new TextStyle({
+          fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
+          fontSize: Math.round(scaledFontSize * style.rubyScale),
+          fontWeight: 'bold',
+          fill: rubyActiveHex,
+          padding: Math.ceil(textPadding * 0.6),
+          stroke: {
+            color: outerStrokeHex,
+            width: Math.max(2, Math.round(scaledOuterStroke * 0.55)),
+            join: 'round',
+          },
+        });
+
+        inactiveRuby = new Text({ text: token.ruby, style: inactiveRubyStyle });
+        activeRuby = new Text({ text: token.ruby, style: activeRubyStyle });
+
         const metrics = computeRubyPosition(
           0,
           0,
-          baseText.width,
-          baseText.height,
-          rubyText.width,
-          rubyText.height,
+          inactiveBase.width,
+          inactiveBase.height,
+          inactiveRuby.width,
+          inactiveRuby.height,
           Math.round(2 * scaleFactor)
         );
-        rubyText.x = metrics.rubyX;
-        rubyText.y = metrics.rubyY;
-        tokenContainer.addChild(rubyText);
-      }
+        inactiveRuby.x = metrics.rubyX;
+        inactiveRuby.y = metrics.rubyY;
+        activeRuby.x = metrics.rubyX;
+        activeRuby.y = metrics.rubyY;
+        activeRuby.alpha = 0;
 
-      // Apply per-word transition motion based on style.wordAnimStyle and enterProgress
-      let motionOffsetY = 0;
-      let scaleBoost = 1;
-      if (isTokenActive) {
-        const wordSpan = Math.max(0.05, tokenEnd - tokenStart);
-        const wordPhase = Math.min(1, Math.max(0, (currentTime - tokenStart) / wordSpan));
-
-        if (style.wordAnimStyle === 'pop') {
-          motionOffsetY = -Math.round(9 * scaleFactor * enterProgress);
-          scaleBoost = 1 + 0.06 * Math.sin(enterProgress * Math.PI);
-        } else if (style.wordAnimStyle === 'float') {
-          motionOffsetY = -Math.round(11 * scaleFactor * Math.sin(wordPhase * Math.PI));
-        } else if (style.wordAnimStyle === 'sweep') {
-          motionOffsetY = -Math.round(4 * scaleFactor * enterProgress);
-        }
+        tokenContainer.addChild(inactiveRuby);
+        tokenContainer.addChild(activeRuby);
       }
 
       tokenContainer.x = currentX;
-      tokenContainer.y = motionOffsetY;
-      tokenContainer.scale.set(scaleBoost);
+      tokenContainer.y = 0;
 
       const nextToken = rubyTokens[idx + 1];
       const bothCjk =
@@ -442,65 +671,32 @@ export const PixiViewport: React.FC = () => {
         ? Math.round(2 * scaleFactor)
         : Math.round(11 * scaleFactor);
 
-      currentX += baseText.width + (nextToken ? tokenGap : 0);
+      currentX += inactiveBase.width + (nextToken ? tokenGap : 0);
       lineContainer.addChild(tokenContainer);
+
+      builtTokens.push({
+        container: tokenContainer,
+        inactiveBase,
+        activeBase,
+        inactiveRuby,
+        activeRuby,
+        startTime: token.startTime,
+        endTime: token.endTime,
+      });
     });
 
-    // Smooth line-level entry & exit fade/slide animation
-    const lineSpan = Math.max(0.2, activeLine.endTime - activeLine.startTime);
-    const entryWindow = Math.min(0.22, lineSpan * 0.25);
-    const exitWindow = Math.min(0.18, lineSpan * 0.2);
-    let lineAlpha = 1;
-    let lineSlideY = 0;
-
-    if (currentTime >= activeLine.startTime && currentTime <= activeLine.endTime) {
-      const sinceStart = currentTime - activeLine.startTime;
-      const untilEnd = activeLine.endTime - currentTime;
-      if (sinceStart < entryWindow) {
-        const p = easeOutCubic(sinceStart / entryWindow);
-        lineAlpha = p;
-        lineSlideY = Math.round((1 - p) * 12 * scaleFactor);
-      } else if (untilEnd < exitWindow) {
-        const p = Math.max(0, Math.min(1, untilEnd / exitWindow));
-        lineAlpha = p;
-      }
-    }
-
-    // Center line horizontally & position vertically
-    lineContainer.alpha = lineAlpha;
-    lineContainer.x = (canvasWidth - currentX) / 2;
-    lineContainer.y =
-      (style.verticalPosition === 'top'
+    const baseY =
+      style.verticalPosition === 'top'
         ? scaledYOffset
         : style.verticalPosition === 'center'
         ? canvasHeight / 2
-        : canvasHeight - scaledYOffset - scaledFontSize) + lineSlideY;
+        : canvasHeight - scaledYOffset - scaledFontSize;
 
-    // Trigger karaoke particle emission when word switches
-    if (
-      currentActiveTokenIdx !== -1 &&
-      currentActiveTokenIdx !== lastActiveIndexRef.current &&
-      particleManager &&
-      style.particleEnabled
-    ) {
-      lastActiveIndexRef.current = currentActiveTokenIdx;
-      const targetChild = lineContainer.children[currentActiveTokenIdx];
-      if (targetChild) {
-        const worldX = lineContainer.x + targetChild.x + 20 * scaleFactor;
-        const worldY = lineContainer.y - 10 * scaleFactor;
-        particleManager.emit(
-          style.particlePreset,
-          worldX,
-          worldY,
-          style.particleBurstCount,
-          hexToNumber(activeWordHex)
-        );
-      }
-    } else if (currentActiveTokenIdx === -1) {
-      lastActiveIndexRef.current = -1;
-    }
+    lineContainer.x = (canvasWidth - currentX) / 2;
+    lineContainer.y = baseY;
 
-    // Secondary Translation subtitle if present
+    let transText: Text | null = null;
+    const transBaseY = baseY + scaledFontSize + Math.round(10 * scaleFactor);
     if (activeLine.translation) {
       const transStyle = new TextStyle({
         fontFamily: ['Segoe UI', 'sans-serif'],
@@ -513,16 +709,44 @@ export const PixiViewport: React.FC = () => {
           join: 'round',
         },
       });
-      const transText = new Text({ text: activeLine.translation, style: transStyle });
+      transText = new Text({ text: activeLine.translation, style: transStyle });
       transText.anchor.set(0.5, 0);
-      transText.alpha = lineAlpha;
       transText.x = canvasWidth / 2;
-      transText.y = lineContainer.y + scaledFontSize + Math.round(10 * scaleFactor);
+      transText.y = transBaseY;
       subtitleGroup.addChild(transText);
     }
 
     subtitleGroup.addChild(lineContainer);
-  }, [currentTime, lines, style, isPlaying, selectedLineId, canvasWidth, canvasHeight]);
+
+    builtLineRef.current = {
+      lineId: activeLine.id,
+      startTime: activeLine.startTime,
+      endTime: activeLine.endTime,
+      baseY,
+      transBaseY,
+      scaleFactor,
+      transitionSec,
+      wordAnimStyle: style.wordAnimStyle,
+      particleEnabled: style.particleEnabled,
+      particlePreset: style.particlePreset,
+      particleBurstCount: style.particleBurstCount,
+      activeWordColorNum: hexToNumber(activeWordHex),
+      lineContainer,
+      transText,
+      tokens: builtTokens,
+    };
+
+    // Apply initial frame state immediately
+    animateBuiltLine(useStudioStore.getState().currentTime);
+  }, [
+    pixiReady,
+    activeLine,
+    style,
+    canvasWidth,
+    canvasHeight,
+    clearSubtitleGroup,
+    animateBuiltLine,
+  ]);
 
   return (
     <div className="w-full h-full relative overflow-hidden flex items-center justify-center bg-black">
