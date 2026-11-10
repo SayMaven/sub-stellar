@@ -2,6 +2,10 @@ export type QualityMode = 'low' | 'balanced' | 'ultra';
 
 export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:3';
 
+export type CanvasResolutionPreset = '720p' | '1080p' | '1440p' | '4k';
+
+export type WordAnimationStyle = 'pop' | 'sweep' | 'float';
+
 export type StudioTab = 'studio' | 'youtube' | 'lyrics' | 'presets' | 'export' | 'settings';
 
 export type ProjectStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -62,12 +66,17 @@ export interface SubtitleStyle {
   fontFamily: string;
   fontSize: number;
   fillColor: string;
+  fillGradientEnabled: boolean;
+  fillGradientEndColor: string;
   outerStrokeColor: string;
   outerStrokeWidth: number;
   innerStrokeColor: string;
   innerStrokeWidth: number;
   glowColor: string;
   glowBlur: number;
+  rubyFillColor: string;
+  rubyActiveColor: string;
+  translationFillColor: string;
   verticalPosition: 'bottom' | 'center' | 'top';
   yOffset: number;
   rubyScale: number;
@@ -75,6 +84,9 @@ export interface SubtitleStyle {
   particlePreset: ParticlePresetType;
   particleBurstCount: number;
   particleEnabled: boolean;
+  wordTransitionMs: number;
+  wordAnimStyle: WordAnimationStyle;
+  wordActiveColor: string;
 }
 
 export interface TrackMetadata {
@@ -87,4 +99,14 @@ export interface TrackMetadata {
   coverUrl?: string;
   audioUrl?: string;
   videoUrl?: string;
+}
+
+export interface SubStellarProjectFile {
+  version: string;
+  savedAt: string;
+  aspectRatio: AspectRatio;
+  canvasResolution: CanvasResolutionPreset;
+  track: TrackMetadata;
+  style: SubtitleStyle;
+  lines: SubtitleLine[];
 }

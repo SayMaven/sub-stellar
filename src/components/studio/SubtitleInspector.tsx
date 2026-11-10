@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Type,
   Clock,
@@ -10,25 +10,45 @@ import {
   EyeOff,
   Wand2,
   Flame,
+  Plus,
+  Copy,
+  Trash2,
+  RotateCcw,
+  Crosshair,
+  Palette,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
-import type { ParticlePresetType } from '../../types';
+import type { ParticlePresetType, WordAnimationStyle } from '../../types';
 
 export const SubtitleInspector: React.FC = () => {
-  const [tab, setTab] = useState<'text' | 'style' | 'particles' | 'presets'>('text');
+  const [tab, setTab] = useState<'text' | 'colors' | 'style' | 'particles' | 'presets'>('text');
+  const [selectedTokenIdx, setSelectedTokenIdx] = useState<number>(0);
+
   const {
     lines,
     selectedLineId,
     setSelectedLineId,
+    addLine,
+    duplicateLine,
+    deleteLine,
     updateLineText,
+    updateLineTranslation,
     updateLineTiming,
+    updateTokenTiming,
+    resetTokenTimingsEvenly,
+    currentTime,
     style,
     setStyle,
     seek,
+    setActiveTab,
   } = useStudioStore();
 
   const activeIndex = lines.findIndex((l) => l.id === selectedLineId);
   const activeLine = lines[activeIndex] || lines[0];
+
+  useEffect(() => {
+    setSelectedTokenIdx(0);
+  }, [activeLine?.id]);
 
   const handlePrevLine = () => {
     if (activeIndex > 0) {
@@ -48,59 +68,113 @@ export const SubtitleInspector: React.FC = () => {
 
   if (!activeLine) {
     return (
-      <div className="w-80 border-l border-gatefold-line bg-gatefold-surface p-4 text-xs text-gatefold-text-3">
-        No subtitle line selected.
-      </div>
+      <aside className="w-80 shrink-0 border-l border-gatefold-line bg-gatefold-panel-strong flex flex-col h-full text-xs select-none">
+        <div className="h-10 px-3 border-b border-gatefold-line flex items-center text-gatefold-text-3 font-medium">
+          Subtitle Inspector
+        </div>
+        <div className="flex-1 p-4 flex flex-col gap-3 text-gatefold-text-3">
+          <p className="text-gatefold-text-2 font-medium">No subtitle line selected</p>
+          <p>Create a new subtitle line or search synced lyrics to start editing.</p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => addLine()}
+              className="px-2.5 py-1.5 rounded bg-gatefold-accent text-gatefold-bg font-semibold flex items-center gap-1 hover:opacity-90"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add First Line</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('lyrics')}
+              className="px-2.5 py-1.5 rounded border border-gatefold-line hover:border-gatefold-accent/50 text-gatefold-text hover:text-gatefold-accent"
+            >
+              Search Lyrics
+            </button>
+          </div>
+        </div>
+      </aside>
     );
   }
 
+  const safeTokenIdx = Math.min(
+    Math.max(0, selectedTokenIdx),
+    Math.max(0, activeLine.tokens.length - 1)
+  );
+  const activeToken = activeLine.tokens[safeTokenIdx];
+
+  const handleTokenDurationDelta = (deltaSec: number) => {
+    if (!activeToken) return;
+    const newEnd = Math.max(activeToken.startTime + 0.05, activeToken.endTime + deltaSec);
+    updateTokenTiming(activeLine.id, safeTokenIdx, activeToken.startTime, newEnd);
+  };
+
+  const handleSnapTokenEndToPlayhead = () => {
+    if (!activeToken) return;
+    if (currentTime > activeToken.startTime + 0.05 && currentTime <= activeLine.endTime) {
+      updateTokenTiming(activeLine.id, safeTokenIdx, activeToken.startTime, currentTime);
+      if (safeTokenIdx < activeLine.tokens.length - 1) {
+        setSelectedTokenIdx(safeTokenIdx + 1);
+      }
+    }
+  };
+
   return (
-    <aside className="w-80 shrink-0 border-l border-gatefold-line bg-gatefold-panel-strong backdrop-blur-md flex flex-col h-full text-xs select-none">
+    <aside className="w-80 shrink-0 border-l border-gatefold-line bg-gatefold-panel-strong flex flex-col h-full text-xs select-none">
       {/* Inspector Tabs */}
-      <div className="h-10 px-2 border-b border-gatefold-line flex items-center justify-between bg-gatefold-panel">
-        <div className="flex gap-1">
+      <div className="h-10 px-1.5 border-b border-gatefold-line flex items-center justify-between bg-gatefold-panel">
+        <div className="flex gap-0.5 w-full justify-between">
           <button
             onClick={() => setTab('text')}
-            className={`px-2.5 py-1 rounded font-medium transition-colors flex items-center gap-1.5 ${
+            className={`px-2 py-1 rounded font-medium transition-colors flex items-center gap-1 ${
               tab === 'text'
                 ? 'bg-gatefold-accent/20 text-gatefold-accent border border-gatefold-accent/40 font-semibold'
                 : 'text-gatefold-text-3 hover:text-gatefold-text'
             }`}
           >
-            <Clock className="w-3.5 h-3.5" />
-            <span>Line & Ruby</span>
+            <Clock className="w-3 h-3" />
+            <span>Line</span>
+          </button>
+          <button
+            onClick={() => setTab('colors')}
+            className={`px-2 py-1 rounded font-medium transition-colors flex items-center gap-1 ${
+              tab === 'colors'
+                ? 'bg-gatefold-accent/20 text-gatefold-accent border border-gatefold-accent/40 font-semibold'
+                : 'text-gatefold-text-3 hover:text-gatefold-text'
+            }`}
+          >
+            <Palette className="w-3 h-3" />
+            <span>Colors</span>
           </button>
           <button
             onClick={() => setTab('style')}
-            className={`px-2.5 py-1 rounded font-medium transition-colors flex items-center gap-1.5 ${
+            className={`px-2 py-1 rounded font-medium transition-colors flex items-center gap-1 ${
               tab === 'style'
                 ? 'bg-gatefold-accent/20 text-gatefold-accent border border-gatefold-accent/40 font-semibold'
                 : 'text-gatefold-text-3 hover:text-gatefold-text'
             }`}
           >
-            <Type className="w-3.5 h-3.5" />
-            <span>Typography</span>
+            <Type className="w-3 h-3" />
+            <span>Style</span>
           </button>
           <button
             onClick={() => setTab('particles')}
-            className={`px-2 py-1 rounded font-medium transition-colors flex items-center gap-1.5 ${
+            className={`px-2 py-1 rounded font-medium transition-colors flex items-center gap-1 ${
               tab === 'particles'
                 ? 'bg-gatefold-accent/20 text-gatefold-accent border border-gatefold-accent/40 font-semibold'
                 : 'text-gatefold-text-3 hover:text-gatefold-text'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Particles</span>
+            <Sparkles className="w-3 h-3" />
+            <span>FX</span>
           </button>
           <button
             onClick={() => setTab('presets')}
-            className={`px-2 py-1 rounded font-medium transition-colors flex items-center gap-1.5 ${
+            className={`px-2 py-1 rounded font-medium transition-colors flex items-center gap-1 ${
               tab === 'presets'
                 ? 'bg-gatefold-accent/20 text-gatefold-accent border border-gatefold-accent/40 font-semibold'
                 : 'text-gatefold-text-3 hover:text-gatefold-text'
             }`}
           >
-            <Sliders className="w-3.5 h-3.5" />
+            <Sliders className="w-3 h-3" />
             <span>Presets</span>
           </button>
         </div>
@@ -110,11 +184,8 @@ export const SubtitleInspector: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
         {tab === 'text' && (
           <>
-            {/* Line Navigation */}
+            {/* Line Navigation & CRUD Actions */}
             <div className="flex items-center justify-between pb-2 border-b border-gatefold-line">
-              <span className="font-mono text-gatefold-text-3">
-                Line {activeIndex + 1} of {lines.length}
-              </span>
               <div className="flex items-center gap-1">
                 <button
                   onClick={handlePrevLine}
@@ -124,6 +195,9 @@ export const SubtitleInspector: React.FC = () => {
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
+                <span className="font-mono text-gatefold-text-2 text-[11px]">
+                  Line {activeIndex + 1}/{lines.length}
+                </span>
                 <button
                   onClick={handleNextLine}
                   disabled={activeIndex >= lines.length - 1}
@@ -133,12 +207,36 @@ export const SubtitleInspector: React.FC = () => {
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => addLine()}
+                  className="p-1 rounded bg-gatefold-accent/15 text-gatefold-accent hover:bg-gatefold-accent/25 border border-gatefold-accent/30"
+                  title="Add New Line at Playhead (Ctrl+N)"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => duplicateLine(activeLine.id)}
+                  className="p-1 rounded hover:bg-gatefold-hover text-gatefold-text-2 hover:text-gatefold-text border border-gatefold-line"
+                  title="Duplicate Line"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => deleteLine(activeLine.id)}
+                  className="p-1 rounded hover:bg-red-500/20 text-gatefold-text-3 hover:text-red-400 border border-gatefold-line"
+                  title="Delete Line (Delete)"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
 
             {/* Timing Inputs */}
             <div className="space-y-2">
               <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold">
-                Timing (Seconds)
+                Line Timing (Seconds)
               </span>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -219,52 +317,503 @@ export const SubtitleInspector: React.FC = () => {
                 rows={2}
                 value={activeLine.text}
                 onChange={(e) => updateLineText(activeLine.id, e.target.value)}
-                placeholder="もう{何|なに}もいらない"
+                placeholder="Type subtitle lyrics here (e.g. kamu dan aku or {何|なに})..."
                 className="w-full px-2.5 py-1.5 bg-gatefold-surface border border-gatefold-line rounded font-mono text-xs text-gatefold-text focus:border-gatefold-accent focus:outline-none resize-none"
               />
             </div>
 
-            {/* Tokenized Ruby Badges */}
-            <div className="space-y-1.5">
-              <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold">
-                Detected Syllables ({activeLine.tokens.length})
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {activeLine.tokens.map((tok, i) => (
-                  <div
-                    key={i}
-                    className="px-2 py-1 rounded bg-gatefold-surface border border-gatefold-line flex flex-col items-center"
-                  >
-                    {tok.ruby && (
-                      <span className="text-[9px] font-bold text-gatefold-accent font-mono leading-none">
-                        {tok.ruby}
-                      </span>
-                    )}
-                    <span className="text-xs font-medium text-gatefold-text leading-tight">
-                      {tok.text}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Translation */}
+            {/* Secondary Translation (Editable!) */}
             <div className="space-y-1">
               <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold">
                 Secondary Translation
               </span>
               <input
                 type="text"
+                placeholder="Enter English / Indonesian translation..."
                 value={activeLine.translation || ''}
-                readOnly
-                className="w-full px-2 py-1 bg-gatefold-surface/60 border border-gatefold-line rounded text-gatefold-text-2 text-xs"
+                onChange={(e) => updateLineTranslation(activeLine.id, e.target.value)}
+                className="w-full px-2.5 py-1.5 bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text text-xs focus:border-gatefold-accent focus:outline-none"
               />
+            </div>
+
+            {/* Per-Word Vocal Timing & Syllable Editor */}
+            <div className="space-y-2 pt-2 border-t border-gatefold-line">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold">
+                  Per-Word Vocal Timing ({activeLine.tokens.length})
+                </span>
+                <button
+                  onClick={() => resetTokenTimingsEvenly(activeLine.id)}
+                  title="Reset all word durations equally across line"
+                  className="text-[10px] font-mono text-gatefold-text-3 hover:text-gatefold-accent flex items-center gap-1"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Even Split</span>
+                </button>
+              </div>
+
+              {/* Selectable Word Badges */}
+              {activeLine.tokens.length === 0 ? (
+                <div className="p-2.5 rounded bg-gatefold-surface border border-gatefold-line text-[11px] text-gatefold-text-3">
+                  Type subtitle lyrics above to split words and configure per-word vocal timing.
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {activeLine.tokens.map((tok, i) => {
+                    const isSel = i === safeTokenIdx;
+                    const isPlayingNow =
+                      currentTime >= tok.startTime && currentTime < tok.endTime;
+                    const dur = Math.max(0.05, tok.endTime - tok.startTime);
+                    return (
+                      <button
+                        type="button"
+                        key={i}
+                        onClick={() => setSelectedTokenIdx(i)}
+                        className={`px-2 py-1 rounded border flex flex-col items-center transition-colors ${
+                          isSel
+                            ? 'bg-gatefold-accent/20 border-gatefold-accent text-gatefold-accent'
+                            : isPlayingNow
+                            ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-300'
+                            : 'bg-gatefold-surface border-gatefold-line text-gatefold-text hover:border-gatefold-line-2'
+                        }`}
+                      >
+                        {tok.ruby && (
+                          <span className="text-[9px] font-bold text-gatefold-accent font-mono leading-none">
+                            {tok.ruby}
+                          </span>
+                        )}
+                        <span className="text-xs font-medium leading-tight">{tok.text}</span>
+                        <span className="text-[9px] font-mono text-gatefold-text-3 mt-0.5">
+                          {dur.toFixed(2)}s
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Active Word Timing Controls */}
+              {activeToken && (
+                <div className="p-2.5 rounded-lg bg-gatefold-surface border border-gatefold-line space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-gatefold-text">
+                      Word #{safeTokenIdx + 1}: "{activeToken.text}"
+                    </span>
+                    <span className="font-mono text-[10px] text-gatefold-accent">
+                      {(activeToken.endTime - activeToken.startTime).toFixed(2)}s
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-gatefold-text-3 block">
+                        Word Start (s)
+                      </label>
+                      <input
+                        type="number"
+                        step={0.05}
+                        value={activeToken.startTime}
+                        onChange={(e) =>
+                          updateTokenTiming(
+                            activeLine.id,
+                            safeTokenIdx,
+                            parseFloat(e.target.value) || 0,
+                            activeToken.endTime
+                          )
+                        }
+                        className="w-full px-2 py-1 bg-gatefold-bg border border-gatefold-line rounded font-mono text-xs focus:border-gatefold-accent focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gatefold-text-3 block">
+                        Word End (s)
+                      </label>
+                      <input
+                        type="number"
+                        step={0.05}
+                        value={activeToken.endTime}
+                        onChange={(e) =>
+                          updateTokenTiming(
+                            activeLine.id,
+                            safeTokenIdx,
+                            activeToken.startTime,
+                            parseFloat(e.target.value) || 0
+                          )
+                        }
+                        className="w-full px-2 py-1 bg-gatefold-bg border border-gatefold-line rounded font-mono text-xs focus:border-gatefold-accent focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Duration Slider + Quick Step + Playhead Sync */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px] text-gatefold-text-3">
+                      <span>Vocal Hold Duration</span>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleTokenDurationDelta(-0.05)}
+                          className="px-1.5 py-0.5 rounded bg-gatefold-surface-2 hover:bg-gatefold-hover text-gatefold-text"
+                        >
+                          -0.05s
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleTokenDurationDelta(0.05)}
+                          className="px-1.5 py-0.5 rounded bg-gatefold-surface-2 hover:bg-gatefold-hover text-gatefold-text"
+                        >
+                          +0.05s
+                        </button>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.05}
+                      max={Math.max(0.5, activeLine.endTime - activeToken.startTime)}
+                      step={0.05}
+                      value={Math.max(0.05, activeToken.endTime - activeToken.startTime)}
+                      onChange={(e) => {
+                        const dur = parseFloat(e.target.value) || 0.1;
+                        updateTokenTiming(
+                          activeLine.id,
+                          safeTokenIdx,
+                          activeToken.startTime,
+                          activeToken.startTime + dur
+                        );
+                      }}
+                      className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSnapTokenEndToPlayhead}
+                      className="w-full py-1 px-2 rounded bg-gatefold-accent/15 hover:bg-gatefold-accent/25 border border-gatefold-accent/30 text-gatefold-accent font-medium text-[11px] flex items-center justify-center gap-1.5"
+                      title="Set this word's end time to the current playhead and advance to the next word"
+                    >
+                      <Crosshair className="w-3 h-3" />
+                      <span>Set Word End to Playhead ({currentTime.toFixed(2)}s)</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         )}
 
+        {tab === 'colors' && (
+          <div className="space-y-4">
+            {/* Base Text Fill & Gradient */}
+            <div className="space-y-2.5 pb-3 border-b border-gatefold-line">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold">
+                  Text Fill & Gradient
+                </span>
+                <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-gatefold-text-2">
+                  <input
+                    type="checkbox"
+                    checked={style.fillGradientEnabled}
+                    onChange={(e) => setStyle({ fillGradientEnabled: e.target.checked })}
+                    className="accent-gatefold-accent rounded"
+                  />
+                  <span>Gradient Fill</span>
+                </label>
+              </div>
+
+              {/* Live Gradient / Fill Preview Swatch */}
+              <div
+                className="h-6 w-full rounded border border-gatefold-line flex items-center justify-center text-[10px] font-mono font-bold tracking-wider"
+                style={{
+                  background: style.fillGradientEnabled
+                    ? `linear-gradient(180deg, ${style.fillColor}, ${style.fillGradientEndColor})`
+                    : style.fillColor,
+                  color: style.outerStrokeColor,
+                }}
+              >
+                {style.fillGradientEnabled
+                  ? `${style.fillColor} → ${style.fillGradientEndColor}`
+                  : style.fillColor}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] text-gatefold-text-3 block mb-1">
+                    {style.fillGradientEnabled ? 'Top / Start Color' : 'Solid Fill Color'}
+                  </label>
+                  <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
+                    <input
+                      type="color"
+                      value={style.fillColor}
+                      onChange={(e) => setStyle({ fillColor: e.target.value })}
+                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
+                    />
+                    <input
+                      type="text"
+                      value={style.fillColor}
+                      onChange={(e) => setStyle({ fillColor: e.target.value })}
+                      className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {style.fillGradientEnabled && (
+                  <div>
+                    <label className="text-[10px] text-gatefold-text-3 block mb-1">
+                      Bottom / End Color
+                    </label>
+                    <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
+                      <input
+                        type="color"
+                        value={style.fillGradientEndColor}
+                        onChange={(e) => setStyle({ fillGradientEndColor: e.target.value })}
+                        className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={style.fillGradientEndColor}
+                        onChange={(e) => setStyle({ fillGradientEndColor: e.target.value })}
+                        className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Active Word Karaoke Highlight Color */}
+              <div>
+                <label className="text-[10px] text-gatefold-text-3 block mb-1">
+                  Active Sung Word Color (Karaoke Highlight)
+                </label>
+                <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-2 py-1">
+                  <input
+                    type="color"
+                    value={style.wordActiveColor}
+                    onChange={(e) => setStyle({ wordActiveColor: e.target.value })}
+                    className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
+                  />
+                  <input
+                    type="text"
+                    value={style.wordActiveColor}
+                    onChange={(e) => setStyle({ wordActiveColor: e.target.value })}
+                    className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Stroke & Glow Colors */}
+            <div className="space-y-2.5 pb-3 border-b border-gatefold-line">
+              <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold block">
+                Outline Stroke & Glow Colors
+              </span>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] text-gatefold-text-3 block mb-1">
+                    Inner Stroke Color
+                  </label>
+                  <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
+                    <input
+                      type="color"
+                      value={style.innerStrokeColor}
+                      onChange={(e) => setStyle({ innerStrokeColor: e.target.value })}
+                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
+                    />
+                    <input
+                      type="text"
+                      value={style.innerStrokeColor}
+                      onChange={(e) => setStyle({ innerStrokeColor: e.target.value })}
+                      className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-gatefold-text-3 block mb-1">
+                    Outer Stroke Color
+                  </label>
+                  <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
+                    <input
+                      type="color"
+                      value={style.outerStrokeColor}
+                      onChange={(e) => setStyle({ outerStrokeColor: e.target.value })}
+                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
+                    />
+                    <input
+                      type="text"
+                      value={style.outerStrokeColor}
+                      onChange={(e) => setStyle({ outerStrokeColor: e.target.value })}
+                      className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <div>
+                  <label className="text-[10px] text-gatefold-text-3 block mb-1">
+                    Glow / Shadow Color
+                  </label>
+                  <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
+                    <input
+                      type="color"
+                      value={style.glowColor}
+                      onChange={(e) => setStyle({ glowColor: e.target.value })}
+                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
+                    />
+                    <input
+                      type="text"
+                      value={style.glowColor}
+                      onChange={(e) => setStyle({ glowColor: e.target.value })}
+                      className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[10px] text-gatefold-text-3">Glow Blur</label>
+                    <span className="font-mono text-[10px] text-gatefold-accent">
+                      {style.glowBlur}px
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={30}
+                    value={style.glowBlur}
+                    onChange={(e) => setStyle({ glowBlur: parseInt(e.target.value, 10) })}
+                    className="w-full h-1.5 mt-2 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Furigana & Translation Colors */}
+            <div className="space-y-2.5">
+              <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold block">
+                Furigana (Ruby) & Translation Colors
+              </span>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] text-gatefold-text-3 block mb-1">
+                    Ruby Fill Color
+                  </label>
+                  <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
+                    <input
+                      type="color"
+                      value={style.rubyFillColor}
+                      onChange={(e) => setStyle({ rubyFillColor: e.target.value })}
+                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
+                    />
+                    <input
+                      type="text"
+                      value={style.rubyFillColor}
+                      onChange={(e) => setStyle({ rubyFillColor: e.target.value })}
+                      className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-gatefold-text-3 block mb-1">
+                    Active Ruby Color
+                  </label>
+                  <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
+                    <input
+                      type="color"
+                      value={style.rubyActiveColor}
+                      onChange={(e) => setStyle({ rubyActiveColor: e.target.value })}
+                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
+                    />
+                    <input
+                      type="text"
+                      value={style.rubyActiveColor}
+                      onChange={(e) => setStyle({ rubyActiveColor: e.target.value })}
+                      className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gatefold-text-3 block mb-1">
+                  Secondary Translation Color
+                </label>
+                <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-2 py-1">
+                  <input
+                    type="color"
+                    value={style.translationFillColor}
+                    onChange={(e) => setStyle({ translationFillColor: e.target.value })}
+                    className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
+                  />
+                  <input
+                    type="text"
+                    value={style.translationFillColor}
+                    onChange={(e) => setStyle({ translationFillColor: e.target.value })}
+                    className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {tab === 'style' && (
           <>
+            {/* Word Transition Motion Speed & Style */}
+            <div className="space-y-2.5 pb-3 border-b border-gatefold-line">
+              <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold block">
+                Word-to-Word Vocal Animation
+              </span>
+
+              <div className="grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    { id: 'pop', label: 'Pop Bounce' },
+                    { id: 'sweep', label: 'Karaoke Sweep' },
+                    { id: 'float', label: 'Vocal Float' },
+                  ] as { id: WordAnimationStyle; label: string }[]
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setStyle({ wordAnimStyle: item.id })}
+                    className={`py-1.5 px-2 rounded border text-[11px] font-medium transition-colors ${
+                      style.wordAnimStyle === item.id
+                        ? 'border-gatefold-accent bg-gatefold-accent/15 text-gatefold-accent'
+                        : 'border-gatefold-line bg-gatefold-surface text-gatefold-text-3 hover:text-gatefold-text'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-1 pt-1">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-gatefold-text">
+                    Word Transition Duration
+                  </span>
+                  <span className="font-mono text-gatefold-accent">
+                    {style.wordTransitionMs}ms
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={500}
+                  step={10}
+                  value={style.wordTransitionMs}
+                  onChange={(e) =>
+                    setStyle({ wordTransitionMs: parseInt(e.target.value, 10) })
+                  }
+                  className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+                />
+                <p className="text-[10px] text-gatefold-text-3">
+                  Controls how fast the highlight and motion animate when moving from one sung word to the next.
+                </p>
+              </div>
+            </div>
+
             {/* Font & Size */}
             <div className="space-y-2">
               <div className="flex justify-between items-center">
@@ -412,7 +961,9 @@ export const SubtitleInspector: React.FC = () => {
             <div className="space-y-2 pt-2 border-t border-gatefold-line">
               <div className="flex justify-between items-center">
                 <span className="font-semibold text-gatefold-text">Syllable Burst Count</span>
-                <span className="font-mono text-gatefold-text-3">{style.particleBurstCount} particles</span>
+                <span className="font-mono text-gatefold-text-3">
+                  {style.particleBurstCount} particles
+                </span>
               </div>
               <input
                 type="range"
@@ -451,40 +1002,100 @@ export const SubtitleInspector: React.FC = () => {
                 name: 'J-Pop Starlight (Cyan)',
                 style: {
                   fontSize: 54,
+                  fillColor: '#ffffff',
+                  fillGradientEnabled: true,
+                  fillGradientEndColor: '#b8d0ff',
+                  wordActiveColor: '#7df9ff',
+                  outerStrokeColor: '#14161b',
                   outerStrokeWidth: 8,
                   innerStrokeWidth: 2,
                   innerStrokeColor: '#8fb4ff',
                   glowColor: '#5770b0',
+                  glowBlur: 12,
+                  rubyFillColor: '#8fb4ff',
+                  rubyActiveColor: '#5affb5',
+                  wordTransitionMs: 140,
+                  wordAnimStyle: 'pop' as const,
                 },
               },
               {
                 name: 'Neon Shinjuku (Magenta)',
                 style: {
                   fontSize: 52,
+                  fillColor: '#ffffff',
+                  fillGradientEnabled: true,
+                  fillGradientEndColor: '#ffb3df',
+                  wordActiveColor: '#ff3399',
+                  outerStrokeColor: '#12081a',
                   outerStrokeWidth: 10,
                   innerStrokeWidth: 3,
                   innerStrokeColor: '#ff007f',
                   glowColor: '#ff007f',
+                  glowBlur: 14,
+                  rubyFillColor: '#ff80bf',
+                  rubyActiveColor: '#00f0ff',
+                  wordTransitionMs: 100,
+                  wordAnimStyle: 'sweep' as const,
                 },
               },
               {
                 name: 'Sakura Petal (Pink)',
                 style: {
                   fontSize: 50,
+                  fillColor: '#fff5f8',
+                  fillGradientEnabled: true,
+                  fillGradientEndColor: '#ffc2d9',
+                  wordActiveColor: '#ff85b3',
+                  outerStrokeColor: '#24121b',
                   outerStrokeWidth: 6,
                   innerStrokeWidth: 2,
                   innerStrokeColor: '#ff94b8',
                   glowColor: '#b84f7b',
+                  glowBlur: 10,
+                  rubyFillColor: '#ffb3cc',
+                  rubyActiveColor: '#ffe066',
+                  wordTransitionMs: 220,
+                  wordAnimStyle: 'float' as const,
+                },
+              },
+              {
+                name: 'Golden Sunset (Amber)',
+                style: {
+                  fontSize: 52,
+                  fillColor: '#fffbe6',
+                  fillGradientEnabled: true,
+                  fillGradientEndColor: '#ffcc66',
+                  wordActiveColor: '#ff9900',
+                  outerStrokeColor: '#1c1208',
+                  outerStrokeWidth: 8,
+                  innerStrokeWidth: 2,
+                  innerStrokeColor: '#ffaa33',
+                  glowColor: '#cc6600',
+                  glowBlur: 12,
+                  rubyFillColor: '#ffd685',
+                  rubyActiveColor: '#ffffff',
+                  wordTransitionMs: 150,
+                  wordAnimStyle: 'pop' as const,
                 },
               },
               {
                 name: 'Clean Minimalist',
                 style: {
                   fontSize: 48,
+                  fillColor: '#ffffff',
+                  fillGradientEnabled: false,
+                  fillGradientEndColor: '#ffffff',
+                  wordActiveColor: '#8fb4ff',
+                  outerStrokeColor: '#101216',
                   outerStrokeWidth: 6,
                   innerStrokeWidth: 0,
                   innerStrokeColor: '#ffffff',
                   glowColor: '#000000',
+                  glowBlur: 0,
+                  rubyFillColor: '#d0d7e6',
+                  rubyActiveColor: '#8fb4ff',
+                  wordTransitionMs: 80,
+                  wordAnimStyle: 'sweep' as const,
                 },
               },
             ].map((p, idx) => (

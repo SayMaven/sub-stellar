@@ -1,7 +1,7 @@
 {
   "name": "sub-stellar",
   "private": true,
-  "version": "1.0.0-alpha.1",
+  "version": "1.0.0-alpha.7",
   "type": "module",
   "scripts": {
     "dev": "vite",

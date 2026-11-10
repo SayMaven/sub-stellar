@@ -1,5 +1,5 @@
 import type { SubtitleLine, RubyToken } from '../../types';
-import { parseMarkdownRuby } from '../../engine/text/RubyLayout';
+import { tokenizeSubtitleText } from '../../engine/text/RubyLayout';
 
 /**
  * Parses timestamp string "[mm:ss.xx]" or "<mm:ss.xx>" into seconds (float).
@@ -11,6 +11,107 @@ export function parseLrcTimestamp(timeStr: string): number | null {
   const minutes = parseInt(match[1], 10);
   const seconds = parseFloat(match[2]);
   return minutes * 60 + seconds;
+}
+
+/**
+ * Parses SRT timestamp "HH:MM:SS,mmm" or "HH:MM:SS.mmm" or "MM:SS,mmm" into seconds.
+ */
+export function parseSrtTimestamp(timeStr: string): number | null {
+  const cleaned = timeStr.trim().replace(',', '.');
+  const hms = cleaned.match(/^(\d+):(\d{1,2}):(\d{1,2}(?:\.\d+)?)$/);
+  if (hms) {
+    return (
+      parseInt(hms[1], 10) * 3600 +
+      parseInt(hms[2], 10) * 60 +
+      parseFloat(hms[3])
+    );
+  }
+  const ms = cleaned.match(/^(\d{1,2}):(\d{1,2}(?:\.\d+)?)$/);
+  if (ms) {
+    return parseInt(ms[1], 10) * 60 + parseFloat(ms[2]);
+  }
+  return null;
+}
+
+/**
+ * Checks if raw text is SubRip (.srt) or WebVTT format.
+ */
+export function isSrtFormat(raw: string): boolean {
+  return /\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3}\s*-->\s*\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3}/.test(
+    raw
+  );
+}
+
+/**
+ * Parses SubRip (.srt) or WebVTT subtitle text into SubtitleLine[] with per-word tokens.
+ */
+export function parseSrt(raw: string): SubtitleLine[] {
+  const cleanRaw = raw.replace(/^\uFEFF/, '').trim();
+  if (!cleanRaw) return [];
+
+  const blocks = cleanRaw.split(/\r?\n\s*\r?\n/);
+  const result: SubtitleLine[] = [];
+
+  for (const block of blocks) {
+    const lines = block
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) continue;
+
+    // Find the line containing "-->"
+    const arrowIdx = lines.findIndex((l) => l.includes('-->'));
+    if (arrowIdx === -1) continue;
+
+    const timingLine = lines[arrowIdx];
+    const parts = timingLine.split('-->');
+    if (parts.length < 2) continue;
+
+    const rawStart = parseSrtTimestamp(parts[0]);
+    // Strip optional cue settings after end timestamp
+    const rawEnd = parseSrtTimestamp(parts[1].trim().split(/\s+/)[0]);
+    if (rawStart === null || rawEnd === null) continue;
+
+    const startTime = Math.round(rawStart * 100) / 100;
+    const endTime = Math.round(Math.max(startTime + 0.3, rawEnd) * 100) / 100;
+
+    // Strip HTML/ASS formatting tags like <i>, </i>, {\an8}
+    const contentLines = lines
+      .slice(arrowIdx + 1)
+      .map((l) => l.replace(/<[^>]+>/g, '').replace(/\{\\[^}]+\}/g, '').trim())
+      .filter(Boolean);
+
+    if (contentLines.length === 0) continue;
+
+    const primaryText = contentLines[0];
+    const translation =
+      contentLines.length > 1 ? contentLines.slice(1).join(' ') : undefined;
+
+    const parsedTokens = tokenizeSubtitleText(primaryText);
+    const span = Math.max(0.1, endTime - startTime);
+    const step = span / Math.max(1, parsedTokens.length);
+
+    const tokens: RubyToken[] = parsedTokens.map((pt, idx) => ({
+      text: pt.base,
+      ruby: pt.ruby,
+      startTime: Math.round((startTime + idx * step) * 100) / 100,
+      endTime:
+        idx === parsedTokens.length - 1
+          ? endTime
+          : Math.round((startTime + (idx + 1) * step) * 100) / 100,
+    }));
+
+    result.push({
+      id: `line-${result.length + 1}`,
+      startTime,
+      endTime,
+      text: primaryText,
+      tokens,
+      translation,
+    });
+  }
+
+  return result;
 }
 
 /**
@@ -79,14 +180,17 @@ export function parseYrc(raw: string): SubtitleLine[] {
 }
 
 /**
- * Parses standard LRC or word-synced Enhanced LRC into SubtitleLine[].
+ * Parses standard LRC, word-synced Enhanced LRC, YRC, or SRT into SubtitleLine[].
  */
 export function parseLrc(raw: string, translationRaw?: string): SubtitleLine[] {
   if (isYrcFormat(raw)) {
     return parseYrc(raw);
   }
+  if (isSrtFormat(raw)) {
+    return parseSrt(raw);
+  }
 
-  const rawLines = raw.split(/\r?\n/);
+  const rawLines = raw.replace(/^\uFEFF/, '').split(/\r?\n/);
   const parsedItems: { time: number; text: string; rawLine: string }[] = [];
 
   for (const line of rawLines) {
@@ -96,14 +200,26 @@ export function parseLrc(raw: string, translationRaw?: string): SubtitleLine[] {
     // Skip metadata tags like [ar:Artist], [ti:Title], [al:Album]
     if (/^\[[a-zA-Z]+:/.test(trimmed)) continue;
 
-    // Match leading timestamp: [00:12.34]
-    const match = trimmed.match(/^\[(\d+:\d+(?:\.\d+)?)\](.*)$/);
-    if (match) {
-      const time = parseLrcTimestamp(match[1]);
-      if (time !== null) {
+    // Match one or more leading timestamps: [00:12.34][01:20.00]Lyric
+    const timestampRegex = /\[(\d+:\d+(?:\.\d+)?)\]/g;
+    const timestamps: number[] = [];
+    let match: RegExpExecArray | null;
+    let lastIdx = 0;
+
+    while ((match = timestampRegex.exec(trimmed)) !== null) {
+      const t = parseLrcTimestamp(match[1]);
+      if (t !== null) {
+        timestamps.push(t);
+      }
+      lastIdx = timestampRegex.lastIndex;
+    }
+
+    if (timestamps.length > 0) {
+      const textContent = trimmed.slice(lastIdx).trim();
+      for (const time of timestamps) {
         parsedItems.push({
           time,
-          text: match[2].trim(),
+          text: textContent,
           rawLine: trimmed,
         });
       }
@@ -135,6 +251,9 @@ export function parseLrc(raw: string, translationRaw?: string): SubtitleLine[] {
     const item = parsedItems[i];
     const nextItem = parsedItems[i + 1];
 
+    // Skip empty instrumental break tags unless they have text
+    if (!item.text.trim()) continue;
+
     const startTime = Math.round(item.time * 100) / 100;
     // Default duration: up to next line start, or 4.5s max
     let endTime = nextItem ? Math.min(startTime + 6.0, nextItem.time) : startTime + 4.5;
@@ -162,19 +281,30 @@ export function parseLrc(raw: string, translationRaw?: string): SubtitleLine[] {
           }
         }
       }
+      // Make contiguous end times for word-synced LRC
+      for (let k = 0; k < tokens.length; k++) {
+        if (k < tokens.length - 1) {
+          tokens[k].endTime = Math.max(tokens[k].startTime + 0.05, tokens[k + 1].startTime);
+        } else {
+          tokens[k].endTime = Math.max(tokens[k].startTime + 0.1, endTime);
+        }
+      }
     }
 
     // Clean text by stripping word tags: <00:12.34>
     const cleanLineText = item.text.replace(/<\d+:\d+(?:\.\d+)?>/g, '').trim();
 
-    // If no word sync tags found, generate even token intervals from Ruby tokens or words
+    // If no word sync tags found, generate even token intervals from Ruby tokens / CJK / words
     if (tokens.length === 0) {
-      const rubyTokens = parseMarkdownRuby(cleanLineText);
+      const rubyTokens = tokenizeSubtitleText(cleanLineText);
       const tokenDur = lineDuration / Math.max(1, rubyTokens.length);
 
       rubyTokens.forEach((rt, idx) => {
         const tStart = Math.round((startTime + idx * tokenDur) * 100) / 100;
-        const tEnd = Math.round((tStart + tokenDur) * 100) / 100;
+        const tEnd =
+          idx === rubyTokens.length - 1
+            ? endTime
+            : Math.round((startTime + (idx + 1) * tokenDur) * 100) / 100;
         tokens.push({
           text: rt.base,
           ruby: rt.ruby,
@@ -189,12 +319,43 @@ export function parseLrc(raw: string, translationRaw?: string): SubtitleLine[] {
     const translation = translationsMap.get(roundedKey);
 
     result.push({
-      id: `line-${i + 1}`,
+      id: `line-${result.length + 1}`,
       startTime,
       endTime,
       text: cleanLineText,
       tokens,
       translation,
+    });
+  }
+
+  // Fallback for plain untimed lyrics (1 line per 3.5 seconds)
+  if (result.length === 0) {
+    const plainLines = raw
+      .replace(/^\uFEFF/, '')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !/^\[[a-zA-Z]+:/.test(l));
+
+    plainLines.forEach((lineText, idx) => {
+      const startTime = Math.round(idx * 3.5 * 100) / 100;
+      const endTime = Math.round((startTime + 3.2) * 100) / 100;
+      const rubyTokens = tokenizeSubtitleText(lineText);
+      const step = (endTime - startTime) / Math.max(1, rubyTokens.length);
+      result.push({
+        id: `line-${idx + 1}`,
+        startTime,
+        endTime,
+        text: lineText,
+        tokens: rubyTokens.map((rt, tIdx) => ({
+          text: rt.base,
+          ruby: rt.ruby,
+          startTime: Math.round((startTime + tIdx * step) * 100) / 100,
+          endTime:
+            tIdx === rubyTokens.length - 1
+              ? endTime
+              : Math.round((startTime + (tIdx + 1) * step) * 100) / 100,
+        })),
+      });
     });
   }
 

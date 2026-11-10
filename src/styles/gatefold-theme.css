@@ -27,65 +27,10 @@
   --r-lg: 16px;
 }
 
-/* Ambient Aurora Backlight Layer */
-.ambient-aurora-bg {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 0;
-  background-color: var(--bg);
-  transition: background-color var(--tx) var(--ease);
-}
-
-.aurora-blob-1 {
-  position: absolute;
-  width: 55vw;
-  height: 55vw;
-  top: -15vw;
-  left: -10vw;
-  border-radius: 9999px;
-  background: radial-gradient(circle, var(--blob-1) 0%, transparent 70%);
-  filter: blur(80px);
-  opacity: 0.65;
-  transition: background var(--tx) var(--ease);
-  will-change: transform;
-}
-
-.aurora-blob-2 {
-  position: absolute;
-  width: 50vw;
-  height: 50vw;
-  bottom: -10vw;
-  right: -10vw;
-  border-radius: 9999px;
-  background: radial-gradient(circle, var(--blob-2) 0%, transparent 70%);
-  filter: blur(80px);
-  opacity: 0.55;
-  transition: background var(--tx) var(--ease);
-  will-change: transform;
-}
-
-.aurora-blob-3 {
-  position: absolute;
-  width: 40vw;
-  height: 40vw;
-  top: 30%;
-  left: 35%;
-  border-radius: 9999px;
-  background: radial-gradient(circle, var(--blob-3) 0%, transparent 70%);
-  filter: blur(90px);
-  opacity: 0.45;
-  transition: background var(--tx) var(--ease);
-  will-change: transform;
-}
-
-/* Glass panel utility */
+/* Flat panel utility (no backdrop-filter: low-end GPU friendly) */
 .gatefold-card {
   background-color: var(--panel);
   border: 1px solid var(--line);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border-radius: var(--r);
   transition: border-color 200ms ease, background-color 200ms ease, box-shadow 200ms ease;
 }
@@ -97,8 +42,6 @@
 .gatefold-card-strong {
   background-color: var(--panel-strong);
   border: 1px solid var(--line-2);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-pop);
 }

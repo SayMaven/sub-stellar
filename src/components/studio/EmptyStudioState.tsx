@@ -1,17 +1,54 @@
 import React, { useRef, useState } from 'react';
 import { UploadCloud, Sparkles, Video, FileText, HardDrive } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
+import { parseLrc } from '../../services/lyrics/lrcParser';
 
 export const EmptyStudioState: React.FC = () => {
-  const { loadSampleTrack, loadLocalMedia, setActiveTab } = useStudioStore();
+  const { loadSampleTrack, loadLocalMedia, importLyrics, importProjectJson, setActiveTab } =
+    useStudioStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const subtitleInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  const processSelectedFile = (file: File) => {
+    const ext = file.name.toLowerCase();
+    if (ext.endsWith('.substellar') || ext.endsWith('.json')) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          importProjectJson(String(reader.result || ''));
+        } catch {
+          // ignore
+        }
+      };
+      reader.readAsText(file);
+      return;
+    }
+    if (
+      ext.endsWith('.lrc') ||
+      ext.endsWith('.srt') ||
+      ext.endsWith('.vtt') ||
+      ext.endsWith('.txt')
+    ) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const parsed = parseLrc(String(reader.result || ''));
+        if (parsed.length > 0) {
+          importLyrics(parsed);
+        }
+      };
+      reader.readAsText(file);
+      return;
+    }
+    loadLocalMedia(file);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      loadLocalMedia(file);
+      processSelectedFile(file);
     }
+    e.target.value = '';
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -19,7 +56,7 @@ export const EmptyStudioState: React.FC = () => {
     setIsDragOver(false);
     const file = e.dataTransfer.files?.[0];
     if (file) {
-      loadLocalMedia(file);
+      processSelectedFile(file);
     }
   };
 
@@ -37,7 +74,14 @@ export const EmptyStudioState: React.FC = () => {
       <input
         ref={fileInputRef}
         type="file"
-        accept="video/mp4,video/webm,video/ogg,audio/mp3,audio/wav,audio/ogg"
+        accept="video/*,audio/*,.mp4,.webm,.mkv,.mov,.mp3,.wav,.ogg,.lrc,.srt,.substellar"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+      <input
+        ref={subtitleInputRef}
+        type="file"
+        accept=".lrc,.srt,.vtt,.txt"
         className="hidden"
         onChange={handleFileChange}
       />
@@ -79,7 +123,7 @@ export const EmptyStudioState: React.FC = () => {
 
           <button
             onClick={loadSampleTrack}
-            className="w-full py-2.5 px-4 rounded-lg bg-gatefold-accent text-gatefold-bg font-semibold text-xs hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2 shadow-[0_0_16px_var(--glow)]"
+            className="w-full py-2.5 px-4 rounded-lg bg-gatefold-accent text-gatefold-bg font-semibold text-xs hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2"
           >
             <Sparkles className="w-4 h-4" />
             <span>Load J-Pop Showcase (Furigana & Particles)</span>
@@ -87,26 +131,26 @@ export const EmptyStudioState: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-2 pt-1">
             <button
+              onClick={() => subtitleInputRef.current?.click()}
+              className="py-2 px-3 rounded-lg bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-xs font-medium text-gatefold-text transition-colors flex items-center justify-center gap-1.5"
+            >
+              <FileText className="w-3.5 h-3.5 text-gatefold-accent" />
+              <span>Import .LRC / .SRT</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('youtube')}
               className="py-2 px-3 rounded-lg bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-xs font-medium text-gatefold-text transition-colors flex items-center justify-center gap-1.5"
             >
               <Video className="w-3.5 h-3.5 text-red-400" />
               <span>YouTube URL</span>
             </button>
-
-            <button
-              onClick={() => setActiveTab('lyrics')}
-              className="py-2 px-3 rounded-lg bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-xs font-medium text-gatefold-text transition-colors flex items-center justify-center gap-1.5"
-            >
-              <FileText className="w-3.5 h-3.5 text-gatefold-accent" />
-              <span>Search Lyrics</span>
-            </button>
           </div>
         </div>
 
         {/* Format notes */}
         <div className="text-[10px] text-gatefold-text-3 font-mono pt-2 border-t border-gatefold-line w-full flex items-center justify-center gap-3">
-          <span>Supported: MP4, WebM, MP3, WAV, LRC</span>
+          <span>Supported: MP4, WebM, MP3, WAV, LRC, SRT, .substellar</span>
         </div>
       </div>
     </div>

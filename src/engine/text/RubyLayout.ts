@@ -77,6 +77,64 @@ export function parseMarkdownRuby(text: string): ParsedRubyToken[] {
   return tokens;
 }
 
+const CJK_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+
+function segmentCJKChunk(chunk: string): string[] {
+  if (!CJK_REGEX.test(chunk)) {
+    return [chunk];
+  }
+  const graphemes = getGraphemeClusters(chunk, 'ja');
+  if (graphemes.length <= 1) {
+    return [chunk];
+  }
+
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    const wordSegmenter = new Intl.Segmenter('ja', { granularity: 'word' });
+    const segments = [...wordSegmenter.segment(chunk)]
+      .map((s) => s.segment.trim())
+      .filter(Boolean);
+    if (segments.length > 1) {
+      return segments;
+    }
+  }
+
+  // Fallback when Intl.Segmenter treats a long CJK phrase as 1 token: chunk into 2 graphemes
+  const fallback: string[] = [];
+  for (let i = 0; i < graphemes.length; i += 2) {
+    fallback.push(graphemes.slice(i, i + 2).join(''));
+  }
+  return fallback;
+}
+
+/**
+ * Tokenizes subtitle text into word/ruby segments for per-word vocal karaoke timing.
+ * Splits `{Base|Ruby}` tags, whitespace-separated words (e.g., Indonesian/English lyrics),
+ * and unspaced CJK phrases into natural animated word segments.
+ */
+export function tokenizeSubtitleText(text: string): ParsedRubyToken[] {
+  const raw = parseMarkdownRuby(text);
+  const result: ParsedRubyToken[] = [];
+
+  for (const item of raw) {
+    if (item.isRuby) {
+      result.push(item);
+      continue;
+    }
+    // Split plain text by whitespace while keeping words clean
+    const parts = item.base.trim().split(/\s+/).filter(Boolean);
+    for (const part of parts) {
+      const subSegments = segmentCJKChunk(part);
+      for (const seg of subSegments) {
+        if (seg.length > 0) {
+          result.push({ base: seg, isRuby: false });
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
 /**
  * Serializes ruby tokens back to clean Markdown Ruby syntax.
  */

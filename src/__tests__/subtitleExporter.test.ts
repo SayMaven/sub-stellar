@@ -21,12 +21,17 @@ describe('SubtitleExporter (.ass & .srt)', () => {
     fontFamily: 'Segoe UI',
     fontSize: 52,
     fillColor: '#ffffff',
+    fillGradientEnabled: true,
+    fillGradientEndColor: '#b8d0ff',
     outerStrokeColor: '#14161b',
     outerStrokeWidth: 8,
     innerStrokeColor: '#8fb4ff',
     innerStrokeWidth: 2,
     glowColor: '#5770b0',
     glowBlur: 12,
+    rubyFillColor: '#8fb4ff',
+    rubyActiveColor: '#5affb5',
+    translationFillColor: '#bfc3ca',
     verticalPosition: 'bottom',
     yOffset: 80,
     rubyScale: 0.45,
@@ -34,6 +39,9 @@ describe('SubtitleExporter (.ass & .srt)', () => {
     particlePreset: 'stardust',
     particleBurstCount: 15,
     particleEnabled: true,
+    wordTransitionMs: 140,
+    wordAnimStyle: 'pop',
+    wordActiveColor: '#8fb4ff',
   };
 
   const mockTrack: TrackMetadata = {

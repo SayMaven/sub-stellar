@@ -23,7 +23,7 @@ export const SettingsModal: React.FC = () => {
   ];
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 backdrop-blur-sm select-none">
+    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 select-none">
       <div className="max-w-2xl mx-auto space-y-6">
         <div>
           <h2 className="text-xl font-semibold text-gatefold-text flex items-center gap-2">
@@ -49,7 +49,7 @@ export const SettingsModal: React.FC = () => {
                 onClick={() => setPreset(t.id)}
                 className={`p-3 rounded-lg border text-left flex items-center gap-3 transition-all ${
                   currentPreset === t.id
-                    ? 'border-gatefold-accent bg-gatefold-accent/15 text-gatefold-accent font-medium shadow-[0_0_12px_rgba(143,180,255,0.15)]'
+                    ? 'border-gatefold-accent bg-gatefold-accent/15 text-gatefold-accent font-medium'
                     : 'border-gatefold-line bg-gatefold-surface text-gatefold-text hover:border-gatefold-line-2'
                 }`}
               >
@@ -90,7 +90,7 @@ export const SettingsModal: React.FC = () => {
                 onClick={() => setQualityMode(p.id as QualityMode)}
                 className={`p-3 rounded-lg border cursor-pointer transition-all ${
                   mode === p.id
-                    ? 'border-gatefold-accent bg-gatefold-accent/10 shadow-[0_0_12px_rgba(143,180,255,0.1)]'
+                    ? 'border-gatefold-accent bg-gatefold-accent/10'
                     : 'border-gatefold-line bg-gatefold-surface hover:border-gatefold-line-2'
                 }`}
               >

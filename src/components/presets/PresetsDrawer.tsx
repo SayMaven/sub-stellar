@@ -134,7 +134,7 @@ export const PresetsDrawer: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 backdrop-blur-sm select-none">
+    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 select-none">
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
           <h2 className="text-xl font-semibold text-gatefold-text flex items-center gap-2">
@@ -156,7 +156,7 @@ export const PresetsDrawer: React.FC = () => {
                 onClick={() => handleApplyPreset(preset)}
                 className={`gatefold-card p-5 flex flex-col justify-between transition-all cursor-pointer ${
                   isActive
-                    ? 'border-gatefold-accent bg-gatefold-accent/10 shadow-[0_0_20px_rgba(143,180,255,0.2)]'
+                    ? 'border-gatefold-accent bg-gatefold-accent/10'
                     : 'hover:border-gatefold-line-2'
                 }`}
               >
@@ -180,7 +180,7 @@ export const PresetsDrawer: React.FC = () => {
                     <span className="text-[10px] font-bold text-white/90 leading-none mb-0.5">
                       なに
                     </span>
-                    <span className="text-sm font-bold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] leading-none">
+                    <span className="text-sm font-bold text-white leading-none">
                       何
                     </span>
                   </div>

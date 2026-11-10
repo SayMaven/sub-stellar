@@ -22,6 +22,9 @@ export const YouTubeDrawer: React.FC = () => {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [metadata, setMetadata] = useState<YouTubeMetadata | null>(null);
   const [ytDlpStatus, setYtDlpStatus] = useState<YtDlpStatus | null>(null);
+  const [selectedFormat, setSelectedFormat] = useState('');
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const { loadSampleTrack, setActiveTab, setTrack } = useStudioStore();
   const { extractFromCover } = useThemeStore();
@@ -57,6 +60,8 @@ export const YouTubeDrawer: React.FC = () => {
     try {
       const data = await tauriBridge.getYouTubeMetadata(url.trim());
       setMetadata(data);
+      setSelectedFormat(data.formats[0]?.format_id ?? '');
+      setDownloadError(null);
       setFetchStep('');
     } catch (err) {
       setValidationError(
@@ -68,26 +73,59 @@ export const YouTubeDrawer: React.FC = () => {
     }
   };
 
+  const formatSize = (bytes: number): string =>
+    bytes > 0 ? `${(bytes / (1024 * 1024)).toFixed(0)} MB` : 'size unknown';
+
+  const trackFromMetadata = (m: YouTubeMetadata) => ({
+    id: m.id,
+    title: m.title,
+    artist: m.channel,
+    duration: m.duration_seconds,
+    coverUrl: m.thumbnail_url,
+  });
+
+  const canDownload = Boolean(ytDlpStatus?.available) && Boolean(selectedFormat);
+
+  // Download with yt-dlp first, then load the local file so playback is real and seekable.
+  const handleDownloadAndImport = async () => {
+    if (!metadata || !canDownload) return;
+
+    setIsDownloading(true);
+    setDownloadError(null);
+    try {
+      const isAudio = selectedFormat === 'audio';
+      const localPath = await tauriBridge.downloadYouTubeMedia(
+        url.trim(),
+        selectedFormat,
+        isAudio ? 'audio' : 'video'
+      );
+      const playable = await tauriBridge.toPlayableUrl(localPath);
+
+      setTrack({
+        ...trackFromMetadata(metadata),
+        videoUrl: isAudio ? undefined : playable,
+        audioUrl: isAudio ? playable : undefined,
+      });
+      if (metadata.thumbnail_url) {
+        extractFromCover(metadata.thumbnail_url);
+      }
+      setActiveTab('studio');
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  // Metadata only: no media file, so the studio has nothing to play.
   const handleImportToStudio = () => {
     if (!metadata) return;
-
-    // Set track in studio
-    setTrack({
-      id: metadata.id,
-      title: metadata.title,
-      artist: metadata.channel,
-      duration: metadata.duration_seconds,
-      coverUrl: metadata.thumbnail_url,
-    });
-
-    // Adapt OKLCH dynamic Gatefold background to thumbnail colors
+    setTrack({ ...trackFromMetadata(metadata), videoUrl: undefined, audioUrl: undefined });
     if (metadata.thumbnail_url) {
       extractFromCover(metadata.thumbnail_url);
     }
-
     setActiveTab('studio');
   };
-
   const handleSearchLyricsForThis = () => {
     if (!metadata) return;
 
@@ -118,7 +156,7 @@ export const YouTubeDrawer: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 backdrop-blur-sm select-none">
+    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 select-none">
       <div className="max-w-2xl mx-auto space-y-6">
         <div>
           <h2 className="text-xl font-semibold text-gatefold-text flex items-center gap-2">
@@ -244,18 +282,95 @@ export const YouTubeDrawer: React.FC = () => {
               </div>
             </div>
 
+            {/* Resolution picker */}
+            {metadata.formats.length > 0 && (
+              <div className="space-y-1.5 pt-3 border-t border-gatefold-line">
+                <label
+                  htmlFor="yt-format"
+                  className="block text-[11px] font-semibold text-gatefold-text-2 uppercase tracking-wider font-mono"
+                >
+                  Resolution
+                </label>
+                <select
+                  id="yt-format"
+                  value={selectedFormat}
+                  onChange={(e) => setSelectedFormat(e.target.value)}
+                  disabled={isDownloading}
+                  className="w-full px-3 py-2 text-xs bg-gatefold-surface border border-gatefold-line rounded-lg text-gatefold-text focus:outline-none focus:border-gatefold-accent"
+                >
+                  {metadata.formats.map((f) => (
+                    <option key={f.format_id} value={f.format_id}>
+                      {f.resolution} - {formatSize(f.filesize_approx)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {!ytDlpStatus?.available && (
+              <div className="flex items-start gap-1.5 text-xs text-gatefold-text-2 bg-gatefold-surface p-2.5 rounded-lg border border-gatefold-line">
+                <AlertCircle className="w-4 h-4 shrink-0 text-gatefold-accent" />
+                <span>
+                  yt-dlp was not found on PATH. Install yt-dlp (and ffmpeg) to download playable media, or load
+                  metadata only.
+                </span>
+              </div>
+            )}
+
+            {downloadError && (
+              <div className="flex items-center justify-between gap-2 text-xs text-red-400 bg-red-500/10 p-2.5 rounded-lg border border-red-500/20">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span className="break-words min-w-0">{downloadError}</span>
+                </div>
+                <button
+                  onClick={handleDownloadAndImport}
+                  className="px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/30 text-[11px] font-medium shrink-0"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {isDownloading && (
+              <div className="p-3 rounded-lg bg-gatefold-surface border border-gatefold-line text-xs space-y-2">
+                <div className="flex justify-between font-mono text-gatefold-text-2">
+                  <span>Downloading with yt-dlp and merging streams...</span>
+                  <span className="text-gatefold-accent">In Progress</span>
+                </div>
+                <div className="h-1.5 w-full bg-gatefold-surface-2 rounded-full overflow-hidden">
+                  <div className="h-full bg-gatefold-accent animate-pulse w-3/4" />
+                </div>
+              </div>
+            )}
+
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-2 pt-3 border-t border-gatefold-line">
               <button
-                onClick={handleImportToStudio}
-                className="flex-1 py-2.5 px-4 bg-gatefold-accent text-gatefold-bg font-semibold text-xs rounded-lg hover:opacity-90 transition-all flex items-center justify-center gap-2"
+                onClick={handleDownloadAndImport}
+                disabled={!canDownload || isDownloading}
+                className="flex-1 py-2.5 px-4 bg-gatefold-accent text-gatefold-bg font-semibold text-xs rounded-lg hover:opacity-90 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Load Media into Studio</span>
+                {isDownloading ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                <span>{isDownloading ? 'Downloading...' : 'Download & Load into Studio'}</span>
+              </button>
+              <button
+                onClick={handleImportToStudio}
+                disabled={isDownloading}
+                className="py-2.5 px-4 bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-xs font-semibold text-gatefold-text rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                title="Loads title and cover only; nothing will play"
+              >
+                <CheckCircle2 className="w-4 h-4 text-gatefold-accent" />
+                <span>Metadata Only</span>
               </button>
               <button
                 onClick={handleSearchLyricsForThis}
-                className="py-2.5 px-4 bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-xs font-semibold text-gatefold-text rounded-lg transition-all flex items-center justify-center gap-2"
+                disabled={isDownloading}
+                className="py-2.5 px-4 bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-xs font-semibold text-gatefold-text rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <Sparkles className="w-4 h-4 text-gatefold-accent" />
                 <span>Find Synced Lyrics</span>

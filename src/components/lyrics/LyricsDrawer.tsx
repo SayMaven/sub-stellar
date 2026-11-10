@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Search,
   FileText,
@@ -10,6 +10,7 @@ import {
   Music2,
   ChevronRight,
   Database,
+  Upload,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { aggregateLyricsSearch } from '../../services/lyrics/lyricsAggregator';
@@ -18,6 +19,7 @@ import type { LyricsCandidate } from '../../services/lyrics/types';
 
 export const LyricsDrawer: React.FC = () => {
   const { track, setActiveTab, importLyrics } = useStudioStore();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [title, setTitle] = useState(track.title || 'Stellar Night Flight');
   const [artist, setArtist] = useState(track.artist || 'Luna feat. Hatsune Miku');
@@ -88,10 +90,27 @@ export const LyricsDrawer: React.FC = () => {
     }
   };
 
+  const handleUploadSubtitleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const content = String(reader.result || '');
+      setManualText(content);
+      const parsedLines = parseLrc(content);
+      if (parsedLines.length > 0) {
+        importLyrics(parsedLines);
+        setActiveTab('studio');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   const selectedCandidate = candidates.find((c) => c.id === selectedId);
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 backdrop-blur-sm select-none">
+    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 select-none">
       <div className="max-w-3xl mx-auto space-y-6">
         <div>
           <h2 className="text-xl font-semibold text-gatefold-text flex items-center gap-2">
@@ -125,7 +144,7 @@ export const LyricsDrawer: React.FC = () => {
             }`}
           >
             <FileText className="w-3.5 h-3.5" />
-            <span>Manual LRC / Ruby Text Paste</span>
+            <span>Import / Paste .LRC or .SRT</span>
           </button>
         </div>
 
@@ -348,27 +367,46 @@ export const LyricsDrawer: React.FC = () => {
             )}
           </>
         ) : (
-          /* Manual Paste Area */
+          /* Manual Paste & File Upload Area */
           <div className="gatefold-card-strong p-5 space-y-4">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".lrc,.srt,.vtt,.txt"
+              onChange={handleUploadSubtitleFile}
+              className="hidden"
+            />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gatefold-line">
+              <div>
+                <label className="block text-xs font-semibold text-gatefold-text-2 uppercase tracking-wider mb-0.5">
+                  Import or Paste .LRC / .SRT / Ruby Lyrics
+                </label>
+                <p className="text-[11px] text-gatefold-text-3">
+                  Supports SubRip `.srt`, Standard `.lrc`, NetEase `.yrc`, and Markdown Ruby `&#123;Kanji|Ruby&#125;` with auto word segmentation.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3.5 py-2 rounded-lg bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-accent/40 text-gatefold-accent font-semibold text-xs flex items-center gap-1.5 shrink-0"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Choose .LRC / .SRT File</span>
+              </button>
+            </div>
             <div>
-              <label className="block text-xs font-semibold text-gatefold-text-2 uppercase tracking-wider mb-1">
-                Paste LRC, YRC, or Markdown Ruby Text
-              </label>
-              <p className="text-[11px] text-gatefold-text-3 mb-2">
-                Supports Standard LRC timecodes `[00:12.50]`, NetEase YRC word timings `[start,dur](start,dur,0)`, or Markdown Ruby `&#123;Kanji|Ruby&#125;`.
-              </p>
               <textarea
                 rows={10}
                 value={manualText}
                 onChange={(e) => setManualText(e.target.value)}
-                placeholder="[00:12.00] もう{何|なに}もいらない..."
+                placeholder="[00:12.00] もう{何|なに}もいらない... or paste .SRT blocks here"
                 className="w-full p-3 text-xs font-mono bg-gatefold-surface border border-gatefold-line rounded-lg text-gatefold-text focus:border-gatefold-accent focus:outline-none resize-none"
               />
             </div>
 
             <div className="flex justify-between items-center">
               <span className="text-[10px] text-gatefold-text-3 font-mono">
-                {manualText.split(/\r?\n/).filter((l) => l.trim()).length} lines detected
+                {manualText.split(/\r?\n/).filter((l) => l.trim()).length} lines in buffer
               </span>
               <button
                 onClick={handleApplyManual}

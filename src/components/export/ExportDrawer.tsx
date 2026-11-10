@@ -6,36 +6,90 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Save,
+  FolderOpen,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { generateAss, generateSrt, downloadFile } from '../../engine/text/SubtitleExporter';
-import { tauriBridge, type HardwareCapabilities, type ExportProgress } from '../../services/tauriBridge';
+import { getCanvasPixelDimensions } from '../../engine/layout/layoutMath';
+import {
+  tauriBridge,
+  type HardwareCapabilities,
+  type ExportProgress,
+} from '../../services/tauriBridge';
 import { FFmpegExportPipeline } from '../../engine/export/FFmpegExportPipeline';
+import type { CanvasResolutionPreset } from '../../types';
 
 export const ExportDrawer: React.FC = () => {
-  const { lines, style, track, duration } = useStudioStore();
+  const {
+    lines,
+    style,
+    track,
+    duration,
+    aspectRatio,
+    canvasResolution,
+    setCanvasResolution,
+    exportProjectJson,
+    importProjectJson,
+    saveToLocalStorage,
+  } = useStudioStore();
 
   const [format, setFormat] = useState<'ass' | 'srt' | 'mp4' | 'webm' | 'prores'>('ass');
-  const [resolution, setResolution] = useState<'1080p' | '720p' | '4k'>('1080p');
   const [fps, setFps] = useState<number>(60);
   const [selectedEncoder, setSelectedEncoder] = useState<string>('libx264');
   const [hardwareCaps, setHardwareCaps] = useState<HardwareCapabilities | null>(null);
-  
+
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const pipelineRef = useRef<FFmpegExportPipeline | null>(null);
+  const projectFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    tauriBridge.probeHardwareCapabilities().then((caps) => {
-      setHardwareCaps(caps);
-      if (caps.primary_encoder) {
-        setSelectedEncoder(caps.primary_encoder);
-      }
-    }).catch(() => {});
+    tauriBridge
+      .probeHardwareCapabilities()
+      .then((caps) => {
+        setHardwareCaps(caps);
+        if (caps.primary_encoder) {
+          setSelectedEncoder(caps.primary_encoder);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  const targetDims = getCanvasPixelDimensions(aspectRatio, canvasResolution);
+
+  const handleSaveProject = () => {
+    const baseName = (track.title || 'substellar_project')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '_');
+    const json = exportProjectJson();
+    saveToLocalStorage();
+    downloadFile(`${baseName}.substellar`, json, 'application/json;charset=utf-8');
+    setExportSuccess(`Project saved to ${baseName}.substellar (${lines.length} subtitle lines).`);
+  };
+
+  const handleOpenProject = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        importProjectJson(String(reader.result || ''));
+        saveToLocalStorage();
+        setExportSuccess(`Loaded project file: ${file.name}`);
+        setErrorMessage(null);
+      } catch (err) {
+        setErrorMessage(
+          err instanceof Error ? err.message : 'Failed to parse .substellar project file.'
+        );
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   const handleCancel = () => {
     if (pipelineRef.current) {
@@ -58,9 +112,11 @@ export const ExportDrawer: React.FC = () => {
 
     try {
       if (format === 'ass') {
-        const assText = generateAss(lines, style, track);
+        const assText = generateAss(lines, style, track, targetDims);
         downloadFile(`${baseName}.ass`, assText, 'text/plain;charset=utf-8');
-        setExportSuccess(`Exported ${lines.length} lines to ${baseName}.ass with full Furigana styles & karaoke tags.`);
+        setExportSuccess(
+          `Exported ${lines.length} lines to ${baseName}.ass (${targetDims.width}×${targetDims.height}) with Furigana & per-word karaoke timing.`
+        );
         setIsExporting(false);
         return;
       }
@@ -73,13 +129,12 @@ export const ExportDrawer: React.FC = () => {
         return;
       }
 
-      // Video export modes: mp4, webm, prores
-      const width = resolution === '4k' ? 3840 : resolution === '720p' ? 1280 : 1920;
-      const height = resolution === '4k' ? 2160 : resolution === '720p' ? 720 : 1080;
+      const { width, height } = targetDims;
       const ext = format === 'webm' ? 'webm' : format === 'prores' ? 'mov' : 'mp4';
-      const outputPath = `${baseName}_export.${ext}`;
+      const outputPath = `${baseName}_${canvasResolution}.${ext}`;
 
-      const mode = format === 'webm' ? 'webm_alpha' : format === 'prores' ? 'prores_alpha' : 'mp4_burnin';
+      const mode =
+        format === 'webm' ? 'webm_alpha' : format === 'prores' ? 'prores_alpha' : 'mp4_burnin';
 
       const pipeline = new FFmpegExportPipeline();
       pipelineRef.current = pipeline;
@@ -101,6 +156,8 @@ export const ExportDrawer: React.FC = () => {
           secondaryOutlineColor: style.outerStrokeColor,
           outlineThickness: style.outerStrokeWidth,
           rubySizeRatio: style.rubyScale,
+          wordTransitionMs: style.wordTransitionMs,
+          wordAnimStyle: style.wordAnimStyle,
         },
         onProgress: (prog) => {
           setProgress(prog);
@@ -125,16 +182,51 @@ export const ExportDrawer: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 backdrop-blur-sm select-none">
+    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 select-none">
       <div className="max-w-2xl mx-auto space-y-6">
         <div>
           <h2 className="text-xl font-semibold text-gatefold-text flex items-center gap-2">
             <Film className="w-5 h-5 text-gatefold-accent" />
-            <span>Export Center & Hardware Pipeline</span>
+            <span>Project Save & Export Center</span>
           </h2>
           <p className="text-xs text-gatefold-text-3 mt-1">
-            Zero-I/O frame memory pipe, GPU hardware auto-probing (NVENC/QSV/AMF), and professional alpha video overlays.
+            Save or restore `.substellar` project files, or export subtitles & rendered video with hardware acceleration.
           </p>
+        </div>
+
+        {/* Project File Save / Open Card */}
+        <div className="gatefold-card-strong p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h4 className="text-xs font-semibold text-gatefold-text">
+              SubStellar Project File (.substellar)
+            </h4>
+            <p className="text-[11px] text-gatefold-text-3 mt-0.5">
+              Preserves all subtitle lines, translations, per-word vocal timings, ruby tags, and canvas resolution ({aspectRatio} • {canvasResolution}).
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <input
+              ref={projectFileInputRef}
+              type="file"
+              accept=".substellar,.json,application/json"
+              onChange={handleOpenProject}
+              className="hidden"
+            />
+            <button
+              onClick={() => projectFileInputRef.current?.click()}
+              className="px-3 py-2 rounded-lg bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-xs font-semibold text-gatefold-text flex items-center gap-1.5"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-gatefold-accent" />
+              <span>Open Project</span>
+            </button>
+            <button
+              onClick={handleSaveProject}
+              className="px-3 py-2 rounded-lg bg-gatefold-accent text-gatefold-bg text-xs font-semibold hover:opacity-90 flex items-center gap-1.5"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>Save Project</span>
+            </button>
+          </div>
         </div>
 
         {/* Real Hardware Probing Card */}
@@ -151,7 +243,11 @@ export const ExportDrawer: React.FC = () => {
                 )}
               </h4>
               <p className="text-[11px] text-gatefold-text-3 font-mono mt-0.5">
-                Primary: <span className="text-emerald-400 font-semibold">{hardwareCaps?.primary_encoder || 'libx264 (CPU)'}</span> • Available: {hardwareCaps?.available_encoders.join(', ') || 'libx264'}
+                Primary:{' '}
+                <span className="text-emerald-400 font-semibold">
+                  {hardwareCaps?.primary_encoder || 'libx264 (CPU)'}
+                </span>{' '}
+                • Available: {hardwareCaps?.available_encoders.join(', ') || 'libx264'}
               </p>
             </div>
           </div>
@@ -196,159 +292,150 @@ export const ExportDrawer: React.FC = () => {
             ))}
           </div>
 
-          {/* Render Specifications (When Video Selected) */}
-          {(format === 'mp4' || format === 'webm' || format === 'prores') && (
-            <div className="space-y-3 pt-3 border-t border-gatefold-line">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
-                    Resolution
-                  </label>
-                  <select
-                    value={resolution}
-                    onChange={(e) => setResolution(e.target.value as '1080p' | '720p' | '4k')}
-                    className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none"
-                  >
-                    <option value="1080p">1080p Full HD (1920x1080)</option>
-                    <option value="720p">720p HD (1280x720) - Low-End</option>
-                    <option value="4k">4K Ultra HD (3840x2160)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
-                    Framerate
-                  </label>
-                  <select
-                    value={fps}
-                    onChange={(e) => setFps(parseInt(e.target.value, 10))}
-                    className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none"
-                  >
-                    <option value={60}>60 FPS (Ultra smooth motion)</option>
-                    <option value={30}>30 FPS (Standard video)</option>
-                    <option value={24}>24 FPS (Cinematic standard)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
-                    Video Encoder
-                  </label>
-                  <select
-                    value={selectedEncoder}
-                    onChange={(e) => setSelectedEncoder(e.target.value)}
-                    disabled={format !== 'mp4'}
-                    className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none disabled:opacity-50"
-                  >
-                    {format === 'webm' ? (
-                      <option value="libvpx-vp9">libvpx-vp9 (Alpha YUVA420p)</option>
-                    ) : format === 'prores' ? (
-                      <option value="prores_ks">prores_ks (Apple 4444)</option>
-                    ) : (
-                      (hardwareCaps?.available_encoders || ['libx264']).map((enc) => (
-                        <option key={enc} value={enc}>
-                          {enc === 'h264_nvenc'
-                            ? 'NVIDIA NVENC (h264_nvenc)'
-                            : enc === 'h264_qsv'
-                            ? 'Intel QuickSync (h264_qsv)'
-                            : enc === 'h264_amf'
-                            ? 'AMD AMF (h264_amf)'
-                            : `${enc} (CPU)`}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </div>
+          {/* Canvas & Export Resolution Specifications */}
+          <div className="space-y-3 pt-3 border-t border-gatefold-line">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
+                  Canvas & Output Resolution ({aspectRatio})
+                </label>
+                <select
+                  value={canvasResolution}
+                  onChange={(e) => setCanvasResolution(e.target.value as CanvasResolutionPreset)}
+                  className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                >
+                  <option value="720p">720p HD (Low-End Fast)</option>
+                  <option value="1080p">1080p Full HD</option>
+                  <option value="1440p">1440p 2K QHD</option>
+                  <option value="4k">4K Ultra HD</option>
+                </select>
+                <span className="text-[10px] font-mono text-gatefold-accent mt-1 block">
+                  Dimensions: {targetDims.width}×{targetDims.height} px
+                </span>
               </div>
-            </div>
-          )}
 
-          {/* Project Summary */}
-          <div className="p-3 rounded-lg bg-gatefold-surface/60 border border-gatefold-line text-xs space-y-1.5">
-            <div className="flex justify-between text-gatefold-text-3 font-mono text-[11px]">
-              <span>Subtitle Events:</span>
-              <span className="text-gatefold-text font-semibold">{lines.length} lines</span>
-            </div>
-            <div className="flex justify-between text-gatefold-text-3 font-mono text-[11px]">
-              <span>Active Style:</span>
-              <span className="text-gatefold-accent">{style.fontSize}px ({style.particlePreset} particles)</span>
-            </div>
-            <div className="flex justify-between text-gatefold-text-3 font-mono text-[11px]">
-              <span>Duration:</span>
-              <span className="text-gatefold-text font-medium">{duration.toFixed(2)}s</span>
+              {(format === 'mp4' || format === 'webm' || format === 'prores') && (
+                <>
+                  <div>
+                    <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
+                      Framerate
+                    </label>
+                    <select
+                      value={fps}
+                      onChange={(e) => setFps(parseInt(e.target.value, 10))}
+                      className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                    >
+                      <option value={60}>60 FPS (Ultra smooth motion)</option>
+                      <option value={30}>30 FPS (Standard video)</option>
+                      <option value={24}>24 FPS (Cinematic standard)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
+                      Video Encoder
+                    </label>
+                    <select
+                      value={selectedEncoder}
+                      onChange={(e) => setSelectedEncoder(e.target.value)}
+                      disabled={format !== 'mp4'}
+                      className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none disabled:opacity-50"
+                    >
+                      {format === 'webm' ? (
+                        <option value="libvpx-vp9">libvpx-vp9 (Alpha YUVA420p)</option>
+                      ) : format === 'prores' ? (
+                        <option value="prores_ks">prores_ks (Apple 4444)</option>
+                      ) : (
+                        (hardwareCaps?.available_encoders || ['libx264']).map((enc) => (
+                          <option key={enc} value={enc}>
+                            {enc === 'h264_nvenc'
+                              ? 'NVIDIA NVENC (Hardware)'
+                              : enc === 'h264_qsv'
+                              ? 'Intel QuickSync (Hardware)'
+                              : enc === 'h264_amf'
+                              ? 'AMD AMF (Hardware)'
+                              : enc === 'h264_videotoolbox'
+                              ? 'Apple VideoToolbox (Hardware)'
+                              : 'libx264 (CPU Software Fallback)'}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
-          {/* Active Export Progress Bar */}
+          {/* Live Render Progress */}
           {isExporting && progress && (
-            <div className="p-4 rounded-lg bg-gatefold-surface border border-gatefold-accent/40 space-y-2.5">
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-gatefold-accent flex items-center gap-1.5 font-semibold">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Encoding Frame Pipeline...</span>
+            <div className="p-4 rounded-lg bg-gatefold-surface border border-gatefold-line space-y-2.5">
+              <div className="flex justify-between items-center text-xs font-mono">
+                <span className="text-gatefold-text flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-gatefold-accent" />
+                  <span>
+                    Streaming RGBA Pipe: Frame {progress.frames_written} / {progress.total_frames}
+                  </span>
                 </span>
-                <span className="text-gatefold-text font-bold">{progress.percentage.toFixed(1)}%</span>
+                <span className="text-gatefold-accent font-semibold">
+                  {progress.percentage.toFixed(1)}% ({progress.fps.toFixed(1)} FPS)
+                </span>
               </div>
-
-              {/* Progress bar */}
-              <div className="w-full h-2 bg-gatefold-bg rounded-full overflow-hidden border border-gatefold-line">
+              <div className="h-2 w-full bg-gatefold-surface-2 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-gatefold-accent transition-all duration-150"
-                  style={{ width: `${progress.percentage}%` }}
+                  style={{ width: `${Math.min(100, progress.percentage)}%` }}
                 />
               </div>
-
-              <div className="flex justify-between text-[11px] font-mono text-gatefold-text-3">
-                <span>
-                  Frames: {progress.frames_written} / {progress.total_frames}
-                </span>
-                <span>Speed: {progress.fps.toFixed(1)} FPS</span>
+              <div className="flex justify-end">
+                <button
+                  onClick={handleCancel}
+                  className="px-3 py-1 rounded bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 text-[11px] font-medium"
+                >
+                  Cancel Render
+                </button>
               </div>
-
-              <button
-                onClick={handleCancel}
-                className="w-full py-1.5 text-xs text-rose-400 border border-rose-500/30 rounded hover:bg-rose-500/10 transition-colors font-mono"
-              >
-                Cancel Export
-              </button>
             </div>
           )}
 
-          {/* Success Message */}
-          {exportSuccess && (
-            <div className="p-3 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>{exportSuccess}</span>
-            </div>
-          )}
-
-          {/* Error Message */}
+          {/* Error Feedback */}
           {errorMessage && (
-            <div className="p-3 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-center gap-2 text-xs text-red-300">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
               <span>{errorMessage}</span>
             </div>
           )}
 
-          {/* Export Action Button */}
-          {!isExporting && (
-            <div className="pt-2">
-              <button
-                onClick={handleExport}
-                disabled={lines.length === 0}
-                className="w-full py-2.5 px-4 bg-gatefold-accent text-gatefold-bg font-semibold text-xs rounded-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2 shadow-[0_0_16px_var(--glow)] disabled:opacity-50"
-              >
-                <Download className="w-4 h-4" />
-                <span>
-                  {format === 'ass'
-                    ? 'Download Advanced ASS (.ass) Subtitles'
-                    : format === 'srt'
-                    ? 'Download Standard SRT (.srt) Subtitles'
-                    : `Start Hardware Video Export (${format.toUpperCase()})`}
-                </span>
-              </button>
+          {/* Success Feedback */}
+          {exportSuccess && (
+            <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-2 text-xs text-emerald-300">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>{exportSuccess}</span>
             </div>
           )}
+
+          {/* Export Trigger Button */}
+          <button
+            onClick={handleExport}
+            disabled={isExporting || lines.length === 0}
+            className="w-full py-2.5 px-4 bg-gatefold-accent text-gatefold-bg font-semibold text-xs rounded-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {isExporting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Rendering Frame Pipe...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4" />
+                <span>
+                  {format === 'ass' || format === 'srt'
+                    ? `Download .${format.toUpperCase()} Subtitle File`
+                    : `Start Hardware Video Render (${format.toUpperCase()} • ${targetDims.width}×${targetDims.height})`}
+                </span>
+              </>
+            )}
+          </button>
         </div>
       </div>
     </div>

@@ -11,9 +11,9 @@
 
 SubStellar mengusung estetika visual **Gatefold**:
 * **Obsidian Dark Canvas:** Warna dasar gelap yang tenang (`#14161b`), bebas dari silau layar, cocok untuk sesi editing berjam-jam.
-* **Ambient Aurora Backlight:** Background antarmuka memiliki pendaran gradien dinamis (*backlight mesh*) yang warnanya diekstrak secara otomatis dari poster video / cover album yang sedang dibuka.
-* **Glassmorphism Halus & Rounded Cards:** Kartu kontrol menggunakan sudut melengkung halus (`border-radius: 10px–16px`) dengan permukaan semi-transparan (`color-mix(in oklab, var(--bg) 58%, transparent)`).
-* **Micro-Interactions yang Memuaskan:** Efek glow halus saat kursor mengarah ke tombol (*hover glow*), animasi penekanan (*active press spring*), dan transisi warna palet yang mengalir mulus dalam durasi 1.1 detik.
+* **Permukaan Datar (Flat Surfaces):** Tanpa blob aurora, glow dekoratif, maupun `backdrop-filter` (hemat GPU low-end). Satu warna aksen hanya untuk aksi utama.
+* **Kartu Rounded Datar:** Sudut `10px-16px` dengan permukaan solid/semi-transparan tanpa blur.
+* **Micro-Interactions Fungsional:** Perubahan warna hover/active singkat dan focus ring yang jelas; tanpa efek glow.
 * **Kebijakan Tanpa Emoji (Strict No-Emoji Standard):** Seluruh antarmuka, dialog, status badge, dan notifikasi dilarang menggunakan karakter emoji. Representasi visual murni menggunakan ikon SVG garis monokrom halus (*Lucide Icons*) dan tipografi presisi.
 
 ---
@@ -22,21 +22,17 @@ SubStellar mengusung estetika visual **Gatefold**:
 
 ```
 +-----------------------------------------------------------------------------------------+
-| HEADER TOOLBAR (46px) — [Logo SubStellar]  [Quick Search / Paste URL Ctrl+F]  [— □ ✕]   |
-+----------------------+------------------------------------------------------------------+
-| SIDEBAR (236px/68px) | MAIN VIEWPORT STAGE (Flex 1)                                     |
-| • Studio             | [ Aspect Ratio Selector: 16:9 | 9:16 | 1:1 | 4:3  —  Zoom: 100% ]  |
-| • YouTube Downloader | +--------------------------------------------------------------+ |
-| • Lyrics Database    | |                                                              | |
-| • Preset Library     | |                   PIXI.JS V8 LIVE VIEWPORT                   | |
-| • Export Center      | |           (Teks Subtitle, Furigana & Efek Partikel)          | |
-| • Appearance         | |                                                              | |
-|                      | +--------------------------------------------------------------+ |
-| [Sidebar Collapse ❮] | [ TIMELINE EDITOR (Waveform Peaks, Word Blocks, Pitch Guide) ]   |
-+----------------------+------------------------------------------------------------------+
-| BOTTOM TRANSPORT BAR (92px)                                                             |
-| [Thumb + Title/Artist]   |   [⏮  ◀  ⏸  ▶  ⏭]  [=== Scrubber 01:24/03:45 ===]   |  [🔊 ⛶ ⚙]  |
-+-----------------------------------------------------------------------------------------+
+| HEADER (40px) - Brand, Track Title, Quick Search [Ctrl+K], Quality Pill, Telemetry      |
++------+------------------------------------------------------------+---------------------+
+| RAIL | STAGE TOOLBAR: Aspect 16:9 / 9:16 / 1:1 / 4:3 - Zoom - Reset | SUBTITLE INSPECTOR |
+| 56px +------------------------------------------------------------+ (320px, always     |
+| icon |                                                            | mounted; empty     |
+| only |              PIXI.JS V8 VIEWPORT (fit + zoom + scroll)     | state when no line)|
+|      +------------------------------------------------------------+---------------------+
+|      | ===== resize handle (drag / Arrow Up / Arrow Down) =====                         |
+|      | TRANSPORT (48px): Prev, Play, Next, Loop, 00:00.00 [scrubber] 03:05.00, Volume   |
+|      | TIMELINE (resizable, default 200px): waveform peaks, subtitle blocks, playhead   |
++------+----------------------------------------------------------------------------------+
 ```
 
 ### 2.1 Fleksibilitas Layout

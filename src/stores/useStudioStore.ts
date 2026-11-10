@@ -1,24 +1,34 @@
 import { create } from 'zustand';
 import type {
   AspectRatio,
+  CanvasResolutionPreset,
   StudioTab,
   SubtitleLine,
   SubtitleStyle,
   TrackMetadata,
   ProjectStatus,
+  RubyToken,
+  SubStellarProjectFile,
 } from '../types';
-import { parseMarkdownRuby } from '../engine/text/RubyLayout';
+import { tokenizeSubtitleText } from '../engine/text/RubyLayout';
+
+export const AUTOSAVE_STORAGE_KEY = 'substellar:project-autosave:v1';
 
 export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   fontFamily: 'Segoe UI, Noto Sans JP, sans-serif',
   fontSize: 52,
   fillColor: '#ffffff',
+  fillGradientEnabled: true,
+  fillGradientEndColor: '#b8d0ff',
   outerStrokeColor: '#14161b',
   outerStrokeWidth: 8,
   innerStrokeColor: '#8fb4ff',
   innerStrokeWidth: 2,
   glowColor: '#5770b0',
   glowBlur: 12,
+  rubyFillColor: '#8fb4ff',
+  rubyActiveColor: '#5affb5',
+  translationFillColor: '#bfc3ca',
   verticalPosition: 'bottom',
   yOffset: 80,
   rubyScale: 0.45,
@@ -26,6 +36,9 @@ export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   particlePreset: 'stardust',
   particleBurstCount: 15,
   particleEnabled: true,
+  wordTransitionMs: 140,
+  wordAnimStyle: 'pop',
+  wordActiveColor: '#7df9ff',
 };
 
 export const SAMPLE_SUBTITLES: SubtitleLine[] = [
@@ -74,9 +87,32 @@ export const SAMPLE_SUBTITLES: SubtitleLine[] = [
   },
 ];
 
+function roundTime(t: number): number {
+  return Math.round(t * 100) / 100;
+}
+
+function buildEvenTokens(text: string, startTime: number, endTime: number): RubyToken[] {
+  if (!text || text.trim().length === 0) {
+    return [];
+  }
+  const parsed = tokenizeSubtitleText(text);
+  if (parsed.length === 0) {
+    return [];
+  }
+  const count = parsed.length;
+  const step = Math.max(0.05, endTime - startTime) / count;
+  return parsed.map((pt, idx) => ({
+    text: pt.base,
+    ruby: pt.ruby,
+    startTime: roundTime(startTime + idx * step),
+    endTime: roundTime(idx === count - 1 ? endTime : startTime + (idx + 1) * step),
+  }));
+}
+
 interface StudioStoreState {
   activeTab: StudioTab;
   aspectRatio: AspectRatio;
+  canvasResolution: CanvasResolutionPreset;
   zoom: number;
   sidebarCollapsed: boolean;
   isPlaying: boolean;
@@ -94,6 +130,7 @@ interface StudioStoreState {
 
   setActiveTab: (tab: StudioTab) => void;
   setAspectRatio: (aspect: AspectRatio) => void;
+  setCanvasResolution: (res: CanvasResolutionPreset) => void;
   setZoom: (zoom: number) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -110,8 +147,18 @@ interface StudioStoreState {
   setLines: (lines: SubtitleLine[]) => void;
   setTrack: (track: Partial<TrackMetadata>) => void;
   importLyrics: (lines: SubtitleLine[], trackMetadata?: Partial<TrackMetadata>) => void;
+  addLine: (atTime?: number) => SubtitleLine;
+  duplicateLine: (id: string) => SubtitleLine | null;
+  deleteLine: (id: string) => void;
   updateLineText: (id: string, text: string) => void;
+  updateLineTranslation: (id: string, translation: string) => void;
   updateLineTiming: (id: string, startTime: number, endTime: number) => void;
+  updateTokenTiming: (lineId: string, tokenIndex: number, startTime: number, endTime: number) => void;
+  resetTokenTimingsEvenly: (lineId: string) => void;
+  setTokensForLine: (lineId: string, tokens: RubyToken[], serializedText?: string) => void;
+  exportProjectJson: () => string;
+  importProjectJson: (jsonString: string) => void;
+  saveToLocalStorage: () => void;
   loadSampleTrack: () => void;
   loadLocalMedia: (file: File) => void;
   clearProject: () => void;
@@ -121,8 +168,9 @@ interface StudioStoreState {
 export const useStudioStore = create<StudioStoreState>((set, get) => ({
   activeTab: 'studio',
   aspectRatio: '16:9',
+  canvasResolution: '1080p',
   zoom: 100,
-  sidebarCollapsed: false,
+  sidebarCollapsed: true,
   isPlaying: false,
   currentTime: 13.2,
   duration: 185.0,
@@ -145,6 +193,7 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
 
   setActiveTab: (tab: StudioTab) => set({ activeTab: tab }),
   setAspectRatio: (aspect: AspectRatio) => set({ aspectRatio: aspect }),
+  setCanvasResolution: (res: CanvasResolutionPreset) => set({ canvasResolution: res }),
   setZoom: (zoom: number) => set({ zoom: Math.min(200, Math.max(50, zoom)) }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setSidebarCollapsed: (collapsed: boolean) => set({ sidebarCollapsed: collapsed }),
@@ -193,47 +242,321 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
   importLyrics: (lines: SubtitleLine[], trackMetadata?: Partial<TrackMetadata>) => {
     const { track, duration } = get();
     const updatedTrack = trackMetadata ? { ...track, ...trackMetadata } : track;
-    const newDuration = trackMetadata?.duration ?? (lines.length > 0 ? lines[lines.length - 1].endTime + 2.0 : duration);
+    const normalizedLines = lines.map((l) => {
+      if (l.tokens.length <= 1 && tokenizeSubtitleText(l.text).length > 1) {
+        return {
+          ...l,
+          tokens: buildEvenTokens(l.text, l.startTime, l.endTime),
+        };
+      }
+      return l;
+    });
+    const newDuration =
+      trackMetadata?.duration ??
+      (normalizedLines.length > 0
+        ? Math.max(duration, normalizedLines[normalizedLines.length - 1].endTime + 2.0)
+        : duration);
 
     set({
-      lines,
+      lines: normalizedLines,
       track: updatedTrack,
       duration: newDuration,
-      selectedLineId: lines[0]?.id || null,
-      currentTime: lines[0]?.startTime ?? 0,
+      selectedLineId: normalizedLines[0]?.id || null,
+      currentTime: normalizedLines[0]?.startTime ?? 0,
       status: 'ready',
       errorMessage: null,
     });
   },
 
+  addLine: (atTime?: number) => {
+    const { lines, currentTime, duration } = get();
+    const start = roundTime(Math.max(0, atTime ?? currentTime));
+    const end = roundTime(Math.max(start + 0.5, Math.min(duration || 180, start + 3.0)));
+    const newId = `line-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const newLine: SubtitleLine = {
+      id: newId,
+      startTime: start,
+      endTime: end,
+      text: '',
+      translation: '',
+      tokens: [],
+    };
+    const nextLines = [...lines, newLine].sort((a, b) => a.startTime - b.startTime);
+    set({
+      lines: nextLines,
+      selectedLineId: newId,
+      status: 'ready',
+    });
+    return newLine;
+  },
+
+  duplicateLine: (id: string) => {
+    const { lines, duration } = get();
+    const source = lines.find((l) => l.id === id);
+    if (!source) return null;
+    const len = Math.max(0.5, source.endTime - source.startTime);
+    const newStart = roundTime(source.endTime + 0.1);
+    const newEnd = roundTime(Math.min(Math.max(duration, newStart + len), newStart + len));
+    const delta = newStart - source.startTime;
+    const newId = `line-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const cloned: SubtitleLine = {
+      ...source,
+      id: newId,
+      startTime: newStart,
+      endTime: newEnd,
+      tokens: source.tokens.map((t) => ({
+        ...t,
+        startTime: roundTime(t.startTime + delta),
+        endTime: roundTime(t.endTime + delta),
+      })),
+    };
+    const nextLines = [...lines, cloned].sort((a, b) => a.startTime - b.startTime);
+    set({
+      lines: nextLines,
+      selectedLineId: newId,
+      status: 'ready',
+    });
+    return cloned;
+  },
+
+  deleteLine: (id: string) => {
+    const { lines, selectedLineId } = get();
+    const idx = lines.findIndex((l) => l.id === id);
+    if (idx === -1) return;
+    const nextLines = lines.filter((l) => l.id !== id);
+    let nextSelected = selectedLineId;
+    if (selectedLineId === id) {
+      nextSelected = nextLines[Math.min(idx, nextLines.length - 1)]?.id ?? null;
+    }
+    set({
+      lines: nextLines,
+      selectedLineId: nextSelected,
+      status: nextLines.length > 0 ? 'ready' : 'idle',
+    });
+  },
+
   updateLineText: (id: string, text: string) => {
     const { lines } = get();
-    const parsedTokens = parseMarkdownRuby(text);
+    const parsedTokens = tokenizeSubtitleText(text);
 
     const updated = lines.map((l) => {
       if (l.id !== id) return l;
-      const duration = l.endTime - l.startTime;
-      const step = duration / Math.max(1, parsedTokens.length);
+
+      // Preserve existing per-token timing ratios when token count matches
+      if (l.tokens.length === parsedTokens.length && parsedTokens.length > 0) {
+        return {
+          ...l,
+          text,
+          tokens: parsedTokens.map((pt, idx) => ({
+            text: pt.base,
+            ruby: pt.ruby,
+            startTime: l.tokens[idx].startTime,
+            endTime: l.tokens[idx].endTime,
+          })),
+        };
+      }
 
       return {
         ...l,
         text,
-        tokens: parsedTokens.map((pt, idx) => ({
-          text: pt.base,
-          ruby: pt.ruby,
-          startTime: l.startTime + idx * step,
-          endTime: l.startTime + (idx + 1) * step,
-        })),
+        tokens: buildEvenTokens(text, l.startTime, l.endTime),
       };
     });
 
     set({ lines: updated });
   },
 
+  updateLineTranslation: (id: string, translation: string) => {
+    const { lines } = get();
+    set({
+      lines: lines.map((l) => (l.id === id ? { ...l, translation } : l)),
+    });
+  },
+
   updateLineTiming: (id: string, startTime: number, endTime: number) => {
     const { lines } = get();
-    const updated = lines.map((l) => (l.id === id ? { ...l, startTime, endTime } : l));
+    const safeStart = roundTime(Math.max(0, startTime));
+    const safeEnd = roundTime(Math.max(safeStart + 0.1, endTime));
+
+    const updated = lines.map((l) => {
+      if (l.id !== id) return l;
+      const oldSpan = Math.max(0.05, l.endTime - l.startTime);
+      const newSpan = Math.max(0.05, safeEnd - safeStart);
+
+      const scaledTokens: RubyToken[] = l.tokens.map((tok, i) => {
+        const relStart = (tok.startTime - l.startTime) / oldSpan;
+        const relEnd = (tok.endTime - l.startTime) / oldSpan;
+        return {
+          ...tok,
+          startTime: i === 0 ? safeStart : roundTime(safeStart + relStart * newSpan),
+          endTime:
+            i === l.tokens.length - 1 ? safeEnd : roundTime(safeStart + relEnd * newSpan),
+        };
+      });
+
+      return {
+        ...l,
+        startTime: safeStart,
+        endTime: safeEnd,
+        tokens: scaledTokens,
+      };
+    });
     set({ lines: updated });
+  },
+
+  updateTokenTiming: (lineId: string, tokenIndex: number, startTime: number, endTime: number) => {
+    const { lines } = get();
+    const updated = lines.map((l) => {
+      if (l.id !== lineId) return l;
+      if (tokenIndex < 0 || tokenIndex >= l.tokens.length) return l;
+
+      const tokens = l.tokens.map((t) => ({ ...t }));
+      const minDur = 0.05;
+
+      const minStart = tokenIndex === 0 ? l.startTime : tokens[tokenIndex - 1].startTime + minDur;
+      const maxEnd =
+        tokenIndex === tokens.length - 1 ? l.endTime : tokens[tokenIndex + 1].endTime - minDur;
+
+      const clampedStart = roundTime(
+        Math.max(minStart, Math.min(startTime, maxEnd - minDur))
+      );
+      const clampedEnd = roundTime(
+        Math.max(clampedStart + minDur, Math.min(endTime, maxEnd))
+      );
+
+      tokens[tokenIndex].startTime = clampedStart;
+      tokens[tokenIndex].endTime = clampedEnd;
+
+      // Keep contiguous boundaries with neighboring tokens so there are no gaps/overlaps
+      if (tokenIndex > 0) {
+        tokens[tokenIndex - 1].endTime = clampedStart;
+      }
+      if (tokenIndex < tokens.length - 1) {
+        tokens[tokenIndex + 1].startTime = clampedEnd;
+      }
+
+      const newLineStart = tokens[0].startTime;
+      const newLineEnd = tokens[tokens.length - 1].endTime;
+
+      return {
+        ...l,
+        startTime: newLineStart,
+        endTime: newLineEnd,
+        tokens,
+      };
+    });
+
+    set({ lines: updated });
+  },
+
+  resetTokenTimingsEvenly: (lineId: string) => {
+    const { lines } = get();
+    set({
+      lines: lines.map((l) =>
+        l.id === lineId
+          ? { ...l, tokens: buildEvenTokens(l.text, l.startTime, l.endTime) }
+          : l
+      ),
+    });
+  },
+
+  setTokensForLine: (lineId: string, tokens: RubyToken[], serializedText?: string) => {
+    const { lines } = get();
+    set({
+      lines: lines.map((l) => {
+        if (l.id !== lineId) return l;
+        const startTime = tokens[0]?.startTime ?? l.startTime;
+        const endTime = tokens[tokens.length - 1]?.endTime ?? l.endTime;
+        return {
+          ...l,
+          text: serializedText ?? l.text,
+          startTime,
+          endTime,
+          tokens,
+        };
+      }),
+    });
+  },
+
+  exportProjectJson: () => {
+    const state = get();
+    const payload: SubStellarProjectFile = {
+      version: '1.0.0-alpha.8',
+      savedAt: new Date().toISOString(),
+      aspectRatio: state.aspectRatio,
+      canvasResolution: state.canvasResolution,
+      track: state.track,
+      style: state.style,
+      lines: state.lines,
+    };
+    return JSON.stringify(payload, null, 2);
+  },
+
+  importProjectJson: (jsonString: string) => {
+    const parsed = JSON.parse(jsonString) as Partial<SubStellarProjectFile>;
+    if (!parsed || !Array.isArray(parsed.lines)) {
+      throw new Error('Invalid SubStellar project file: missing subtitle lines array.');
+    }
+    const nextLines: SubtitleLine[] = parsed.lines.map((l, idx) => {
+      const startTime = typeof l.startTime === 'number' ? l.startTime : idx * 4;
+      const endTime = typeof l.endTime === 'number' ? l.endTime : startTime + 3;
+      const text = typeof l.text === 'string' ? l.text : '';
+      const tokens =
+        Array.isArray(l.tokens) &&
+        (l.tokens.length > 1 ||
+          (l.tokens.length === 1 && tokenizeSubtitleText(text).length <= 1))
+          ? l.tokens
+          : buildEvenTokens(text, startTime, endTime);
+      return {
+        id: l.id || `line-${idx + 1}`,
+        startTime,
+        endTime,
+        text,
+        translation: l.translation || '',
+        tokens,
+      };
+    });
+
+    const nextStyle: SubtitleStyle = {
+      ...DEFAULT_SUBTITLE_STYLE,
+      ...(parsed.style || {}),
+    };
+
+    const nextTrack: TrackMetadata = {
+      id: parsed.track?.id || `proj-${Date.now()}`,
+      title: parsed.track?.title || 'Imported Project',
+      artist: parsed.track?.artist || 'Unknown Artist',
+      duration:
+        parsed.track?.duration ||
+        (nextLines.length > 0 ? nextLines[nextLines.length - 1].endTime + 2 : 180),
+      bpm: parsed.track?.bpm,
+      coverUrl: parsed.track?.coverUrl,
+      audioUrl: parsed.track?.audioUrl,
+      videoUrl: parsed.track?.videoUrl,
+    };
+
+    set({
+      aspectRatio: parsed.aspectRatio || '16:9',
+      canvasResolution: parsed.canvasResolution || '1080p',
+      track: nextTrack,
+      duration: nextTrack.duration,
+      style: nextStyle,
+      lines: nextLines,
+      selectedLineId: nextLines[0]?.id || null,
+      currentTime: nextLines[0]?.startTime ?? 0,
+      status: nextLines.length > 0 ? 'ready' : 'idle',
+      errorMessage: null,
+    });
+  },
+
+  saveToLocalStorage: () => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(AUTOSAVE_STORAGE_KEY, get().exportProjectJson());
+      }
+    } catch {
+      // Ignore quota errors
+    }
   },
 
   loadSampleTrack: () => {

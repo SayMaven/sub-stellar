@@ -212,17 +212,24 @@ export const tauriBridge = {
     });
   },
 
+  /** Converts an absolute local file path into a URL the webview can load (asset protocol). */
+  async toPlayableUrl(path: string): Promise<string> {
+    if (!isTauriEnvironment()) return path;
+    const { convertFileSrc } = await import('@tauri-apps/api/core');
+    return convertFileSrc(path);
+  },
+
   async lyricsHttpGet(url: string, headers?: Record<string, string>): Promise<string> {
-    try {
-      return await invokeTauri<string>('lyrics_http_get', { url, headers });
-    } catch {
-      // In browser fallback mode, attempt direct fetch if allowed by CORS
-      const res = await fetch(url, { headers });
-      if (!res.ok) {
-        throw new Error(`Fetch failed with status ${res.status}`);
-      }
-      return await res.text();
+    if (isTauriEnvironment()) {
+      // Inside the desktop app every request MUST go through the Rust allowlist proxy.
+      // Never fall back to a direct fetch here: it would bypass the domain allowlist.
+      return invokeTauri<string>('lyrics_http_get', { url, headers });
     }
+    // Browser dev mode only: attempt direct fetch if allowed by CORS
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      throw new Error(`Fetch failed with status ${res.status}`);
+    }
+    return await res.text();
   },
 };
-

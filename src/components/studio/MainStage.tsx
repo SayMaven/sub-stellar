@@ -1,12 +1,19 @@
-import React from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { PixiViewport } from './PixiViewport';
 import { TimelineDrawer } from './TimelineDrawer';
 import { SubtitleInspector } from './SubtitleInspector';
 import { EmptyStudioState } from './EmptyStudioState';
+import { TransportBar } from '../layout/TransportBar';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { usePerfStore } from '../../stores/usePerfStore';
-import type { AspectRatio } from '../../types';
-import { ZoomIn, ZoomOut, AlertCircle, X, RotateCcw } from 'lucide-react';
+import type { AspectRatio, CanvasResolutionPreset } from '../../types';
+import {
+  TIMELINE_DEFAULT_HEIGHT,
+  clampTimelineHeight,
+  computeStageSize,
+  getCanvasPixelDimensions,
+} from '../../engine/layout/layoutMath';
+import { ZoomIn, ZoomOut, AlertCircle, X, RotateCcw, Plus, Monitor } from 'lucide-react';
 
 const ASPECT_RATIOS: { id: AspectRatio; label: string }[] = [
   { id: '16:9', label: '16:9' },
@@ -15,35 +22,100 @@ const ASPECT_RATIOS: { id: AspectRatio; label: string }[] = [
   { id: '4:3', label: '4:3' },
 ];
 
+const RESOLUTION_PRESETS: { id: CanvasResolutionPreset; label: string }[] = [
+  { id: '720p', label: '720p HD' },
+  { id: '1080p', label: '1080p FHD' },
+  { id: '1440p', label: '1440p QHD' },
+  { id: '4k', label: '4K UHD' },
+];
+
 export const MainStage: React.FC = () => {
   const {
     aspectRatio,
     setAspectRatio,
+    canvasResolution,
+    setCanvasResolution,
     zoom,
     setZoom,
     lines,
+    track,
     errorMessage,
     setErrorMessage,
     loadSampleTrack,
+    addLine,
   } = useStudioStore();
+
+  const hasLoadedMedia = Boolean(
+    track.videoUrl || track.audioUrl || track.coverUrl || (track.id && track.duration > 0 && lines.length > 0)
+  );
+  const isCompletelyEmpty = lines.length === 0 && !hasLoadedMedia;
 
   const { profile } = usePerfStore();
 
-  const getAspectClass = () => {
-    switch (aspectRatio) {
-      case '16:9':
-        return 'aspect-video max-h-full max-w-full';
-      case '9:16':
-        return 'aspect-[9/16] max-h-full max-w-full';
-      case '1:1':
-        return 'aspect-square max-h-full max-w-full';
-      case '4:3':
-        return 'aspect-[4/3] max-h-full max-w-full';
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const stageAreaRef = useRef<HTMLDivElement>(null);
+  const [areaSize, setAreaSize] = useState({ width: 0, height: 0 });
+  const [timelineHeight, setTimelineHeight] = useState(TIMELINE_DEFAULT_HEIGHT);
+
+  useEffect(() => {
+    const el = stageAreaRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0].contentRect;
+      setAreaSize({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const stageSize = computeStageSize(
+    Math.max(0, areaSize.width - 24),
+    Math.max(0, areaSize.height - 24),
+    aspectRatio,
+    zoom
+  );
+
+  const pixelDims = getCanvasPixelDimensions(aspectRatio, canvasResolution);
+
+  const handleResizePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const handle = e.currentTarget;
+      handle.setPointerCapture(e.pointerId);
+      const startY = e.clientY;
+      const startHeight = timelineHeight;
+      const available = workspaceRef.current?.clientHeight ?? 800;
+
+      const onMove = (ev: PointerEvent) => {
+        setTimelineHeight(clampTimelineHeight(startHeight + (startY - ev.clientY), available));
+      };
+      const onUp = (ev: PointerEvent) => {
+        handle.releasePointerCapture(ev.pointerId);
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+      };
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+    },
+    [timelineHeight]
+  );
+
+  const handleResizeKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const available = workspaceRef.current?.clientHeight ?? 800;
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setTimelineHeight((h) => clampTimelineHeight(h + 24, available));
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setTimelineHeight((h) => clampTimelineHeight(h - 24, available));
     }
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-gatefold-bg/50 backdrop-blur-sm overflow-hidden select-none">
+    <div
+      ref={workspaceRef}
+      className="flex-1 min-w-0 flex flex-col h-full bg-gatefold-bg overflow-hidden select-none"
+    >
       {/* Error State Banner */}
       {errorMessage && (
         <div className="px-4 py-2 bg-red-500/15 border-b border-red-500/30 text-red-300 text-xs flex items-center justify-between z-20">
@@ -71,9 +143,11 @@ export const MainStage: React.FC = () => {
 
       {/* Top Stage Toolbar */}
       <div className="h-10 px-4 border-b border-gatefold-line flex items-center justify-between bg-gatefold-panel text-xs text-gatefold-text-2">
-        {/* Left: Aspect Ratio & Safe Guide Indicators */}
-        <div className="flex items-center gap-2">
-          <span className="text-gatefold-text-3 font-medium text-[11px]">Format:</span>
+        {/* Left: Aspect Ratio & Canvas Resolution Picker */}
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-gatefold-text-3 font-medium text-[11px] hidden sm:inline">
+            Format:
+          </span>
           <div className="flex items-center gap-1 bg-gatefold-surface rounded-md p-0.5 border border-gatefold-line">
             {ASPECT_RATIOS.map((item) => (
               <button
@@ -90,15 +164,40 @@ export const MainStage: React.FC = () => {
             ))}
           </div>
 
-          <span className="text-gatefold-line-2 mx-1">|</span>
+          <span className="text-gatefold-line-2 mx-0.5">|</span>
 
-          <span className="font-mono text-[11px] text-gatefold-text-3">
-            Internal Canvas: {profile.previewResolution} ({profile.renderScale}x)
-          </span>
+          {/* Canvas Resolution Dropdown */}
+          <div className="flex items-center gap-1.5">
+            <Monitor className="w-3.5 h-3.5 text-gatefold-accent hidden md:inline" />
+            <select
+              aria-label="Canvas Resolution"
+              value={canvasResolution}
+              onChange={(e) => setCanvasResolution(e.target.value as CanvasResolutionPreset)}
+              className="px-2 py-0.5 rounded bg-gatefold-surface border border-gatefold-line text-[11px] font-mono text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+            >
+              {RESOLUTION_PRESETS.map((res) => (
+                <option key={res.id} value={res.id}>
+                  {res.label}
+                </option>
+              ))}
+            </select>
+            <span className="hidden lg:inline font-mono text-[11px] text-gatefold-text-3">
+              {pixelDims.width}×{pixelDims.height} ({profile.renderScale}x)
+            </span>
+          </div>
         </div>
 
-        {/* Right: Zoom & Reset */}
-        <div className="flex items-center gap-3">
+        {/* Right: Add Line, Zoom & Reset */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => addLine()}
+            className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium bg-gatefold-accent/15 text-gatefold-accent hover:bg-gatefold-accent/25 border border-gatefold-accent/30 transition-colors"
+            title="Add New Subtitle Line at Playhead (Ctrl+N)"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Line</span>
+          </button>
+
           <div className="flex items-center gap-1.5 bg-gatefold-surface rounded-md px-2 py-0.5 border border-gatefold-line">
             <button
               onClick={() => setZoom(zoom - 10)}
@@ -107,7 +206,9 @@ export const MainStage: React.FC = () => {
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="font-mono text-[11px] text-gatefold-text-3 w-8 text-center">{zoom}%</span>
+            <span className="font-mono text-[11px] text-gatefold-text-3 w-8 text-center">
+              {zoom}%
+            </span>
             <button
               onClick={() => setZoom(zoom + 10)}
               className="text-gatefold-text-3 hover:text-gatefold-text"
@@ -123,36 +224,48 @@ export const MainStage: React.FC = () => {
             title="Reset Project to Sample Track"
           >
             <RotateCcw className="w-3 h-3" />
-            <span>Reset Demo</span>
+            <span className="hidden lg:inline">Reset Demo</span>
           </button>
         </div>
       </div>
 
-      {/* Main Workspace Split: Viewport (Left) + Subtitle Inspector (Right) */}
+      {/* Main Workspace Split: Viewport (Left) + Subtitle Inspector (Right, always mounted) */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
-        {/* Canvas Stage Area */}
-        <div className="flex-1 min-w-0 min-h-0 flex items-center justify-center p-3 overflow-hidden relative">
-          {lines.length === 0 ? (
-            <EmptyStudioState />
+        {/* Canvas Stage Area: scrolls when zoomed beyond fit */}
+        <div ref={stageAreaRef} className="flex-1 min-w-0 min-h-0 flex overflow-auto p-3">
+          {isCompletelyEmpty ? (
+            <div className="m-auto w-full flex justify-center">
+              <EmptyStudioState />
+            </div>
           ) : (
             <div
-              className={`relative border border-gatefold-line bg-black rounded-xl overflow-hidden shadow-2xl flex items-center justify-center ${getAspectClass()}`}
-              style={{
-                transform: zoom === 100 ? undefined : `scale(${zoom / 100})`,
-                transition: 'transform 0.15s ease-out',
-              }}
+              className="relative m-auto shrink-0 border border-gatefold-line bg-black rounded-lg overflow-hidden"
+              style={{ width: stageSize.width, height: stageSize.height }}
             >
               <PixiViewport />
             </div>
           )}
         </div>
 
-        {/* Subtitle & Typography Inspector */}
-        {lines.length > 0 && <SubtitleInspector />}
+        <SubtitleInspector />
       </div>
 
+      {/* Timeline resize handle */}
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize timeline (Arrow Up / Arrow Down)"
+        tabIndex={0}
+        onPointerDown={handleResizePointerDown}
+        onKeyDown={handleResizeKey}
+        className="h-1.5 shrink-0 cursor-row-resize bg-gatefold-line hover:bg-gatefold-accent/60 focus-visible:bg-gatefold-accent focus:outline-none"
+      />
+
+      {/* Transport sits directly above the timeline (NLE pattern) */}
+      <TransportBar />
+
       {/* Bottom Timeline Drawer */}
-      <div className="h-44 shrink-0 overflow-hidden">
+      <div className="shrink-0 overflow-hidden" style={{ height: timelineHeight }}>
         <TimelineDrawer />
       </div>
     </div>

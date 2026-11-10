@@ -1,6 +1,6 @@
 [package]
 name = "sub-stellar"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.7"
 description = "SubStellar Next-Gen Animated Subtitle & Lyrics Studio"
 authors = ["SayMaven"]
 edition = "2021"
@@ -13,7 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }

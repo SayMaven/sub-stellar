@@ -1,5 +1,5 @@
 import { tauriBridge, type ExportProgress, type ExportResult } from '../../services/tauriBridge';
-import type { SubtitleLine } from '../../types';
+import type { SubtitleLine, WordAnimationStyle } from '../../types';
 import { parseMarkdownRuby, computeRubyPosition } from '../text/RubyLayout';
 
 export interface ExportJobOptions {
@@ -19,6 +19,8 @@ export interface ExportJobOptions {
     secondaryOutlineColor: string;
     outlineThickness: number;
     rubySizeRatio: number;
+    wordTransitionMs?: number;
+    wordAnimStyle?: WordAnimationStyle;
   };
   audioSourcePath?: string;
   onProgress?: (progress: ExportProgress) => void;
@@ -84,7 +86,6 @@ export class FFmpegExportPipeline {
     const totalFrames = Math.max(1, Math.round(options.duration * options.fps));
     const frameInterval = 1 / options.fps;
 
-    // 1. Check if running in native Tauri environment with FFmpeg
     const isNative = tauriBridge.isAvailable();
 
     if (isNative) {
@@ -105,13 +106,11 @@ export class FFmpegExportPipeline {
       }
     }
 
-    // 2. Setup safe offscreen context for zero-I/O frame rendering
     const { ctx, getImageData } = createSafeOffscreenContext(options.width, options.height);
 
     const isTransparent = options.mode === 'webm_alpha' || options.mode === 'prores_alpha';
     const startTime = performance.now();
 
-    // 3. Render frame-by-frame
     for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
       if (this.isCancelled) {
         if (isNative) {
@@ -128,7 +127,6 @@ export class FFmpegExportPipeline {
 
       const currentTime = frameIndex * frameInterval;
 
-      // Clear frame
       if (ctx) {
         if (isTransparent) {
           ctx.clearRect(0, 0, options.width, options.height);
@@ -137,23 +135,20 @@ export class FFmpegExportPipeline {
           ctx.fillRect(0, 0, options.width, options.height);
         }
 
-        // Find active subtitle line
         const activeLine = options.lines.find(
           (l) => currentTime >= l.startTime && currentTime <= l.endTime
         );
 
         if (activeLine) {
-          this.renderSubtitleFrame(ctx, activeLine, options);
+          this.renderSubtitleFrame(ctx, activeLine, currentTime, options);
         }
       }
 
-      // If running in Tauri, stream RGBA buffer to stdin pipe
       if (isNative) {
         const rawBytes = getImageData();
         const progress = await tauriBridge.ffmpegWriteFrameChunk(sessionId, rawBytes);
         options.onProgress?.(progress);
       } else {
-        // In browser testing/fallback mode, simulate frame progress
         const percentage = ((frameIndex + 1) / totalFrames) * 100;
         const elapsed = (performance.now() - startTime) / 1000;
         const fps = (frameIndex + 1) / Math.max(0.001, elapsed);
@@ -165,14 +160,12 @@ export class FFmpegExportPipeline {
           fps,
         });
 
-        // Yield execution every 10 frames to keep runtime responsive
         if (frameIndex % 10 === 0) {
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
       }
     }
 
-    // 4. Finalize export
     if (isNative) {
       return await tauriBridge.ffmpegFinishExport(sessionId);
     }
@@ -189,19 +182,23 @@ export class FFmpegExportPipeline {
   private renderSubtitleFrame(
     ctx: CanvasRenderingContext2D,
     line: SubtitleLine,
+    currentTime: number,
     options: ExportJobOptions
   ): void {
-    const scale = options.width / 1920;
+    const scale = options.height / 1080;
     const baseFontSize = options.style.fontSize * scale;
     const rubyFontSize = baseFontSize * options.style.rubySizeRatio;
     const outlineThickness = options.style.outlineThickness * scale;
 
     const tokens = parseMarkdownRuby(line.text);
+    const lineSpan = Math.max(0.1, line.endTime - line.startTime);
+    const fallbackStep = lineSpan / Math.max(1, tokens.length);
+    const transitionSec = Math.max(0.01, (options.style.wordTransitionMs ?? 140) / 1000);
+    const animStyle = options.style.wordAnimStyle ?? 'pop';
 
     ctx.save();
     ctx.font = `700 ${baseFontSize}px ${options.style.fontFamily}, sans-serif`;
 
-    // Measure widths of all tokens to center the line
     interface MeasuredToken {
       base: string;
       ruby?: string;
@@ -209,9 +206,11 @@ export class FFmpegExportPipeline {
       baseWidth: number;
       rubyWidth: number;
       clusterWidth: number;
+      startTime: number;
+      endTime: number;
     }
 
-    const measured: MeasuredToken[] = tokens.map((t) => {
+    const measured: MeasuredToken[] = tokens.map((t, idx) => {
       ctx.font = `700 ${baseFontSize}px ${options.style.fontFamily}, sans-serif`;
       const bw = ctx.measureText(t.base).width;
       let rw = 0;
@@ -219,11 +218,16 @@ export class FFmpegExportPipeline {
         ctx.font = `500 ${rubyFontSize}px ${options.style.fontFamily}, sans-serif`;
         rw = ctx.measureText(t.ruby).width;
       }
+      const stored = line.tokens[idx];
+      const startTime = stored ? stored.startTime : line.startTime + idx * fallbackStep;
+      const endTime = stored ? stored.endTime : startTime + fallbackStep;
       return {
         ...t,
         baseWidth: bw,
         rubyWidth: rw,
         clusterWidth: Math.max(bw, rw),
+        startTime,
+        endTime,
       };
     });
 
@@ -232,9 +236,28 @@ export class FFmpegExportPipeline {
     let currentX = (options.width - totalWidth) / 2;
 
     for (const m of measured) {
+      const isTokenActive = currentTime >= m.startTime && currentTime < m.endTime;
+      const isTokenPassed = currentTime >= m.endTime;
+      const enterProgress = isTokenActive
+        ? Math.max(0, Math.min(1, (currentTime - m.startTime) / transitionSec))
+        : 0;
+
+      let motionY = 0;
+      if (isTokenActive) {
+        if (animStyle === 'pop') {
+          motionY = -8 * scale * (1 - Math.pow(1 - enterProgress, 3));
+        } else if (animStyle === 'float') {
+          const span = Math.max(0.05, m.endTime - m.startTime);
+          const phase = Math.min(1, (currentTime - m.startTime) / span);
+          motionY = -10 * scale * Math.sin(phase * Math.PI);
+        }
+      }
+
+      const tokenBaselineY = baselineY + motionY;
+
       const metrics = computeRubyPosition(
         currentX,
-        baselineY,
+        tokenBaselineY,
         m.baseWidth,
         baseFontSize,
         m.rubyWidth,
@@ -250,29 +273,42 @@ export class FFmpegExportPipeline {
       ctx.lineWidth = outlineThickness * 2.2;
       ctx.strokeStyle = options.style.secondaryOutlineColor;
       ctx.lineJoin = 'round';
-      ctx.strokeText(m.base, metrics.baseX, baselineY);
+      ctx.strokeText(m.base, metrics.baseX, tokenBaselineY);
 
       // Draw inner outline
       ctx.lineWidth = outlineThickness;
       ctx.strokeStyle = options.style.outlineColor;
-      ctx.strokeText(m.base, metrics.baseX, baselineY);
+      ctx.strokeText(m.base, metrics.baseX, tokenBaselineY);
 
-      // Draw fill
-      ctx.fillStyle = options.style.primaryColor;
-      ctx.fillText(m.base, metrics.baseX, baselineY);
+      // Draw fill (active word highlight)
+      const isHighlighted = isTokenActive || (isTokenPassed && animStyle === 'sweep');
+      ctx.fillStyle = isHighlighted ? options.style.outlineColor : options.style.primaryColor;
+      ctx.fillText(m.base, metrics.baseX, tokenBaselineY);
 
-      // Render Furigana Ruby if present
       if (m.isRuby && m.ruby) {
         ctx.font = `500 ${rubyFontSize}px ${options.style.fontFamily}, sans-serif`;
         ctx.lineWidth = outlineThickness * 0.8;
         ctx.strokeStyle = options.style.outlineColor;
         ctx.strokeText(m.ruby, metrics.rubyX, metrics.rubyY);
 
-        ctx.fillStyle = options.style.primaryColor;
+        ctx.fillStyle = isHighlighted ? '#5affb5' : options.style.primaryColor;
         ctx.fillText(m.ruby, metrics.rubyX, metrics.rubyY);
       }
 
       currentX += m.clusterWidth;
+    }
+
+    // Secondary translation rendering
+    if (line.translation && line.translation.trim().length > 0) {
+      const transSize = Math.max(16, Math.round(baseFontSize * 0.45));
+      ctx.font = `600 ${transSize}px ${options.style.fontFamily}, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.lineWidth = Math.max(2, outlineThickness * 0.7);
+      ctx.strokeStyle = options.style.secondaryOutlineColor;
+      const transY = baselineY + baseFontSize * 0.65;
+      ctx.strokeText(line.translation.trim(), options.width / 2, transY);
+      ctx.fillStyle = '#bfc3ca';
+      ctx.fillText(line.translation.trim(), options.width / 2, transY);
     }
 
     ctx.restore();

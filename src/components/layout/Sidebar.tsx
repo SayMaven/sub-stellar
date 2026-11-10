@@ -6,8 +6,8 @@ import {
   Sliders,
   Film,
   Settings,
-  ChevronLeft,
-  ChevronRight,
+  PanelLeftOpen,
+  PanelLeftClose,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import type { StudioTab } from '../../types';
@@ -31,13 +31,13 @@ export const Sidebar: React.FC = () => {
   const { activeTab, setActiveTab, sidebarCollapsed, toggleSidebar } = useStudioStore();
 
   return (
-    <aside
-      className={`h-full shrink-0 border-r border-gatefold-line bg-gatefold-panel-strong backdrop-blur-md flex flex-col justify-between transition-all duration-300 z-30 select-none ${
-        sidebarCollapsed ? 'w-[68px]' : 'w-[236px]'
+    <nav
+      aria-label="Workspace navigation"
+      className={`h-full shrink-0 border-r border-gatefold-line bg-gatefold-panel-strong flex flex-col justify-between z-30 select-none ${
+        sidebarCollapsed ? 'w-14' : 'w-52'
       }`}
     >
-      {/* Navigation List */}
-      <div className="p-2 space-y-1">
+      <div className="p-1.5 space-y-1">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -46,38 +46,43 @@ export const Sidebar: React.FC = () => {
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              title={sidebarCollapsed ? item.label : undefined}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              title={item.label}
+              aria-label={item.label}
+              aria-current={isActive ? 'page' : undefined}
+              className={`w-full h-10 flex items-center gap-3 rounded-md text-sm font-medium border focus-visible:outline focus-visible:outline-2 focus-visible:outline-gatefold-accent ${
+                sidebarCollapsed ? 'justify-center px-0' : 'px-3'
+              } ${
                 isActive
-                  ? 'bg-gatefold-accent/15 text-gatefold-accent border border-gatefold-accent/30 shadow-[0_0_12px_rgba(143,180,255,0.15)]'
-                  : 'text-gatefold-text-2 hover:text-gatefold-text hover:bg-gatefold-hover border border-transparent'
+                  ? 'bg-gatefold-accent/15 text-gatefold-accent border-gatefold-accent/30'
+                  : 'text-gatefold-text-2 hover:text-gatefold-text hover:bg-gatefold-hover border-transparent'
               }`}
             >
-              <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-gatefold-accent' : 'text-gatefold-text-3'}`} />
+              <Icon
+                className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-gatefold-accent' : 'text-gatefold-text-3'}`}
+              />
               {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
             </button>
           );
         })}
       </div>
 
-      {/* Footer / Collapse Button */}
-      <div className="p-2 border-t border-gatefold-line">
+      <div className="p-1.5 border-t border-gatefold-line">
         <button
           onClick={toggleSidebar}
-          title={sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-gatefold-text-3 hover:text-gatefold-text hover:bg-gatefold-hover transition-colors"
+          title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+          aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+          className="w-full h-9 flex items-center justify-center gap-2 rounded-md text-xs font-medium text-gatefold-text-3 hover:text-gatefold-text hover:bg-gatefold-hover"
         >
           {sidebarCollapsed ? (
-            <ChevronRight className="w-4 h-4" />
+            <PanelLeftOpen className="w-4 h-4" />
           ) : (
             <>
-              <ChevronLeft className="w-4 h-4" />
-              <span>Collapse Sidebar</span>
+              <PanelLeftClose className="w-4 h-4" />
+              <span>Collapse</span>
             </>
           )}
         </button>
       </div>
-    </aside>
+    </nav>
   );
 };
-

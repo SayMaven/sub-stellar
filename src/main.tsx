@@ -1,3 +1,5 @@
+// Must load before any PixiJS usage so shaders work under a strict CSP (no 'unsafe-eval').
+import 'pixi.js/unsafe-eval';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';

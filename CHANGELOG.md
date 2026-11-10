@@ -5,6 +5,26 @@ Format penulisan mengacu pada Keep a Changelog dan menganut prinsip Semantic Ver
 
 ---
 
+## [1.0.0-alpha.7] - 2026-11-10
+
+### Diubah (Changed)
+- Layout: sidebar menjadi icon rail 56px (default), header 40px, transport 48px dipindah tepat di atas timeline, timeline dapat di-resize (drag atau keyboard), inspector selalu terpasang dengan state kosong.
+- Zoom stage kini nyata (fit + scroll) menggantikan CSS scale.
+- Shortcut: `Ctrl+F` diganti `Ctrl+K`; tambah `L` untuk loop; abaikan fokus pada select dan contentEditable.
+- Drawer non-studio dimuat lazy; pixi, react, dan zustand dipisah ke chunk tersendiri.
+
+### Dihapus (Removed)
+- Aurora blob background, glow dekoratif, dan seluruh `backdrop-filter` blur.
+
+### Keamanan (Security)
+- CSP ketat di `tauri.conf.json` (`devCsp` dinonaktifkan untuk HMR); PixiJS memakai `pixi.js/unsafe-eval`.
+- `lyricsHttpGet` tidak lagi fallback ke `fetch` langsung di dalam aplikasi Tauri (sebelumnya melewati allowlist domain Rust).
+
+### Diperbaiki (Fixed)
+- Timeline: drag blok tidak lagi ikut men-scrub playhead (pointer events), canvas waveform DPR-aware, ruler di-memo, blok di luar viewport tidak dirender.
+- Versi package, Cargo, dan tauri.conf disinkronkan ke `1.0.0-alpha.7`.
+
+---
 ## [Unreleased] - 2026-11-09
 
 ### Ditambahkan (Added)

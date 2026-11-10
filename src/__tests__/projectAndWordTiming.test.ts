@@ -1,0 +1,136 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  useStudioStore,
+  SAMPLE_SUBTITLES,
+  DEFAULT_SUBTITLE_STYLE,
+} from '../stores/useStudioStore';
+import { getCanvasPixelDimensions } from '../engine/layout/layoutMath';
+import { generateAss, generateSrt } from '../engine/text/SubtitleExporter';
+
+describe('Phase 8: Canvas Resolution, Project Save/Load, Line CRUD & Per-Word Vocal Timing', () => {
+  beforeEach(() => {
+    useStudioStore.setState({
+      activeTab: 'studio',
+      aspectRatio: '16:9',
+      canvasResolution: '1080p',
+      zoom: 100,
+      sidebarCollapsed: true,
+      isPlaying: false,
+      currentTime: 13.2,
+      duration: 185.0,
+      volume: 0.8,
+      isMuted: false,
+      isLooping: false,
+      status: 'ready',
+      errorMessage: null,
+      track: {
+        id: 'sample-track-1',
+        title: 'Stellar Night Flight',
+        artist: 'Luna feat. Hatsune Miku',
+        duration: 185.0,
+        bpm: 134,
+      },
+      lines: structuredClone(SAMPLE_SUBTITLES),
+      selectedLineId: 'line-1',
+      style: { ...DEFAULT_SUBTITLE_STYLE },
+    });
+  });
+
+  it('computes accurate pixel dimensions for all aspect ratios and resolutions', () => {
+    expect(getCanvasPixelDimensions('16:9', '720p')).toEqual({ width: 1280, height: 720 });
+    expect(getCanvasPixelDimensions('16:9', '1080p')).toEqual({ width: 1920, height: 1080 });
+    expect(getCanvasPixelDimensions('16:9', '1440p')).toEqual({ width: 2560, height: 1440 });
+    expect(getCanvasPixelDimensions('16:9', '4k')).toEqual({ width: 3840, height: 2160 });
+
+    expect(getCanvasPixelDimensions('9:16', '1080p')).toEqual({ width: 1080, height: 1920 });
+    expect(getCanvasPixelDimensions('1:1', '1080p')).toEqual({ width: 1080, height: 1080 });
+    expect(getCanvasPixelDimensions('4:3', '1080p')).toEqual({ width: 1440, height: 1080 });
+  });
+
+  it('adds, duplicates, and deletes subtitle lines', () => {
+    const store = useStudioStore.getState();
+    const initialCount = store.lines.length;
+
+    const created = store.addLine(30.0);
+    expect(useStudioStore.getState().lines.length).toBe(initialCount + 1);
+    expect(useStudioStore.getState().selectedLineId).toBe(created.id);
+    expect(created.startTime).toBe(30.0);
+    expect(created.endTime).toBe(33.0);
+    expect(created.text).toBe('');
+    expect(created.tokens.length).toBe(0);
+
+    const dup = useStudioStore.getState().duplicateLine(created.id);
+    expect(dup).not.toBeNull();
+    expect(useStudioStore.getState().lines.length).toBe(initialCount + 2);
+    expect(dup?.startTime).toBeCloseTo(33.1, 1);
+
+    useStudioStore.getState().deleteLine(created.id);
+    expect(useStudioStore.getState().lines.length).toBe(initialCount + 1);
+    expect(useStudioStore.getState().lines.some((l) => l.id === created.id)).toBe(false);
+  });
+
+  it('edits secondary translation and exports it to .ass and .srt', () => {
+    const { updateLineTranslation } = useStudioStore.getState();
+    updateLineTranslation('line-1', 'Aku tidak butuh apa-apa lagi');
+
+    const line1 = useStudioStore.getState().lines.find((l) => l.id === 'line-1')!;
+    expect(line1.translation).toBe('Aku tidak butuh apa-apa lagi');
+
+    const srt = generateSrt([line1]);
+    expect(srt).toContain('もう何もいらない\nAku tidak butuh apa-apa lagi');
+
+    const ass = generateAss([line1], useStudioStore.getState().style, undefined, {
+      width: 2560,
+      height: 1440,
+    });
+    expect(ass).toContain('PlayResX: 2560');
+    expect(ass).toContain('PlayResY: 1440');
+    expect(ass).toContain('Dialogue: 0,0:00:12.00,0:00:16.50,Translation,,0,0,0,,Aku tidak butuh apa-apa lagi');
+  });
+
+  it('updates individual word timing and keeps neighboring word boundaries contiguous', () => {
+    const { updateTokenTiming } = useStudioStore.getState();
+    // Line 1 tokens: [0]: 12.0-12.8, [1]: 12.8-13.9, [2]: 13.9-14.5, [3]: 14.5-16.5
+    updateTokenTiming('line-1', 1, 12.6, 14.2);
+
+    const line1 = useStudioStore.getState().lines.find((l) => l.id === 'line-1')!;
+    expect(line1.tokens[0].endTime).toBe(12.6);
+    expect(line1.tokens[1].startTime).toBe(12.6);
+    expect(line1.tokens[1].endTime).toBe(14.2);
+    expect(line1.tokens[2].startTime).toBe(14.2);
+  });
+
+  it('preserves custom per-word timings when editing text with same token count', () => {
+    const { updateLineText, updateTokenTiming } = useStudioStore.getState();
+    // Set 3-word lyric (space-separated or ruby-separated)
+    updateLineText('line-1', 'kamu dan aku');
+    updateTokenTiming('line-1', 0, 12.0, 13.4);
+    // Edit the first word while keeping 3 words
+    updateLineText('line-1', 'dia dan aku');
+
+    const line1 = useStudioStore.getState().lines.find((l) => l.id === 'line-1')!;
+    expect(line1.tokens.length).toBe(3);
+    expect(line1.tokens[0].text).toBe('dia');
+    expect(line1.tokens[0].endTime).toBe(13.4);
+  });
+
+  it('serializes and restores full project JSON (.substellar)', () => {
+    const store = useStudioStore.getState();
+    store.setCanvasResolution('4k');
+    store.setAspectRatio('9:16');
+    store.setStyle({ wordTransitionMs: 260, wordAnimStyle: 'float' });
+    store.updateLineTranslation('line-1', 'Custom translation');
+
+    const json = useStudioStore.getState().exportProjectJson();
+    useStudioStore.getState().clearProject();
+    expect(useStudioStore.getState().lines.length).toBe(0);
+
+    useStudioStore.getState().importProjectJson(json);
+    const restored = useStudioStore.getState();
+    expect(restored.canvasResolution).toBe('4k');
+    expect(restored.aspectRatio).toBe('9:16');
+    expect(restored.style.wordTransitionMs).toBe(260);
+    expect(restored.style.wordAnimStyle).toBe('float');
+    expect(restored.lines[0].translation).toBe('Custom translation');
+  });
+});
