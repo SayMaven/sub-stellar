@@ -7,13 +7,16 @@ import { getCanvasPixelDimensions } from '../../engine/layout/layoutMath';
 import { ParticleManager } from '../../engine/particles/ParticleManager';
 import { playbackEngine } from '../../engine/audio/PlaybackEngine';
 import { tauriBridge } from '../../services/tauriBridge';
-import type { ParticlePresetType } from '../../types';
+import type { ParticlePresetType, WordAnimationStyle } from '../../types';
 import { Music, Play, FolderOpen } from 'lucide-react';
 
 const CJK_TOKEN_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
 interface BuiltTokenNode {
   container: Container;
+  baseX: number;
+  baseWidth: number;
+  baseHeight: number;
   inactiveBase: Text;
   activeBase: Text;
   inactiveRuby: Text | null;
@@ -31,7 +34,7 @@ interface BuiltLineState {
   transBaseY: number;
   scaleFactor: number;
   transitionSec: number;
-  wordAnimStyle: 'pop' | 'sweep' | 'float' | 'static';
+  wordAnimStyle: WordAnimationStyle;
   particleEnabled: boolean;
   particlePreset: ParticlePresetType;
   particleBurstCount: number;
@@ -242,6 +245,7 @@ const PixiViewportInner: React.FC = () => {
         token.inactiveRuby.alpha = 1 - highlightAlpha * 0.92;
       }
 
+      let motionOffsetX = 0;
       let motionOffsetY = 0;
       let scaleBoost = 1;
       if (isTokenActive) {
@@ -250,14 +254,30 @@ const PixiViewportInner: React.FC = () => {
 
         if (wordAnimStyle === 'pop') {
           motionOffsetY = -Math.round(9 * scaleFactor * enterProgress);
-          scaleBoost = 1 + 0.06 * Math.sin(enterProgress * Math.PI);
+          scaleBoost = 1 + 0.12 * Math.sin(enterProgress * Math.PI);
         } else if (wordAnimStyle === 'float') {
           motionOffsetY = -Math.round(11 * scaleFactor * Math.sin(wordPhase * Math.PI));
         } else if (wordAnimStyle === 'sweep') {
           motionOffsetY = -Math.round(4 * scaleFactor * enterProgress);
+        } else if (wordAnimStyle === 'glow-pulse') {
+          motionOffsetY = -Math.round(6 * scaleFactor * Math.sin(wordPhase * Math.PI));
+          scaleBoost = 1 + 0.08 * Math.sin(wordPhase * Math.PI);
+        } else if (wordAnimStyle === 'slide') {
+          motionOffsetX = -Math.round((1 - enterProgress) * 16 * scaleFactor);
+          motionOffsetY = -Math.round(4 * scaleFactor * enterProgress);
+        } else if (wordAnimStyle === 'staccato') {
+          motionOffsetX = Math.sin(currentTime * 45) * 2.5 * scaleFactor;
+          motionOffsetY = -Math.round(6 * scaleFactor) + Math.cos(currentTime * 45) * 2.5 * scaleFactor;
+          scaleBoost = 1.05;
+        } else if (wordAnimStyle === 'zoom-strike') {
+          scaleBoost = 1 + 0.35 * Math.pow(1 - enterProgress, 2);
+          motionOffsetY = -Math.round(8 * scaleFactor * (1 - enterProgress));
+        } else if (wordAnimStyle === 'wave') {
+          motionOffsetY = -Math.round(10 * scaleFactor * Math.sin(wordPhase * Math.PI * 2));
         }
       }
 
+      token.container.x = token.baseX + motionOffsetX;
       token.container.y = motionOffsetY;
       token.container.scale.set(scaleBoost);
     }
@@ -303,12 +323,20 @@ const PixiViewportInner: React.FC = () => {
       if (targetToken) {
         const worldX = lineContainer.x + targetToken.container.x + 20 * scaleFactor;
         const worldY = lineContainer.y - 10 * scaleFactor;
+        const curStyle = useStudioStore.getState().style;
         particleManager.emit(
           particlePreset,
           worldX,
           worldY,
           particleBurstCount,
-          activeWordColorNum
+          activeWordColorNum,
+          {
+            speedMultiplier: curStyle.particleSpeed,
+            gravity: curStyle.particleGravity,
+            sizeMultiplier: curStyle.particleSize,
+            lifetimeMultiplier: curStyle.particleLifetime,
+            colorMode: curStyle.particleColorMode,
+          }
         );
       }
     } else if (currentActiveTokenIdx === -1) {
@@ -736,6 +764,9 @@ const PixiViewportInner: React.FC = () => {
 
       builtTokens.push({
         container: tokenContainer,
+        baseX: tokenContainer.x,
+        baseWidth: inactiveBase.width,
+        baseHeight: inactiveBase.height,
         inactiveBase,
         activeBase,
         inactiveRuby,

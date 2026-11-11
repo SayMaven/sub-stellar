@@ -4,13 +4,28 @@ export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:3';
 
 export type CanvasResolutionPreset = '720p' | '1080p' | '1440p' | '4k';
 
-export type WordAnimationStyle = 'pop' | 'sweep' | 'float';
+export type WordAnimationStyle =
+  | 'pop'
+  | 'sweep'
+  | 'float'
+  | 'glow-pulse'
+  | 'slide'
+  | 'staccato'
+  | 'zoom-strike'
+  | 'wave';
 
 export type StudioTab = 'studio' | 'youtube' | 'lyrics' | 'presets' | 'export' | 'settings';
 
 export type ProjectStatus = 'idle' | 'loading' | 'ready' | 'error';
 
-export type ParticlePresetType = 'stardust' | 'sparkle' | 'cosmic';
+export type ParticlePresetType =
+  | 'stardust'
+  | 'sparkle'
+  | 'cosmic'
+  | 'sakura'
+  | 'notes'
+  | 'firefly'
+  | 'heart';
 
 export interface PerfMetrics {
   fps: number;
@@ -86,6 +101,11 @@ export interface SubtitleStyle {
   particlePreset: ParticlePresetType;
   particleBurstCount: number;
   particleEnabled: boolean;
+  particleSpeed: number; // 0.5x .. 2.5x multiplier (default 1.0)
+  particleGravity: 'up' | 'none' | 'down'; // particle vertical acceleration
+  particleSize: number; // 0.5x .. 2.5x scale multiplier (default 1.0)
+  particleLifetime: number; // 0.5x .. 2.5x decay multiplier (default 1.0)
+  particleColorMode: 'lyric' | 'glow' | 'rainbow'; // tint strategy
   wordTransitionMs: number;
   wordAnimStyle: WordAnimationStyle;
   wordActiveColor: string;

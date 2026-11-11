@@ -106,19 +106,58 @@ interface ThemeStoreState {
   extractFromCover: (imageUrl: string) => Promise<void>;
 }
 
+const THEME_STORAGE_KEY = 'substellar_theme_settings_v1';
+
+function loadSavedTheme(): { preset: ThemePresetName; tokens: ThemeTokens } {
+  if (typeof window === 'undefined') {
+    return { preset: 'default', tokens: THEME_PRESETS.default };
+  }
+  try {
+    const raw = localStorage.getItem(THEME_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.preset === 'string') {
+        const preset = parsed.preset as ThemePresetName;
+        const tokens = parsed.tokens && typeof parsed.tokens === 'object'
+          ? { ...THEME_PRESETS.default, ...parsed.tokens }
+          : (THEME_PRESETS[preset] || THEME_PRESETS.default);
+        return { preset, tokens };
+      }
+    }
+  } catch {
+    // Fallback on corrupt JSON
+  }
+  return { preset: 'default', tokens: THEME_PRESETS.default };
+}
+
+function saveThemeToStorage(preset: ThemePresetName, tokens: ThemeTokens) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ preset, tokens }));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+// Immediately apply saved theme on script evaluation
+const initialTheme = loadSavedTheme();
+applyTokensToRoot(initialTheme.tokens);
+
 export const useThemeStore = create<ThemeStoreState>((set, get) => ({
-  currentPreset: 'default',
-  tokens: THEME_PRESETS.default,
+  currentPreset: initialTheme.preset,
+  tokens: initialTheme.tokens,
 
   setPreset: (preset: ThemePresetName) => {
     const tokens = THEME_PRESETS[preset] || THEME_PRESETS.default;
     applyTokensToRoot(tokens);
+    saveThemeToStorage(preset, tokens);
     set({ currentPreset: preset, tokens });
   },
 
   setCustomTokens: (partial: Partial<ThemeTokens>) => {
     const updated = { ...get().tokens, ...partial };
     applyTokensToRoot(updated);
+    saveThemeToStorage(get().currentPreset, updated);
     set({ tokens: updated });
   },
 
@@ -174,11 +213,13 @@ export const useThemeStore = create<ThemeStoreState>((set, get) => ({
       };
 
       applyTokensToRoot(newTokens);
+      saveThemeToStorage('cover', newTokens);
       set({ currentPreset: 'cover', tokens: newTokens });
     } catch {
       // Fallback silently if CORS or load fails
       const fallback = THEME_PRESETS.default;
       applyTokensToRoot(fallback);
+      saveThemeToStorage('default', fallback);
       set({ currentPreset: 'default', tokens: fallback });
     }
   },

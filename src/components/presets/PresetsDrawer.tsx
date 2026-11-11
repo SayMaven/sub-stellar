@@ -1,167 +1,92 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Sliders, Check, ArrowRight } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { useThemeStore } from '../../stores/useThemeStore';
-import type { SubtitleStyle, ThemePresetName } from '../../types';
-
-interface PresetItem {
-  id: string;
-  name: string;
-  category: 'Japanese MV' | 'Cyberpunk' | 'Anime' | 'Minimalist';
-  description: string;
-  gradient: string;
-  theme: ThemePresetName;
-  style: Partial<SubtitleStyle>;
-}
-
-const PRESETS: PresetItem[] = [
-  {
-    id: 'jpop-starlight',
-    name: 'J-Pop Starlight (Default)',
-    category: 'Japanese MV',
-    description: 'Double outline stroke with cyan stardust particles and ruby furigana.',
-    gradient: 'from-sky-500 via-indigo-500 to-purple-600',
-    theme: 'default',
-    style: {
-      fontSize: 54,
-      outerStrokeWidth: 8,
-      outerStrokeColor: '#14161b',
-      innerStrokeWidth: 2,
-      innerStrokeColor: '#8fb4ff',
-      glowColor: '#5770b0',
-      rubyScale: 0.45,
-      particlePreset: 'stardust',
-      particleBurstCount: 15,
-      particleEnabled: true,
-    },
-  },
-  {
-    id: 'cyberpunk-neon',
-    name: 'Neo Shinjuku Cyberpunk',
-    category: 'Cyberpunk',
-    description: 'Electric cyan inner glow with hot magenta bursts and high-contrast dark outline.',
-    gradient: 'from-cyan-400 via-fuchsia-500 to-rose-600',
-    theme: 'cyberpunk',
-    style: {
-      fontSize: 52,
-      outerStrokeWidth: 10,
-      outerStrokeColor: '#0a0d14',
-      innerStrokeWidth: 3,
-      innerStrokeColor: '#ff007f',
-      glowColor: '#ff007f',
-      rubyScale: 0.45,
-      particlePreset: 'sparkle',
-      particleBurstCount: 25,
-      particleEnabled: true,
-    },
-  },
-  {
-    id: 'sakura-blossom',
-    name: 'Sakura Petal Dream',
-    category: 'Anime',
-    description: 'Soft pink glow with gentle drifting cosmic sakura particles.',
-    gradient: 'from-pink-400 via-rose-400 to-purple-500',
-    theme: 'sakura',
-    style: {
-      fontSize: 50,
-      outerStrokeWidth: 6,
-      outerStrokeColor: '#181216',
-      innerStrokeWidth: 2,
-      innerStrokeColor: '#ff94b8',
-      glowColor: '#b84f7b',
-      rubyScale: 0.42,
-      particlePreset: 'cosmic',
-      particleBurstCount: 20,
-      particleEnabled: true,
-    },
-  },
-  {
-    id: 'aurora-boreal',
-    name: 'Nordic Mint Aurora',
-    category: 'Japanese MV',
-    description: 'Radiant emerald mint outline with rising stellar stardust.',
-    gradient: 'from-emerald-400 via-teal-500 to-sky-600',
-    theme: 'aurora',
-    style: {
-      fontSize: 52,
-      outerStrokeWidth: 8,
-      outerStrokeColor: '#0d1615',
-      innerStrokeWidth: 2,
-      innerStrokeColor: '#5affb5',
-      glowColor: '#2a8f6d',
-      rubyScale: 0.45,
-      particlePreset: 'stardust',
-      particleBurstCount: 18,
-      particleEnabled: true,
-    },
-  },
-  {
-    id: 'minimal-cinema',
-    name: 'Cinematic Minimalist',
-    category: 'Minimalist',
-    description: 'Crisp typography with pure black outline and zero-distraction particle haze.',
-    gradient: 'from-zinc-300 via-zinc-500 to-neutral-700',
-    theme: 'monochrome',
-    style: {
-      fontSize: 48,
-      outerStrokeWidth: 6,
-      outerStrokeColor: '#000000',
-      innerStrokeWidth: 0,
-      innerStrokeColor: '#ffffff',
-      glowColor: '#000000',
-      rubyScale: 0.40,
-      particlePreset: 'stardust',
-      particleBurstCount: 5,
-      particleEnabled: false,
-    },
-  },
-];
+import { VISUAL_PRESETS, type VisualPreset } from '../../engine/presets/presetRegistry';
 
 export const PresetsDrawer: React.FC = () => {
   const { setStyle, setActiveTab } = useStudioStore();
   const { setPreset } = useThemeStore();
   const [activePresetId, setActivePresetId] = useState<string>('jpop-starlight');
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
 
-  const handleApplyPreset = (preset: PresetItem) => {
+  const categories = useMemo(() => {
+    const set = new Set<string>(['All']);
+    for (const p of VISUAL_PRESETS) {
+      set.add(p.category);
+    }
+    return Array.from(set);
+  }, []);
+
+  const filteredPresets = useMemo(() => {
+    if (selectedCategory === 'All') return VISUAL_PRESETS;
+    return VISUAL_PRESETS.filter((p) => p.category === selectedCategory);
+  }, [selectedCategory]);
+
+  const handleApplyPreset = (preset: VisualPreset) => {
     setActivePresetId(preset.id);
     setStyle(preset.style);
-    setPreset(preset.theme);
+    if (preset.theme) {
+      setPreset(preset.theme);
+    }
   };
 
-  const handleApplyAndGo = (preset: PresetItem) => {
+  const handleApplyAndGo = (preset: VisualPreset) => {
     handleApplyPreset(preset);
     setActiveTab('studio');
   };
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 select-none">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div>
-          <h2 className="text-xl font-semibold text-gatefold-text flex items-center gap-2">
-            <Sliders className="w-5 h-5 text-gatefold-accent" />
-            <span>Visual Presets & Particle Library</span>
-          </h2>
-          <p className="text-xs text-gatefold-text-3 mt-1">
-            Choose pre-engineered subtitle typography, stroke thickness, particle shaders, and dynamic OKLCH color palettes.
-          </p>
+    <div className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto bg-gatefold-bg/30 select-none">
+      <div className="w-full max-w-[1720px] mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold text-gatefold-text flex items-center gap-2">
+              <Sliders className="w-5 h-5 text-gatefold-accent" />
+              <span>Visual Presets & Particle Library</span>
+            </h2>
+            <p className="text-xs text-gatefold-text-3 mt-1">
+              Curated J-Pop MV typography, stroke shaders, vocal animations, and procedural particle systems ({VISUAL_PRESETS.length} presets available).
+            </p>
+          </div>
+
+          {/* Category Filter Pills */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  selectedCategory === cat
+                    ? 'bg-gatefold-accent text-gatefold-bg font-semibold'
+                    : 'bg-gatefold-surface border border-gatefold-line text-gatefold-text-3 hover:text-gatefold-text hover:border-gatefold-line-2'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {PRESETS.map((preset) => {
+        {/* Widescreen Responsive Preset Cards Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+          {filteredPresets.map((preset) => {
             const isActive = activePresetId === preset.id;
 
             return (
               <div
                 key={preset.id}
                 onClick={() => handleApplyPreset(preset)}
-                className={`gatefold-card p-5 flex flex-col justify-between transition-all cursor-pointer ${
+                className={`gatefold-card p-4 flex flex-col justify-between transition-all cursor-pointer ${
                   isActive
-                    ? 'border-gatefold-accent bg-gatefold-accent/10'
-                    : 'hover:border-gatefold-line-2'
+                    ? 'border-gatefold-accent bg-gatefold-accent/10 shadow-lg shadow-gatefold-accent/5'
+                    : 'hover:border-gatefold-line-2 hover:bg-gatefold-surface/80'
                 }`}
               >
                 <div>
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center justify-between mb-2.5">
                     <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-gatefold-surface-2 text-gatefold-text-3 border border-gatefold-line">
                       {preset.category}
                     </span>
@@ -175,29 +100,56 @@ export const PresetsDrawer: React.FC = () => {
 
                   {/* Visual Preview Box */}
                   <div
-                    className={`h-20 w-full rounded-lg bg-gradient-to-r ${preset.gradient} mb-3 flex flex-col items-center justify-center p-3 shadow-inner relative overflow-hidden`}
+                    className={`h-24 w-full rounded-lg bg-gradient-to-br ${preset.gradientBadge} mb-3 flex flex-col items-center justify-center p-3 shadow-inner relative overflow-hidden`}
                   >
-                    <span className="text-[10px] font-bold text-white/90 leading-none mb-0.5">
-                      なに
+                    <span
+                      className="text-[11px] font-bold leading-none mb-1 font-mono tracking-wider"
+                      style={{
+                        color: preset.style.rubyActiveColor || preset.style.rubyFillColor || '#fff',
+                        textShadow: `0 0 6px ${preset.style.glowColor || 'rgba(0,0,0,0.5)'}`,
+                      }}
+                    >
+                      ほしぞら
                     </span>
-                    <span className="text-sm font-bold text-white leading-none">
-                      何
+                    <span
+                      className="text-base font-bold leading-none"
+                      style={{
+                        color: preset.style.wordActiveColor || preset.style.fillColor || '#fff',
+                        WebkitTextStroke: `${preset.style.innerStrokeWidth || 1}px ${preset.style.innerStrokeColor || '#000'}`,
+                        textShadow: `0 0 10px ${preset.style.glowColor || 'rgba(0,0,0,0.8)'}`,
+                      }}
+                    >
+                      星空の歌
                     </span>
                   </div>
 
                   <h3 className="text-xs font-semibold text-gatefold-text">
                     {preset.name}
                   </h3>
-                  <p className="text-[11px] text-gatefold-text-3 mt-1 line-clamp-2">
+                  <p className="text-[11px] text-gatefold-text-3 mt-1 line-clamp-2 leading-relaxed">
                     {preset.description}
                   </p>
                 </div>
 
-                <div className="pt-3 mt-4 border-t border-gatefold-line flex items-center justify-between">
-                  <span className="text-[10px] font-mono text-gatefold-text-3 uppercase">
-                    {preset.style.particlePreset} particles
-                  </span>
+                <div className="pt-3 mt-3 border-t border-gatefold-line flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full border border-black/40"
+                      style={{ background: preset.style.wordActiveColor }}
+                      title="Word Active Color"
+                    />
+                    <span
+                      className="w-2.5 h-2.5 rounded-full border border-black/40"
+                      style={{ background: preset.style.fillColor }}
+                      title="Text Fill Color"
+                    />
+                    <span className="text-[10px] font-mono text-gatefold-accent uppercase ml-1">
+                      {preset.style.particlePreset}
+                    </span>
+                  </div>
+
                   <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleApplyAndGo(preset);

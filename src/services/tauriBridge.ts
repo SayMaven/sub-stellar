@@ -130,6 +130,10 @@ export const tauriBridge = {
     }
   },
 
+  getCachedHardwareCapabilities(): HardwareCapabilities | null {
+    return cachedHardwareCaps;
+  },
+
   async probeHardwareCapabilities(forceRefresh = false): Promise<HardwareCapabilities> {
     if (!forceRefresh && cachedHardwareCaps) {
       return cachedHardwareCaps;
@@ -381,3 +385,10 @@ export const tauriBridge = {
     return await res.text();
   },
 };
+
+// Eagerly probe hardware capabilities in background so ExportDrawer has NVENC/encoders cached immediately without delay or UI flicker
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    tauriBridge.probeHardwareCapabilities().catch(() => {});
+  }, 50);
+}

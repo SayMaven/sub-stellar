@@ -339,6 +339,7 @@ export class FFmpegExportPipeline {
         enterProgress = 1;
       }
 
+      let motionX = 0;
       let motionY = 0;
       let scaleBoost = 1;
       if (isTokenActive) {
@@ -346,18 +347,34 @@ export class FFmpegExportPipeline {
         const phase = Math.min(1, Math.max(0, (currentTime - m.startTime) / span));
         if (animStyle === 'pop') {
           motionY = -Math.round(9 * scale * enterProgress);
-          scaleBoost = 1 + 0.06 * Math.sin(enterProgress * Math.PI);
+          scaleBoost = 1 + 0.12 * Math.sin(enterProgress * Math.PI);
         } else if (animStyle === 'float') {
           motionY = -Math.round(11 * scale * Math.sin(phase * Math.PI));
         } else if (animStyle === 'sweep') {
           motionY = -Math.round(4 * scale * enterProgress);
+        } else if (animStyle === 'glow-pulse') {
+          motionY = -Math.round(6 * scale * Math.sin(phase * Math.PI));
+          scaleBoost = 1 + 0.08 * Math.sin(phase * Math.PI);
+        } else if (animStyle === 'slide') {
+          motionX = -Math.round((1 - enterProgress) * 16 * scale);
+          motionY = -Math.round(4 * scale * enterProgress);
+        } else if (animStyle === 'staccato') {
+          motionX = Math.sin(currentTime * 45) * 2.5 * scale;
+          motionY = -Math.round(6 * scale) + Math.cos(currentTime * 45) * 2.5 * scale;
+          scaleBoost = 1.05;
+        } else if (animStyle === 'zoom-strike') {
+          scaleBoost = 1 + 0.35 * Math.pow(1 - enterProgress, 2);
+          motionY = -Math.round(8 * scale * (1 - enterProgress));
+        } else if (animStyle === 'wave') {
+          motionY = -Math.round(10 * scale * Math.sin(phase * Math.PI * 2));
         }
       }
 
+      const tokenBaselineX = currentX + motionX;
       const tokenBaselineY = baselineY + motionY;
 
       const metrics = computeRubyPosition(
-        currentX,
+        tokenBaselineX,
         tokenBaselineY,
         m.baseWidth,
         baseFontSize,

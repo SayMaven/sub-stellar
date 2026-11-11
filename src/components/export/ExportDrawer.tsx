@@ -47,8 +47,11 @@ export const ExportDrawer: React.FC = () => {
     'canvas_pipe'
   );
   const [fps, setFps] = useState<number>(60);
-  const [selectedEncoder, setSelectedEncoder] = useState<string>('libx264');
-  const [hardwareCaps, setHardwareCaps] = useState<HardwareCapabilities | null>(null);
+  const initialCachedCaps = tauriBridge.getCachedHardwareCapabilities();
+  const [selectedEncoder, setSelectedEncoder] = useState<string>(
+    initialCachedCaps?.primary_encoder || 'libx264'
+  );
+  const [hardwareCaps, setHardwareCaps] = useState<HardwareCapabilities | null>(initialCachedCaps);
   const [targetOutputPath, setTargetOutputPath] = useState<string>('');
   const [lastSavedPath, setLastSavedPath] = useState<string | null>(null);
 
@@ -66,7 +69,7 @@ export const ExportDrawer: React.FC = () => {
       .then((caps) => {
         setHardwareCaps(caps);
         if (caps.primary_encoder) {
-          setSelectedEncoder(caps.primary_encoder);
+          setSelectedEncoder((prev) => (prev === 'libx264' ? caps.primary_encoder : prev));
         }
       })
       .catch(() => {});
@@ -400,8 +403,8 @@ export const ExportDrawer: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 select-none">
-      <div className="max-w-2xl mx-auto space-y-6">
+    <div className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto bg-gatefold-bg/30 select-none">
+      <div className="w-full max-w-[1720px] mx-auto space-y-6">
         <div>
           <h2 className="text-xl font-semibold text-gatefold-text flex items-center gap-2">
             <Film className="w-5 h-5 text-gatefold-accent" />
@@ -412,384 +415,443 @@ export const ExportDrawer: React.FC = () => {
           </p>
         </div>
 
-        {/* Project File Save / Open Card */}
-        <div className="gatefold-card-strong p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h4 className="text-xs font-semibold text-gatefold-text">
-              SubStellar Project File (.substellar)
-            </h4>
-            <p className="text-[11px] text-gatefold-text-3 mt-0.5">
-              Preserves all subtitle lines, translations, per-word vocal timings, ruby tags, and canvas resolution ({aspectRatio} • {canvasResolution}).
-            </p>
-            {projectFilePath && (
-              <div className="text-[10px] font-mono text-gatefold-accent mt-1 truncate">
-                Active project: {projectFilePath}
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <input
-              ref={projectFileInputRef}
-              type="file"
-              accept=".substellar,.json,application/json"
-              onChange={handleOpenProject}
-              className="hidden"
-            />
-            <button
-              onClick={() => void handleTriggerOpenProject()}
-              className="px-3 py-2 rounded-lg bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-xs font-semibold text-gatefold-text flex items-center gap-1.5"
-            >
-              <FolderOpen className="w-3.5 h-3.5 text-gatefold-accent" />
-              <span>Open Project</span>
-            </button>
-            <button
-              onClick={() => void handleSaveProject()}
-              className="px-3 py-2 rounded-lg bg-gatefold-accent text-gatefold-bg text-xs font-semibold hover:opacity-90 flex items-center gap-1.5"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>Save Project As...</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Real Hardware Probing Card */}
-        <div className="gatefold-card p-4 flex items-center justify-between border-emerald-500/30 bg-emerald-500/5">
-          <div className="flex items-center gap-3">
-            <Cpu className="w-5 h-5 text-emerald-400 shrink-0" />
-            <div>
-              <h4 className="text-xs font-semibold text-gatefold-text flex items-center gap-2">
-                <span>Hardware Acceleration</span>
-                {hardwareCaps?.gpu_accelerated && (
-                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gatefold-accent/20 text-gatefold-accent border border-gatefold-accent/40">
-                    GPU ACTIVE
-                  </span>
-                )}
+        {/* Top 2-Column Banner: Project File Save/Open + Hardware Acceleration Status */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Project File Save / Open Card */}
+          <div className="gatefold-card-strong p-4 flex flex-col justify-between gap-3">
+            <div className="min-w-0">
+              <h4 className="text-xs font-semibold text-gatefold-text">
+                SubStellar Project File (.substellar)
               </h4>
-              <p className="text-[11px] text-gatefold-text-3 font-mono mt-0.5">
-                Primary:{' '}
-                <span className="text-emerald-400 font-semibold">
-                  {hardwareCaps?.primary_encoder || 'libx264 (CPU)'}
-                </span>{' '}
-                • Available: {hardwareCaps?.available_encoders.join(', ') || 'libx264'}
+              <p className="text-[11px] text-gatefold-text-3 mt-0.5">
+                Preserves all subtitle lines, translations, per-word vocal timings, ruby tags, and canvas resolution ({aspectRatio} • {canvasResolution}).
               </p>
-            </div>
-          </div>
-          <div className="text-right">
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-              {hardwareCaps?.ffmpeg_found ? 'FFMPEG ONLINE' : 'READY'}
-            </span>
-            <div className="text-[9px] text-gatefold-text-3 font-mono mt-1">
-              VP9 Alpha: {hardwareCaps?.supports_alpha_webm ? 'Supported' : 'No'}
-            </div>
-          </div>
-        </div>
-
-        {/* Format Selector */}
-        <div className="gatefold-card-strong p-5 space-y-4">
-          <label className="block text-xs font-semibold text-gatefold-text-2 uppercase tracking-wider font-mono">
-            Export Target Format
-          </label>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-            {[
-              { id: 'ass', name: 'ASS Vector', desc: 'Full Furigana & \\k timing' },
-              { id: 'srt', name: 'SubRip (SRT)', desc: 'Universal text subtitles' },
-              { id: 'mp4', name: 'MP4 Video', desc: 'Hardware Burn-in' },
-              { id: 'webm', name: 'WebM Alpha', desc: 'VP9 Transparent Overlay' },
-              { id: 'prores', name: 'ProRes 4444', desc: 'Pro Studio Alpha MOV' },
-            ].map((f) => (
-              <button
-                key={f.id}
-                onClick={() => setFormat(f.id as 'ass' | 'srt' | 'mp4' | 'webm' | 'prores')}
-                className={`p-3 rounded-lg text-left transition-all border ${
-                  format === f.id
-                    ? 'bg-gatefold-accent/15 border-gatefold-accent text-gatefold-accent'
-                    : 'bg-gatefold-surface border-gatefold-line text-gatefold-text hover:border-gatefold-line-2'
-                }`}
-              >
-                <div className="font-semibold text-xs flex items-center justify-between">
-                  <span>{f.name}</span>
-                  {format === f.id && <CheckCircle2 className="w-3.5 h-3.5 text-gatefold-accent" />}
+              {projectFilePath && (
+                <div className="text-[10px] font-mono text-gatefold-accent mt-1 truncate">
+                  Active project: {projectFilePath}
                 </div>
-                <div className="text-[10px] text-gatefold-text-3 mt-1 leading-snug">{f.desc}</div>
-              </button>
-            ))}
-          </div>
-
-          {/* Target Output Location & Info */}
-          <div className="p-3.5 rounded-lg bg-gatefold-surface border border-gatefold-line space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-[10px] font-mono text-gatefold-text-2 uppercase tracking-wider flex items-center gap-1.5">
-                <FolderOpen className="w-3.5 h-3.5 text-gatefold-accent" />
-                <span>Target Output File & Location (.{getFileExtension(format)})</span>
-              </label>
-              <span className="text-[10px] font-mono text-gatefold-text-3">
-                {lines.length} subtitle lines • {targetDims.width}×{targetDims.height}px
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={targetOutputPath}
-                onChange={(e) => setTargetOutputPath(e.target.value)}
-                placeholder={getDefaultExportFilename(format)}
-                className="flex-1 px-2.5 py-1.5 text-xs font-mono bg-gatefold-bg border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none"
-              />
-              {tauriBridge.isAvailable() && (
-                <button
-                  type="button"
-                  onClick={() => void handleBrowseOutputPath()}
-                  className="px-3 py-1.5 rounded bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-xs font-semibold text-gatefold-accent flex items-center gap-1.5 shrink-0"
-                >
-                  <FolderOpen className="w-3.5 h-3.5" />
-                  <span>Browse / Pilih Lokasi...</span>
-                </button>
               )}
             </div>
-            <p className="text-[10px] text-gatefold-text-3 leading-relaxed">
-              Saat tombol Export / Render ditekan, dialog Windows Explorer Save As akan terbuka agar Anda bisa memastikan lokasi penyimpanan file hasil ekspor.
-            </p>
+            <div className="flex items-center gap-2 shrink-0 pt-2 border-t border-gatefold-line">
+              <input
+                ref={projectFileInputRef}
+                type="file"
+                accept=".substellar,.json,application/json"
+                onChange={handleOpenProject}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => void handleTriggerOpenProject()}
+                className="px-3 py-2 rounded-lg bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-xs font-semibold text-gatefold-text flex items-center gap-1.5"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-gatefold-accent" />
+                <span>Open Project</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveProject()}
+                className="px-3 py-2 rounded-lg bg-gatefold-accent text-gatefold-bg text-xs font-semibold hover:opacity-90 flex items-center gap-1.5"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>Save Project As...</span>
+              </button>
+            </div>
           </div>
 
-          {/* Source Video & Render Pipeline Info (when rendering video) */}
-          {(format === 'mp4' || format === 'webm' || format === 'prores') && (
-            <div className="p-3.5 rounded-lg bg-gatefold-surface border border-gatefold-line space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-[10px] font-mono uppercase text-gatefold-text-2 flex items-center gap-1.5">
-                    <Video className="w-3.5 h-3.5 text-gatefold-accent" />
-                    <span>Source Video / Audio Input for Render</span>
-                  </div>
-                  <div className="text-xs font-mono text-gatefold-text mt-1 truncate">
-                    {track.mediaFilePath ? (
-                      <span className="text-emerald-400">{track.mediaFilePath}</span>
-                    ) : (
-                      <span className="text-amber-300">
-                        No disk file path linked ({track.title}) — subtitles will render on studio canvas background unless you pick a source video file.
+          {/* Real Hardware Probing Card */}
+          <div className="gatefold-card p-4 flex flex-col justify-between border-emerald-500/30 bg-emerald-500/5 gap-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <Cpu className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-xs font-semibold text-gatefold-text flex items-center gap-2">
+                    <span>Hardware Acceleration</span>
+                    {hardwareCaps?.gpu_accelerated && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gatefold-accent/20 text-gatefold-accent border border-gatefold-accent/40">
+                        GPU ACTIVE
                       </span>
                     )}
-                  </div>
+                  </h4>
+                  <p className="text-[11px] text-gatefold-text-3 font-mono mt-0.5">
+                    Primary:{' '}
+                    <span className="text-emerald-400 font-semibold">
+                      {hardwareCaps?.primary_encoder || 'libx264 (CPU)'}
+                    </span>{' '}
+                    • Codecs: {hardwareCaps?.available_encoders.join(', ') || 'libx264'}
+                  </p>
                 </div>
-                {tauriBridge.isAvailable() && (
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
+                {hardwareCaps?.ffmpeg_found ? 'FFMPEG ONLINE' : 'READY'}
+              </span>
+            </div>
+            <div className="text-[10px] text-gatefold-text-3 font-mono pt-2 border-t border-emerald-500/20 flex justify-between items-center">
+              <span>VP9 Alpha: {hardwareCaps?.supports_alpha_webm ? 'Supported' : 'No'}</span>
+              <span>ProRes 4444 Alpha: {hardwareCaps?.supports_alpha_prores ? 'Supported' : 'No'}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Main 2-Column Responsive Studio Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Left Column: Format & Parameters */}
+          <div className="lg:col-span-7 xl:col-span-8 space-y-5">
+            {/* Format Selector */}
+            <div className="gatefold-card-strong p-5 space-y-4">
+              <label className="block text-xs font-semibold text-gatefold-text-2 uppercase tracking-wider font-mono">
+                Export Target Format
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2">
+                {[
+                  { id: 'ass', name: 'ASS Vector', desc: 'Full Furigana & \\k timing' },
+                  { id: 'srt', name: 'SubRip (SRT)', desc: 'Universal text subtitles' },
+                  { id: 'mp4', name: 'MP4 Video', desc: 'Hardware Burn-in' },
+                  { id: 'webm', name: 'WebM Alpha', desc: 'VP9 Transparent Overlay' },
+                  { id: 'prores', name: 'ProRes 4444', desc: 'Pro Studio Alpha MOV' },
+                ].map((f) => (
                   <button
+                    key={f.id}
                     type="button"
-                    onClick={() => void handlePickSourceVideoForRender()}
-                    className="px-2.5 py-1.5 rounded bg-gatefold-bg hover:bg-gatefold-hover border border-gatefold-line text-[11px] font-semibold text-gatefold-text shrink-0"
+                    onClick={() => setFormat(f.id as 'ass' | 'srt' | 'mp4' | 'webm' | 'prores')}
+                    className={`p-3 rounded-lg text-left transition-all border ${
+                      format === f.id
+                        ? 'bg-gatefold-accent/15 border-gatefold-accent text-gatefold-accent'
+                        : 'bg-gatefold-surface border-gatefold-line text-gatefold-text hover:border-gatefold-line-2'
+                    }`}
                   >
-                    Select Source Video...
+                    <div className="font-semibold text-xs flex items-center justify-between">
+                      <span>{f.name}</span>
+                      {format === f.id && <CheckCircle2 className="w-3.5 h-3.5 text-gatefold-accent" />}
+                    </div>
+                    <div className="text-[10px] text-gatefold-text-3 mt-1 leading-snug">{f.desc}</div>
                   </button>
-                )}
+                ))}
               </div>
 
-              {format === 'mp4' && (
-                <div className="pt-2 border-t border-gatefold-line space-y-1.5">
-                  <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase">
-                    MP4 Subtitle Render Pipeline
+              {/* Target Output Location & Info */}
+              <div className="p-3.5 rounded-lg bg-gatefold-surface border border-gatefold-line space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-[10px] font-mono text-gatefold-text-2 uppercase tracking-wider flex items-center gap-1.5">
+                    <FolderOpen className="w-3.5 h-3.5 text-gatefold-accent" />
+                    <span>Target Output File & Location (.{getFileExtension(format)})</span>
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <span className="text-[10px] font-mono text-gatefold-text-3">
+                    {lines.length} subtitle lines • {targetDims.width}×{targetDims.height}px
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={targetOutputPath}
+                    onChange={(e) => setTargetOutputPath(e.target.value)}
+                    placeholder={getDefaultExportFilename(format)}
+                    className="flex-1 px-2.5 py-1.5 text-xs font-mono bg-gatefold-bg border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                  />
+                  {tauriBridge.isAvailable() && (
                     <button
                       type="button"
-                      onClick={() => setMp4RenderMethod('canvas_pipe')}
-                      className={`p-2.5 rounded border text-left transition-colors ${
-                        mp4RenderMethod === 'canvas_pipe'
-                          ? 'bg-gatefold-accent/15 border-gatefold-accent text-gatefold-accent'
-                          : 'bg-gatefold-bg border-gatefold-line text-gatefold-text-2 hover:text-gatefold-text'
-                      }`}
+                      onClick={() => void handleBrowseOutputPath()}
+                      className="px-3 py-1.5 rounded bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-xs font-semibold text-gatefold-accent flex items-center gap-1.5 shrink-0"
                     >
-                      <div className="text-xs font-semibold">
-                        Full Canvas Overlay Pipe (Recommended)
-                      </div>
-                      <div className="text-[10px] text-gatefold-text-3 mt-0.5">
-                        Renders exact SubStellar vocal animations, Furigana & double-stroke onto source video + audio.
-                      </div>
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      <span>Browse...</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setMp4RenderMethod('ass_burnin')}
-                      className={`p-2.5 rounded border text-left transition-colors ${
-                        mp4RenderMethod === 'ass_burnin'
-                          ? 'bg-gatefold-accent/15 border-gatefold-accent text-gatefold-accent'
-                          : 'bg-gatefold-bg border-gatefold-line text-gatefold-text-2 hover:text-gatefold-text'
-                      }`}
-                    >
-                      <div className="text-xs font-semibold">
-                        Fast Hardware ASS Burn-in (Direct FFmpeg)
+                  )}
+                </div>
+                <p className="text-[10px] text-gatefold-text-3 leading-relaxed">
+                  Saat tombol Export ditekan, dialog penyimpanan akan mengonfirmasi lokasi file hasil ekspor Anda.
+                </p>
+              </div>
+
+              {/* Source Video & Render Pipeline Info (when rendering video) */}
+              {(format === 'mp4' || format === 'webm' || format === 'prores') && (
+                <div className="p-3.5 rounded-lg bg-gatefold-surface border border-gatefold-line space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-mono uppercase text-gatefold-text-2 flex items-center gap-1.5">
+                        <Video className="w-3.5 h-3.5 text-gatefold-accent" />
+                        <span>Source Video / Audio Input for Render</span>
                       </div>
-                      <div className="text-[10px] text-gatefold-text-3 mt-0.5">
-                        Ultra-fast native FFmpeg libass burn-in directly on your source video file.
+                      <div className="text-xs font-mono text-gatefold-text mt-1 truncate">
+                        {track.mediaFilePath ? (
+                          <span className="text-emerald-400">{track.mediaFilePath}</span>
+                        ) : (
+                          <span className="text-amber-300">
+                            No disk file path linked ({track.title}) — subtitles will render on transparent or studio canvas background.
+                          </span>
+                        )}
                       </div>
-                    </button>
+                    </div>
+                    {tauriBridge.isAvailable() && (
+                      <button
+                        type="button"
+                        onClick={() => void handlePickSourceVideoForRender()}
+                        className="px-2.5 py-1.5 rounded bg-gatefold-bg hover:bg-gatefold-hover border border-gatefold-line text-[11px] font-semibold text-gatefold-text shrink-0"
+                      >
+                        Select Source Video...
+                      </button>
+                    )}
                   </div>
+
+                  {format === 'mp4' && (
+                    <div className="pt-2 border-t border-gatefold-line space-y-1.5">
+                      <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase">
+                        MP4 Subtitle Render Pipeline
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setMp4RenderMethod('canvas_pipe')}
+                          className={`p-2.5 rounded border text-left transition-colors ${
+                            mp4RenderMethod === 'canvas_pipe'
+                              ? 'bg-gatefold-accent/15 border-gatefold-accent text-gatefold-accent'
+                              : 'bg-gatefold-bg border-gatefold-line text-gatefold-text-2 hover:text-gatefold-text'
+                          }`}
+                        >
+                          <div className="text-xs font-semibold">
+                            Full Canvas Overlay Pipe (Recommended)
+                          </div>
+                          <div className="text-[10px] text-gatefold-text-3 mt-0.5">
+                            Renders exact SubStellar vocal animations, Furigana & double-stroke onto source video + audio.
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMp4RenderMethod('ass_burnin')}
+                          className={`p-2.5 rounded border text-left transition-colors ${
+                            mp4RenderMethod === 'ass_burnin'
+                              ? 'bg-gatefold-accent/15 border-gatefold-accent text-gatefold-accent'
+                              : 'bg-gatefold-bg border-gatefold-line text-gatefold-text-2 hover:text-gatefold-text'
+                          }`}
+                        >
+                          <div className="text-xs font-semibold">
+                            Fast Hardware ASS Burn-in (Direct FFmpeg)
+                          </div>
+                          <div className="text-[10px] text-gatefold-text-3 mt-0.5">
+                            Ultra-fast native FFmpeg libass burn-in directly on your source video file.
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Canvas & Export Resolution Specifications */}
-          <div className="space-y-3 pt-3 border-t border-gatefold-line">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
-                  Canvas & Output Resolution ({aspectRatio})
-                </label>
-                <select
-                  value={canvasResolution}
-                  onChange={(e) => setCanvasResolution(e.target.value as CanvasResolutionPreset)}
-                  className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none"
-                >
-                  <option value="720p">720p HD (Low-End Fast)</option>
-                  <option value="1080p">1080p Full HD</option>
-                  <option value="1440p">1440p 2K QHD</option>
-                  <option value="4k">4K Ultra HD</option>
-                </select>
-                <span className="text-[10px] font-mono text-gatefold-accent mt-1 block">
-                  Dimensions: {targetDims.width}×{targetDims.height} px
-                </span>
-              </div>
-
-              {(format === 'mp4' || format === 'webm' || format === 'prores') && (
-                <>
+              {/* Canvas & Export Resolution Specifications */}
+              <div className="space-y-3 pt-3 border-t border-gatefold-line">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
-                      Framerate
+                      Canvas & Output Resolution ({aspectRatio})
                     </label>
                     <select
-                      value={fps}
-                      onChange={(e) => setFps(parseInt(e.target.value, 10))}
+                      value={canvasResolution}
+                      onChange={(e) => setCanvasResolution(e.target.value as CanvasResolutionPreset)}
                       className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none"
                     >
-                      <option value={60}>60 FPS (Ultra smooth motion)</option>
-                      <option value={30}>30 FPS (Standard video)</option>
-                      <option value={24}>24 FPS (Cinematic standard)</option>
+                      <option value="720p">720p HD (Low-End Fast)</option>
+                      <option value="1080p">1080p Full HD</option>
+                      <option value="1440p">1440p 2K QHD</option>
+                      <option value="4k">4K Ultra HD</option>
                     </select>
+                    <span className="text-[10px] font-mono text-gatefold-accent mt-1 block">
+                      Dimensions: {targetDims.width}×{targetDims.height} px
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
-                      Video Encoder
-                    </label>
-                    <select
-                      value={selectedEncoder}
-                      onChange={(e) => setSelectedEncoder(e.target.value)}
-                      disabled={format !== 'mp4'}
-                      className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none disabled:opacity-50"
-                    >
-                      {format === 'webm' ? (
-                        <option value="libvpx-vp9">libvpx-vp9 (Alpha YUVA420p)</option>
-                      ) : format === 'prores' ? (
-                        <option value="prores_ks">prores_ks (Apple 4444)</option>
-                      ) : (
-                        (hardwareCaps?.available_encoders || ['libx264']).map((enc) => (
-                          <option key={enc} value={enc}>
-                            {enc === 'h264_nvenc'
-                              ? 'NVIDIA NVENC (Hardware)'
-                              : enc === 'h264_qsv'
-                              ? 'Intel QuickSync (Hardware)'
-                              : enc === 'h264_amf'
-                              ? 'AMD AMF (Hardware)'
-                              : enc === 'h264_videotoolbox'
-                              ? 'Apple VideoToolbox (Hardware)'
-                              : 'libx264 (CPU Software Fallback)'}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </div>
-                </>
-              )}
+                  {(format === 'mp4' || format === 'webm' || format === 'prores') && (
+                    <>
+                      <div>
+                        <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
+                          Framerate
+                        </label>
+                        <select
+                          value={fps}
+                          onChange={(e) => setFps(parseInt(e.target.value, 10))}
+                          className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                        >
+                          <option value={60}>60 FPS (Ultra smooth motion)</option>
+                          <option value={30}>30 FPS (Standard video)</option>
+                          <option value={24}>24 FPS (Cinematic standard)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-mono text-gatefold-text-3 block uppercase mb-1">
+                          Video Encoder
+                        </label>
+                        <select
+                          value={selectedEncoder}
+                          onChange={(e) => setSelectedEncoder(e.target.value)}
+                          disabled={format !== 'mp4'}
+                          className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none disabled:opacity-50"
+                        >
+                          {format === 'webm' ? (
+                            <option value="libvpx-vp9">libvpx-vp9 (Alpha YUVA420p)</option>
+                          ) : format === 'prores' ? (
+                            <option value="prores_ks">prores_ks (Apple 4444)</option>
+                          ) : (
+                            (hardwareCaps?.available_encoders || ['libx264']).map((enc) => (
+                              <option key={enc} value={enc}>
+                                {enc === 'h264_nvenc'
+                                  ? 'NVIDIA NVENC (Hardware)'
+                                  : enc === 'h264_qsv'
+                                  ? 'Intel QuickSync (Hardware)'
+                                  : enc === 'h264_amf'
+                                  ? 'AMD AMF (Hardware)'
+                                  : enc === 'h264_videotoolbox'
+                                  ? 'Apple VideoToolbox (Hardware)'
+                                  : 'libx264 (CPU Software Fallback)'}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Live Render Progress */}
-          {isExporting && progress && (
-            <div className="p-4 rounded-lg bg-gatefold-surface border border-gatefold-line space-y-2.5">
-              <div className="flex justify-between items-center text-xs font-mono">
-                <span className="text-gatefold-text flex items-center gap-2">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-gatefold-accent" />
-                  <span>
-                    Streaming RGBA Pipe: Frame {progress.frames_written} / {progress.total_frames}
-                  </span>
+          {/* Right Column: Specifications, Live Pipeline Summary & Actions */}
+          <div className="lg:col-span-5 xl:col-span-4 space-y-5">
+            {/* Summary Card */}
+            <div className="gatefold-card-strong p-5 space-y-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider font-mono text-gatefold-text flex items-center justify-between">
+                <span>Export Specifications</span>
+                <span className="text-[10px] text-gatefold-accent">
+                  {format.toUpperCase()}
                 </span>
-                <span className="text-gatefold-accent font-semibold">
-                  {progress.percentage.toFixed(1)}% ({progress.fps.toFixed(1)} FPS)
-                </span>
-              </div>
-              <div className="h-2 w-full bg-gatefold-surface-2 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gatefold-accent transition-all duration-150"
-                  style={{ width: `${Math.min(100, progress.percentage)}%` }}
-                />
-              </div>
-              <div className="flex justify-end">
-                <button
-                  onClick={handleCancel}
-                  className="px-3 py-1 rounded bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 text-[11px] font-medium"
-                >
-                  Cancel Render
-                </button>
-              </div>
-            </div>
-          )}
+              </h3>
 
-          {/* Error Feedback */}
-          {errorMessage && (
-            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-center gap-2 text-xs text-red-300">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-              <span>{errorMessage}</span>
-            </div>
-          )}
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between py-1 border-b border-gatefold-line">
+                  <span className="text-gatefold-text-3">Subtitle Lines</span>
+                  <span className="font-mono text-gatefold-text">{lines.length} lines</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-gatefold-line">
+                  <span className="text-gatefold-text-3">Canvas Dimensions</span>
+                  <span className="font-mono text-gatefold-text">{targetDims.width} × {targetDims.height}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-gatefold-line">
+                  <span className="text-gatefold-text-3">Aspect Ratio</span>
+                  <span className="font-mono text-gatefold-text">{aspectRatio}</span>
+                </div>
+                {(format === 'mp4' || format === 'webm' || format === 'prores') && (
+                  <>
+                    <div className="flex justify-between py-1 border-b border-gatefold-line">
+                      <span className="text-gatefold-text-3">Framerate</span>
+                      <span className="font-mono text-gatefold-text">{fps} FPS</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-gatefold-line">
+                      <span className="text-gatefold-text-3">Hardware Encoder</span>
+                      <span className="font-mono text-emerald-400 font-semibold">{selectedEncoder}</span>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-between py-1">
+                  <span className="text-gatefold-text-3">Track Title</span>
+                  <span className="font-mono text-gatefold-text truncate max-w-[180px]">{track.title || 'Untitled'}</span>
+                </div>
+              </div>
 
-          {/* Success Feedback & Saved Location Info */}
-          {exportSuccess && (
-            <div className="p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 space-y-2 text-xs text-emerald-300">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-2 min-w-0">
-                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
-                  <div className="min-w-0">
-                    <div className="font-semibold text-emerald-200">{exportSuccess}</div>
-                    {lastSavedPath && (
-                      <div className="text-[11px] font-mono text-emerald-300/90 mt-1 break-all flex items-center gap-1.5">
-                        <FileCheck className="w-3.5 h-3.5 shrink-0" />
-                        <span>Lokasi File: {lastSavedPath}</span>
+              {/* Live Render Progress */}
+              {isExporting && progress && (
+                <div className="p-4 rounded-lg bg-gatefold-surface border border-gatefold-line space-y-2.5">
+                  <div className="flex justify-between items-center text-xs font-mono">
+                    <span className="text-gatefold-text flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-gatefold-accent" />
+                      <span>
+                        Frame {progress.frames_written} / {progress.total_frames}
+                      </span>
+                    </span>
+                    <span className="text-gatefold-accent font-semibold">
+                      {progress.percentage.toFixed(1)}% ({progress.fps.toFixed(1)} FPS)
+                    </span>
+                  </div>
+                  <div className="h-2 w-full bg-gatefold-surface-2 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gatefold-accent transition-all duration-150"
+                      style={{ width: `${Math.min(100, progress.percentage)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleCancel}
+                      className="px-3 py-1 rounded bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 text-[11px] font-medium"
+                    >
+                      Cancel Render
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Error Feedback */}
+              {errorMessage && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-center gap-2 text-xs text-red-300">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              {/* Success Feedback & Saved Location Info */}
+              {exportSuccess && (
+                <div className="p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 space-y-2 text-xs text-emerald-300">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                      <div className="min-w-0">
+                        <div className="font-semibold text-emerald-200">{exportSuccess}</div>
+                        {lastSavedPath && (
+                          <div className="text-[11px] font-mono text-emerald-300/90 mt-1 break-all flex items-center gap-1.5">
+                            <FileCheck className="w-3.5 h-3.5 shrink-0" />
+                            <span>Lokasi File: {lastSavedPath}</span>
+                          </div>
+                        )}
                       </div>
+                    </div>
+                    {lastSavedPath && tauriBridge.isAvailable() && (
+                      <button
+                        type="button"
+                        onClick={() => void tauriBridge.revealInExplorer(lastSavedPath)}
+                        className="px-2.5 py-1.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-[11px] font-semibold flex items-center gap-1.5 shrink-0"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Buka Folder</span>
+                      </button>
                     )}
                   </div>
                 </div>
-                {lastSavedPath && tauriBridge.isAvailable() && (
-                  <button
-                    type="button"
-                    onClick={() => void tauriBridge.revealInExplorer(lastSavedPath)}
-                    className="px-2.5 py-1.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-[11px] font-semibold flex items-center gap-1.5 shrink-0"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Buka di Explorer</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+              )}
 
-          {/* Export Trigger Button */}
-          <button
-            onClick={() => void handleExport()}
-            disabled={isExporting || lines.length === 0}
-            className="w-full py-2.5 px-4 bg-gatefold-accent text-gatefold-bg font-semibold text-xs rounded-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {isExporting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Rendering / Exporting...</span>
-              </>
-            ) : (
-              <>
-                <Download className="w-4 h-4" />
-                <span>
-                  {format === 'ass' || format === 'srt'
-                    ? `Save & Export .${format.toUpperCase()} Subtitle File...`
-                    : `Choose Save Location & Render Video (${format.toUpperCase()} • ${targetDims.width}×${targetDims.height})`}
-                </span>
-              </>
-            )}
-          </button>
+              {/* Export Trigger Button */}
+              <button
+                type="button"
+                onClick={() => void handleExport()}
+                disabled={isExporting || lines.length === 0}
+                className="w-full py-3 px-4 bg-gatefold-accent text-gatefold-bg font-semibold text-xs rounded-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isExporting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Rendering / Exporting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    <span>
+                      {format === 'ass' || format === 'srt'
+                        ? `Save & Export .${format.toUpperCase()} Subtitle File...`
+                        : `Choose Save Location & Render Video (${format.toUpperCase()} • ${targetDims.width}×${targetDims.height})`}
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

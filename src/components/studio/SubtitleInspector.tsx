@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Type,
   Clock,
@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
-  Wand2,
   Flame,
   Plus,
   Copy,
@@ -19,9 +18,25 @@ import {
   Scissors,
   Merge,
   Ban,
+  Upload,
+  Star,
+  Orbit,
+  Flower2,
+  Music,
+  Heart,
+  Check,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { FuriganaEditor } from '../furigana/FuriganaEditor';
+import { StudioColorPicker } from '../common/StudioColorPicker';
+import {
+  discoverSystemFonts,
+  loadFontFromFile,
+  getLoadedCustomFonts,
+  CURATED_FONTS,
+  type FontOption,
+} from '../../engine/text/fontLoader';
+import { VISUAL_PRESETS } from '../../engine/presets/presetRegistry';
 import type { ParticlePresetType, WordAnimationStyle } from '../../types';
 
 interface SubtitleInspectorProps {
@@ -31,6 +46,11 @@ interface SubtitleInspectorProps {
 const SubtitleInspectorBody: React.FC = React.memo(() => {
   const [tab, setTab] = useState<'text' | 'colors' | 'style' | 'particles' | 'presets'>('text');
   const [selectedTokenIdx, setSelectedTokenIdx] = useState<number>(0);
+  const [systemFonts, setSystemFonts] = useState<FontOption[]>([]);
+  const [customFonts, setCustomFonts] = useState<FontOption[]>(() => getLoadedCustomFonts());
+  const [isDraggingFont, setIsDraggingFont] = useState(false);
+  const [fontLoadSuccess, setFontLoadSuccess] = useState<string | null>(null);
+  const fontFileInputRef = useRef<HTMLInputElement>(null);
 
   const lines = useStudioStore((s) => s.lines);
   const selectedLineId = useStudioStore((s) => s.selectedLineId);
@@ -67,6 +87,28 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
   useEffect(() => {
     setSelectedTokenIdx(0);
   }, [activeLine?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    discoverSystemFonts().then((fonts) => {
+      if (!cancelled) setSystemFonts(fonts);
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleFontFile = async (file: File) => {
+    try {
+      const option = await loadFontFromFile(file);
+      setCustomFonts(getLoadedCustomFonts());
+      setStyle({ fontFamily: option.family });
+      setFontLoadSuccess(`Loaded: ${file.name}`);
+      setTimeout(() => setFontLoadSuccess(null), 3000);
+    } catch (err) {
+      console.error('Failed to load font file:', err);
+    }
+  };
 
   const handlePrevLine = () => {
     if (activeIndex > 0) {
@@ -639,69 +681,28 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
                   : style.fillColor}
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] text-gatefold-text-3 block mb-1">
-                    {style.fillGradientEnabled ? 'Top / Start Color' : 'Solid Fill Color'}
-                  </label>
-                  <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
-                    <input
-                      type="color"
-                      value={style.fillColor}
-                      onChange={(e) => setStyle({ fillColor: e.target.value })}
-                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
-                    />
-                    <input
-                      type="text"
-                      value={style.fillColor}
-                      onChange={(e) => setStyle({ fillColor: e.target.value })}
-                      className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
-                    />
-                  </div>
-                </div>
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <StudioColorPicker
+                  label={style.fillGradientEnabled ? 'Top / Start Color' : 'Solid Fill Color'}
+                  value={style.fillColor}
+                  onChange={(val) => setStyle({ fillColor: val })}
+                />
                 {style.fillGradientEnabled && (
-                  <div>
-                    <label className="text-[10px] text-gatefold-text-3 block mb-1">
-                      Bottom / End Color
-                    </label>
-                    <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
-                      <input
-                        type="color"
-                        value={style.fillGradientEndColor}
-                        onChange={(e) => setStyle({ fillGradientEndColor: e.target.value })}
-                        className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
-                      />
-                      <input
-                        type="text"
-                        value={style.fillGradientEndColor}
-                        onChange={(e) => setStyle({ fillGradientEndColor: e.target.value })}
-                        className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
-                      />
-                    </div>
-                  </div>
+                  <StudioColorPicker
+                    label="Bottom / End Color"
+                    value={style.fillGradientEndColor}
+                    onChange={(val) => setStyle({ fillGradientEndColor: val })}
+                  />
                 )}
               </div>
 
               {/* Active Word Karaoke Highlight Color */}
-              <div>
-                <label className="text-[10px] text-gatefold-text-3 block mb-1">
-                  Active Sung Word Color (Karaoke Highlight)
-                </label>
-                <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-2 py-1">
-                  <input
-                    type="color"
-                    value={style.wordActiveColor}
-                    onChange={(e) => setStyle({ wordActiveColor: e.target.value })}
-                    className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
-                  />
-                  <input
-                    type="text"
-                    value={style.wordActiveColor}
-                    onChange={(e) => setStyle({ wordActiveColor: e.target.value })}
-                    className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
-                  />
-                </div>
+              <div className="pt-1">
+                <StudioColorPicker
+                  label="Active Sung Word Color (Karaoke Highlight)"
+                  value={style.wordActiveColor}
+                  onChange={(val) => setStyle({ wordActiveColor: val })}
+                />
               </div>
             </div>
 
@@ -711,69 +712,25 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
                 Outline Stroke & Glow Colors
               </span>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] text-gatefold-text-3 block mb-1">
-                    Inner Stroke Color
-                  </label>
-                  <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
-                    <input
-                      type="color"
-                      value={style.innerStrokeColor}
-                      onChange={(e) => setStyle({ innerStrokeColor: e.target.value })}
-                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
-                    />
-                    <input
-                      type="text"
-                      value={style.innerStrokeColor}
-                      onChange={(e) => setStyle({ innerStrokeColor: e.target.value })}
-                      className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[10px] text-gatefold-text-3 block mb-1">
-                    Outer Stroke Color
-                  </label>
-                  <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
-                    <input
-                      type="color"
-                      value={style.outerStrokeColor}
-                      onChange={(e) => setStyle({ outerStrokeColor: e.target.value })}
-                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
-                    />
-                    <input
-                      type="text"
-                      value={style.outerStrokeColor}
-                      onChange={(e) => setStyle({ outerStrokeColor: e.target.value })}
-                      className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
-                    />
-                  </div>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <StudioColorPicker
+                  label="Inner Stroke Color"
+                  value={style.innerStrokeColor}
+                  onChange={(val) => setStyle({ innerStrokeColor: val })}
+                />
+                <StudioColorPicker
+                  label="Outer Stroke Color"
+                  value={style.outerStrokeColor}
+                  onChange={(val) => setStyle({ outerStrokeColor: val })}
+                />
               </div>
 
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <div>
-                  <label className="text-[10px] text-gatefold-text-3 block mb-1">
-                    Glow / Shadow Color
-                  </label>
-                  <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
-                    <input
-                      type="color"
-                      value={style.glowColor}
-                      onChange={(e) => setStyle({ glowColor: e.target.value })}
-                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
-                    />
-                    <input
-                      type="text"
-                      value={style.glowColor}
-                      onChange={(e) => setStyle({ glowColor: e.target.value })}
-                      className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
-                    />
-                  </div>
-                </div>
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <StudioColorPicker
+                  label="Glow / Shadow Color"
+                  value={style.glowColor}
+                  onChange={(val) => setStyle({ glowColor: val })}
+                />
                 <div>
                   <div className="flex justify-between items-center mb-1">
                     <label className="text-[10px] text-gatefold-text-3">Glow Blur</label>
@@ -799,66 +756,25 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
                 Furigana (Ruby) & Translation Colors
               </span>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] text-gatefold-text-3 block mb-1">
-                    Ruby Fill Color
-                  </label>
-                  <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
-                    <input
-                      type="color"
-                      value={style.rubyFillColor}
-                      onChange={(e) => setStyle({ rubyFillColor: e.target.value })}
-                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
-                    />
-                    <input
-                      type="text"
-                      value={style.rubyFillColor}
-                      onChange={(e) => setStyle({ rubyFillColor: e.target.value })}
-                      className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[10px] text-gatefold-text-3 block mb-1">
-                    Active Ruby Color
-                  </label>
-                  <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-1.5 py-1">
-                    <input
-                      type="color"
-                      value={style.rubyActiveColor}
-                      onChange={(e) => setStyle({ rubyActiveColor: e.target.value })}
-                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
-                    />
-                    <input
-                      type="text"
-                      value={style.rubyActiveColor}
-                      onChange={(e) => setStyle({ rubyActiveColor: e.target.value })}
-                      className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
-                    />
-                  </div>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <StudioColorPicker
+                  label="Ruby Fill Color"
+                  value={style.rubyFillColor}
+                  onChange={(val) => setStyle({ rubyFillColor: val })}
+                />
+                <StudioColorPicker
+                  label="Active Ruby Color"
+                  value={style.rubyActiveColor}
+                  onChange={(val) => setStyle({ rubyActiveColor: val })}
+                />
               </div>
 
               <div>
-                <label className="text-[10px] text-gatefold-text-3 block mb-1">
-                  Secondary Translation Color
-                </label>
-                <div className="flex items-center gap-1.5 bg-gatefold-surface border border-gatefold-line rounded px-2 py-1">
-                  <input
-                    type="color"
-                    value={style.translationFillColor}
-                    onChange={(e) => setStyle({ translationFillColor: e.target.value })}
-                    className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer shrink-0"
-                  />
-                  <input
-                    type="text"
-                    value={style.translationFillColor}
-                    onChange={(e) => setStyle({ translationFillColor: e.target.value })}
-                    className="w-full bg-transparent font-mono text-[11px] text-gatefold-text focus:outline-none"
-                  />
-                </div>
+                <StudioColorPicker
+                  label="Secondary Translation Color"
+                  value={style.translationFillColor}
+                  onChange={(val) => setStyle({ translationFillColor: val })}
+                />
               </div>
             </div>
           </div>
@@ -866,30 +782,38 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
 
         {tab === 'style' && (
           <>
-            {/* Word Transition Motion Speed & Style */}
+            {/* Word-to-Word Vocal Animation (8 Dynamic J-Pop/Vocaloid Styles) */}
             <div className="space-y-2.5 pb-3 border-b border-gatefold-line">
               <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold block">
                 Word-to-Word Vocal Animation
               </span>
 
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5">
                 {(
                   [
-                    { id: 'pop', label: 'Pop Bounce' },
-                    { id: 'sweep', label: 'Karaoke Sweep' },
-                    { id: 'float', label: 'Vocal Float' },
-                  ] as { id: WordAnimationStyle; label: string }[]
+                    { id: 'pop', label: 'Pop Bounce', desc: 'Bouncy scale punch' },
+                    { id: 'sweep', label: 'Karaoke Sweep', desc: 'Horizontal wipe' },
+                    { id: 'float', label: 'Vocal Float', desc: 'Airy floating wave' },
+                    { id: 'glow-pulse', label: 'Glow Pulse', desc: 'Neon bloom pulse' },
+                    { id: 'slide', label: 'Slide-in', desc: 'Directional slide' },
+                    { id: 'staccato', label: 'Staccato Jump', desc: 'Crisp rhythmic jump' },
+                    { id: 'zoom-strike', label: 'Zoom Strike', desc: 'Sudden punch impact' },
+                    { id: 'wave', label: 'Ripple Wave', desc: 'Vertical sinusoidal wave' },
+                  ] as { id: WordAnimationStyle; label: string; desc: string }[]
                 ).map((item) => (
                   <button
                     key={item.id}
+                    type="button"
                     onClick={() => setStyle({ wordAnimStyle: item.id })}
-                    className={`py-1.5 px-2 rounded border text-[11px] font-medium transition-colors ${
+                    title={item.desc}
+                    className={`py-1.5 px-2 rounded border text-left transition-colors ${
                       style.wordAnimStyle === item.id
-                        ? 'border-gatefold-accent bg-gatefold-accent/15 text-gatefold-accent'
+                        ? 'border-gatefold-accent bg-gatefold-accent/15 text-gatefold-accent font-semibold'
                         : 'border-gatefold-line bg-gatefold-surface text-gatefold-text-3 hover:text-gatefold-text'
                     }`}
                   >
-                    {item.label}
+                    <div className="text-[11px] leading-tight">{item.label}</div>
+                    <div className="text-[9px] text-gatefold-text-3 font-mono truncate">{item.desc}</div>
                   </button>
                 ))}
               </div>
@@ -930,6 +854,229 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
                 <p className="text-[10px] text-gatefold-text-3">
                   Controls how fast the highlight and motion animate when moving from one sung word to the next.
                 </p>
+              </div>
+            </div>
+
+            {/* Typography & Font Family (Curated, Discovered System Fonts, and Custom Files) */}
+            <div className="space-y-2.5 pb-3 border-b border-gatefold-line">
+              <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold block">
+                Typography & Font Family
+              </span>
+
+              {/* Font Family Dropdown */}
+              <div className="space-y-1">
+                <label className="text-[10px] text-gatefold-text-3 block">Font Family</label>
+                <select
+                  value={style.fontFamily}
+                  onChange={(e) => setStyle({ fontFamily: e.target.value })}
+                  className="w-full px-2 py-1.5 bg-gatefold-surface border border-gatefold-line rounded text-xs text-gatefold-text focus:border-gatefold-accent focus:outline-none font-sans"
+                >
+                  <optgroup label="Curated J-Pop & Vocaloid">
+                    {CURATED_FONTS.map((f) => (
+                      <option key={f.family} value={f.family}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {customFonts.length > 0 && (
+                    <optgroup label="Custom Imported Fonts">
+                      {customFonts.map((f) => (
+                        <option key={f.family} value={f.family}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {systemFonts.length > 0 && (
+                    <optgroup label="Discovered System Fonts">
+                      {systemFonts.map((f) => (
+                        <option key={f.family} value={f.family}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+
+              {/* Drag-and-drop / Upload custom font box */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDraggingFont(true);
+                }}
+                onDragLeave={() => setIsDraggingFont(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDraggingFont(false);
+                  const file = e.dataTransfer.files[0];
+                  if (file) void handleFontFile(file);
+                }}
+                onClick={() => fontFileInputRef.current?.click()}
+                className={`p-2.5 rounded-lg border border-dashed cursor-pointer text-center transition-colors ${
+                  isDraggingFont
+                    ? 'border-gatefold-accent bg-gatefold-accent/10 text-gatefold-accent'
+                    : 'border-gatefold-line bg-gatefold-surface/50 hover:bg-gatefold-surface hover:border-gatefold-line-2 text-gatefold-text-3'
+                }`}
+              >
+                <input
+                  ref={fontFileInputRef}
+                  type="file"
+                  accept=".ttf,.otf,.woff,.woff2"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void handleFontFile(file);
+                    e.target.value = '';
+                  }}
+                />
+                <div className="flex items-center justify-center gap-1.5 text-[11px] font-medium text-gatefold-text-2">
+                  <Upload className="w-3.5 h-3.5 text-gatefold-accent shrink-0" />
+                  <span>Import Font (.ttf, .otf, .woff2)</span>
+                </div>
+                <p className="text-[10px] text-gatefold-text-3 mt-0.5">
+                  Drag & drop font file here or click to browse
+                </p>
+                {fontLoadSuccess && (
+                  <div className="mt-1 flex items-center justify-center gap-1 text-[10px] text-emerald-400 font-mono">
+                    <Check className="w-3 h-3" />
+                    <span>{fontLoadSuccess}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Font Size */}
+              <div className="space-y-1.5 pt-1">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-gatefold-text">Font Size</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={8}
+                      max={500}
+                      value={style.fontSize}
+                      onChange={(e) =>
+                        setStyle({ fontSize: Math.max(8, parseInt(e.target.value, 10) || 24) })
+                      }
+                      className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                    />
+                    <span className="text-[10px] font-mono text-gatefold-text-3">px</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min={14}
+                  max={160}
+                  value={Math.min(160, style.fontSize)}
+                  onChange={(e) => setStyle({ fontSize: parseInt(e.target.value, 10) })}
+                  className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+                />
+              </div>
+
+              {/* Ruby Scale */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-gatefold-text">Furigana Scale</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={10}
+                      max={200}
+                      value={Math.round(style.rubyScale * 100)}
+                      onChange={(e) =>
+                        setStyle({
+                          rubyScale: Math.max(10, parseInt(e.target.value, 10) || 45) / 100,
+                        })
+                      }
+                      className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                    />
+                    <span className="text-[10px] font-mono text-gatefold-text-3">%</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min={20}
+                  max={100}
+                  value={Math.min(100, Math.round(style.rubyScale * 100))}
+                  onChange={(e) => setStyle({ rubyScale: parseInt(e.target.value, 10) / 100 })}
+                  className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+                />
+              </div>
+
+              {/* Outer Stroke */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-gatefold-text">Outer Stroke (Dark)</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={0}
+                      max={200}
+                      value={style.outerStrokeWidth}
+                      onChange={(e) =>
+                        setStyle({
+                          outerStrokeWidth: Math.max(0, parseInt(e.target.value, 10) || 0),
+                        })
+                      }
+                      className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                    />
+                    <span className="text-[10px] font-mono text-gatefold-text-3">px</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={40}
+                  value={Math.min(40, style.outerStrokeWidth)}
+                  onChange={(e) => setStyle({ outerStrokeWidth: parseInt(e.target.value, 10) })}
+                  className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+                />
+              </div>
+
+              {/* Inner Glow Stroke */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-gatefold-text">Inner Glow Width</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={style.innerStrokeWidth}
+                      onChange={(e) =>
+                        setStyle({
+                          innerStrokeWidth: Math.max(0, parseInt(e.target.value, 10) || 0),
+                        })
+                      }
+                      className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
+                    />
+                    <span className="text-[10px] font-mono text-gatefold-text-3">px</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={24}
+                  value={Math.min(24, style.innerStrokeWidth)}
+                  onChange={(e) => setStyle({ innerStrokeWidth: parseInt(e.target.value, 10) })}
+                  className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+                />
+              </div>
+
+              {/* Safe Guides Toggle */}
+              <div className="pt-2 border-t border-gatefold-line flex items-center justify-between">
+                <span className="font-semibold text-gatefold-text">Title & Action Safe Guides</span>
+                <button
+                  type="button"
+                  onClick={() => setStyle({ showSafeGuides: !style.showSafeGuides })}
+                  className={`p-1.5 rounded transition-colors ${
+                    style.showSafeGuides
+                      ? 'bg-gatefold-accent/20 text-gatefold-accent'
+                      : 'text-gatefold-text-3 hover:bg-gatefold-hover'
+                  }`}
+                >
+                  {style.showSafeGuides ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
@@ -1050,139 +1197,6 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
                 />
               </div>
             </div>
-
-            {/* Font & Size */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <span className="font-semibold text-gatefold-text">Font Size</span>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    min={8}
-                    max={500}
-                    value={style.fontSize}
-                    onChange={(e) =>
-                      setStyle({ fontSize: Math.max(8, parseInt(e.target.value, 10) || 24) })
-                    }
-                    className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
-                  />
-                  <span className="text-[10px] font-mono text-gatefold-text-3">px</span>
-                </div>
-              </div>
-              <input
-                type="range"
-                min={14}
-                max={160}
-                value={Math.min(160, style.fontSize)}
-                onChange={(e) => setStyle({ fontSize: parseInt(e.target.value, 10) })}
-                className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
-              />
-            </div>
-
-            {/* Ruby Scale */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <span className="font-semibold text-gatefold-text">Furigana Scale</span>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    min={10}
-                    max={200}
-                    value={Math.round(style.rubyScale * 100)}
-                    onChange={(e) =>
-                      setStyle({
-                        rubyScale: Math.max(10, parseInt(e.target.value, 10) || 45) / 100,
-                      })
-                    }
-                    className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
-                  />
-                  <span className="text-[10px] font-mono text-gatefold-text-3">%</span>
-                </div>
-              </div>
-              <input
-                type="range"
-                min={20}
-                max={100}
-                value={Math.min(100, Math.round(style.rubyScale * 100))}
-                onChange={(e) => setStyle({ rubyScale: parseInt(e.target.value, 10) / 100 })}
-                className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
-              />
-            </div>
-
-            {/* Outer Stroke */}
-            <div className="space-y-1.5 pt-2 border-t border-gatefold-line">
-              <div className="flex justify-between items-center">
-                <span className="font-semibold text-gatefold-text">Outer Stroke (Dark)</span>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    min={0}
-                    max={200}
-                    value={style.outerStrokeWidth}
-                    onChange={(e) =>
-                      setStyle({
-                        outerStrokeWidth: Math.max(0, parseInt(e.target.value, 10) || 0),
-                      })
-                    }
-                    className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
-                  />
-                  <span className="text-[10px] font-mono text-gatefold-text-3">px</span>
-                </div>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={40}
-                value={Math.min(40, style.outerStrokeWidth)}
-                onChange={(e) => setStyle({ outerStrokeWidth: parseInt(e.target.value, 10) })}
-                className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
-              />
-            </div>
-
-            {/* Inner Glow Stroke */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <span className="font-semibold text-gatefold-text">Inner Glow Width</span>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={style.innerStrokeWidth}
-                    onChange={(e) =>
-                      setStyle({
-                        innerStrokeWidth: Math.max(0, parseInt(e.target.value, 10) || 0),
-                      })
-                    }
-                    className="w-16 px-1.5 py-0.5 text-right bg-gatefold-surface border border-gatefold-line rounded font-mono text-[11px] text-gatefold-text focus:border-gatefold-accent focus:outline-none"
-                  />
-                  <span className="text-[10px] font-mono text-gatefold-text-3">px</span>
-                </div>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={24}
-                value={Math.min(24, style.innerStrokeWidth)}
-                onChange={(e) => setStyle({ innerStrokeWidth: parseInt(e.target.value, 10) })}
-                className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
-              />
-            </div>
-
-            {/* Safe Guides Toggle */}
-            <div className="pt-2 border-t border-gatefold-line flex items-center justify-between">
-              <span className="font-semibold text-gatefold-text">Title & Action Safe Guides</span>
-              <button
-                onClick={() => setStyle({ showSafeGuides: !style.showSafeGuides })}
-                className={`p-1.5 rounded transition-colors ${
-                  style.showSafeGuides
-                    ? 'bg-gatefold-accent/20 text-gatefold-accent'
-                    : 'text-gatefold-text-3 hover:bg-gatefold-hover'
-                }`}
-              >
-                {style.showSafeGuides ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-              </button>
-            </div>
           </>
         )}
 
@@ -1195,6 +1209,7 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
                 <span className="text-[10px] text-gatefold-text-3">Zero-GC ParticleContainer</span>
               </div>
               <button
+                type="button"
                 onClick={() => setStyle({ particleEnabled: !style.particleEnabled })}
                 className={`p-1.5 rounded transition-colors ${
                   style.particleEnabled
@@ -1207,30 +1222,45 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
               </button>
             </div>
 
-            {/* Particle Preset Selector */}
+            {/* Particle Preset Selector - 7 Procedural Shapes */}
             <div className="space-y-2">
               <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold">
-                Stellar Preset
+                Stellar Particle Preset (7 Procedural Shapes)
               </span>
-              <div className="grid grid-cols-3 gap-1.5">
-                {(['stardust', 'sparkle', 'cosmic'] as ParticlePresetType[]).map((preset) => (
-                  <button
-                    key={preset}
-                    onClick={() => setStyle({ particlePreset: preset })}
-                    className={`py-2 px-1 text-center rounded border capitalize transition-colors flex flex-col items-center gap-1 ${
-                      style.particlePreset === preset
-                        ? 'border-gatefold-accent bg-gatefold-accent/15 text-gatefold-accent font-semibold'
-                        : 'border-gatefold-line bg-gatefold-surface text-gatefold-text-3 hover:text-gatefold-text'
-                    }`}
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span className="text-[11px]">{preset}</span>
-                  </button>
-                ))}
+              <div className="grid grid-cols-4 gap-1.5">
+                {(
+                  [
+                    { id: 'stardust', label: 'Stardust', icon: Star },
+                    { id: 'sparkle', label: 'Sparkle', icon: Sparkles },
+                    { id: 'cosmic', label: 'Cosmic', icon: Orbit },
+                    { id: 'sakura', label: 'Sakura', icon: Flower2 },
+                    { id: 'notes', label: 'Notes', icon: Music },
+                    { id: 'firefly', label: 'Firefly', icon: Flame },
+                    { id: 'heart', label: 'Heart', icon: Heart },
+                  ] as { id: ParticlePresetType; label: string; icon: React.FC<{ className?: string }> }[]
+                ).map((preset) => {
+                  const Icon = preset.icon;
+                  const isSel = style.particlePreset === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setStyle({ particlePreset: preset.id })}
+                      className={`py-2 px-1 text-center rounded border transition-colors flex flex-col items-center gap-1 ${
+                        isSel
+                          ? 'border-gatefold-accent bg-gatefold-accent/15 text-gatefold-accent font-semibold'
+                          : 'border-gatefold-line bg-gatefold-surface text-gatefold-text-3 hover:text-gatefold-text'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      <span className="text-[10px] capitalize">{preset.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Burst Count Slider */}
+            {/* Syllable Burst Count Slider */}
             <div className="space-y-2 pt-2 border-t border-gatefold-line">
               <div className="flex justify-between items-center">
                 <span className="font-semibold text-gatefold-text">Syllable Burst Count</span>
@@ -1241,7 +1271,7 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
               <input
                 type="range"
                 min={5}
-                max={40}
+                max={50}
                 step={5}
                 value={style.particleBurstCount}
                 onChange={(e) => setStyle({ particleBurstCount: parseInt(e.target.value, 10) })}
@@ -1252,9 +1282,128 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
               </p>
             </div>
 
+            {/* Advanced Physics Controls */}
+            <div className="space-y-3 pt-2 border-t border-gatefold-line">
+              <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold block">
+                Advanced Particle Physics & Controls
+              </span>
+
+              {/* Speed Multiplier */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-gatefold-text text-[11px]">Velocity / Speed</span>
+                  <span className="font-mono text-gatefold-accent text-[10px]">
+                    {(style.particleSpeed ?? 1.0).toFixed(1)}x
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.2}
+                  max={3.0}
+                  step={0.1}
+                  value={style.particleSpeed ?? 1.0}
+                  onChange={(e) => setStyle({ particleSpeed: parseFloat(e.target.value) })}
+                  className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+                />
+              </div>
+
+              {/* Gravity Direction */}
+              <div className="space-y-1">
+                <span className="text-gatefold-text text-[11px] block">Gravity / Drift</span>
+                <div className="grid grid-cols-3 gap-1">
+                  {(
+                    [
+                      { id: 'none', label: 'Zero-G / Radial' },
+                      { id: 'down', label: 'Downward Fall' },
+                      { id: 'up', label: 'Rising Sparks' },
+                    ] as const
+                  ).map((g) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => setStyle({ particleGravity: g.id })}
+                      className={`py-1 px-1.5 rounded border text-[10px] transition-colors ${
+                        (style.particleGravity || 'none') === g.id
+                          ? 'border-gatefold-accent bg-gatefold-accent/20 text-gatefold-accent font-semibold'
+                          : 'border-gatefold-line bg-gatefold-surface text-gatefold-text-3 hover:text-gatefold-text'
+                      }`}
+                    >
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Size Multiplier */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-gatefold-text text-[11px]">Particle Scale / Size</span>
+                  <span className="font-mono text-gatefold-accent text-[10px]">
+                    {(style.particleSize ?? 1.0).toFixed(1)}x
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={3.0}
+                  step={0.1}
+                  value={style.particleSize ?? 1.0}
+                  onChange={(e) => setStyle({ particleSize: parseFloat(e.target.value) })}
+                  className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+                />
+              </div>
+
+              {/* Lifetime Multiplier */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-gatefold-text text-[11px]">Lifetime Duration</span>
+                  <span className="font-mono text-gatefold-accent text-[10px]">
+                    {(style.particleLifetime ?? 1.0).toFixed(1)}x
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={2.5}
+                  step={0.1}
+                  value={style.particleLifetime ?? 1.0}
+                  onChange={(e) => setStyle({ particleLifetime: parseFloat(e.target.value) })}
+                  className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent"
+                />
+              </div>
+
+              {/* Color Mode */}
+              <div className="space-y-1">
+                <span className="text-gatefold-text text-[11px] block">Particle Color Source</span>
+                <div className="grid grid-cols-3 gap-1">
+                  {(
+                    [
+                      { id: 'lyric', label: 'Active Word' },
+                      { id: 'glow', label: 'Neon Glow' },
+                      { id: 'rainbow', label: 'Dynamic Prism' },
+                    ] as const
+                  ).map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setStyle({ particleColorMode: m.id })}
+                      className={`py-1 px-1.5 rounded border text-[10px] transition-colors ${
+                        (style.particleColorMode || 'lyric') === m.id
+                          ? 'border-gatefold-accent bg-gatefold-accent/20 text-gatefold-accent font-semibold'
+                          : 'border-gatefold-line bg-gatefold-surface text-gatefold-text-3 hover:text-gatefold-text'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             {/* Manual Test Burst Button */}
             <div className="pt-2 border-t border-gatefold-line">
               <button
+                type="button"
                 onClick={() => {
                   window.dispatchEvent(new CustomEvent('substellar:trigger-burst'));
                 }}
@@ -1270,115 +1419,45 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
 
         {tab === 'presets' && (
           <div className="space-y-2">
-            {[
-              {
-                name: 'J-Pop Starlight (Cyan)',
-                style: {
-                  fontSize: 54,
-                  fillColor: '#ffffff',
-                  fillGradientEnabled: true,
-                  fillGradientEndColor: '#b8d0ff',
-                  wordActiveColor: '#7df9ff',
-                  outerStrokeColor: '#14161b',
-                  outerStrokeWidth: 8,
-                  innerStrokeWidth: 2,
-                  innerStrokeColor: '#8fb4ff',
-                  glowColor: '#5770b0',
-                  glowBlur: 12,
-                  rubyFillColor: '#8fb4ff',
-                  rubyActiveColor: '#5affb5',
-                  wordTransitionMs: 140,
-                  wordAnimStyle: 'pop' as const,
-                },
-              },
-              {
-                name: 'Neon Shinjuku (Magenta)',
-                style: {
-                  fontSize: 52,
-                  fillColor: '#ffffff',
-                  fillGradientEnabled: true,
-                  fillGradientEndColor: '#ffb3df',
-                  wordActiveColor: '#ff3399',
-                  outerStrokeColor: '#12081a',
-                  outerStrokeWidth: 10,
-                  innerStrokeWidth: 3,
-                  innerStrokeColor: '#ff007f',
-                  glowColor: '#ff007f',
-                  glowBlur: 14,
-                  rubyFillColor: '#ff80bf',
-                  rubyActiveColor: '#00f0ff',
-                  wordTransitionMs: 100,
-                  wordAnimStyle: 'sweep' as const,
-                },
-              },
-              {
-                name: 'Sakura Petal (Pink)',
-                style: {
-                  fontSize: 50,
-                  fillColor: '#fff5f8',
-                  fillGradientEnabled: true,
-                  fillGradientEndColor: '#ffc2d9',
-                  wordActiveColor: '#ff85b3',
-                  outerStrokeColor: '#24121b',
-                  outerStrokeWidth: 6,
-                  innerStrokeWidth: 2,
-                  innerStrokeColor: '#ff94b8',
-                  glowColor: '#b84f7b',
-                  glowBlur: 10,
-                  rubyFillColor: '#ffb3cc',
-                  rubyActiveColor: '#ffe066',
-                  wordTransitionMs: 220,
-                  wordAnimStyle: 'float' as const,
-                },
-              },
-              {
-                name: 'Golden Sunset (Amber)',
-                style: {
-                  fontSize: 52,
-                  fillColor: '#fffbe6',
-                  fillGradientEnabled: true,
-                  fillGradientEndColor: '#ffcc66',
-                  wordActiveColor: '#ff9900',
-                  outerStrokeColor: '#1c1208',
-                  outerStrokeWidth: 8,
-                  innerStrokeWidth: 2,
-                  innerStrokeColor: '#ffaa33',
-                  glowColor: '#cc6600',
-                  glowBlur: 12,
-                  rubyFillColor: '#ffd685',
-                  rubyActiveColor: '#ffffff',
-                  wordTransitionMs: 150,
-                  wordAnimStyle: 'pop' as const,
-                },
-              },
-              {
-                name: 'Clean Minimalist',
-                style: {
-                  fontSize: 48,
-                  fillColor: '#ffffff',
-                  fillGradientEnabled: false,
-                  fillGradientEndColor: '#ffffff',
-                  wordActiveColor: '#8fb4ff',
-                  outerStrokeColor: '#101216',
-                  outerStrokeWidth: 6,
-                  innerStrokeWidth: 0,
-                  innerStrokeColor: '#ffffff',
-                  glowColor: '#000000',
-                  glowBlur: 0,
-                  rubyFillColor: '#d0d7e6',
-                  rubyActiveColor: '#8fb4ff',
-                  wordTransitionMs: 80,
-                  wordAnimStyle: 'sweep' as const,
-                },
-              },
-            ].map((p, idx) => (
+            <div className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold mb-2">
+              Thematic Visual Presets ({VISUAL_PRESETS.length})
+            </div>
+            {VISUAL_PRESETS.map((p) => (
               <button
-                key={idx}
+                key={p.id}
+                type="button"
                 onClick={() => setStyle(p.style)}
-                className="w-full p-2.5 rounded-lg border border-gatefold-line bg-gatefold-surface hover:border-gatefold-accent/50 text-left transition-colors flex items-center justify-between"
+                className="w-full p-2.5 rounded-lg border border-gatefold-line bg-gatefold-surface hover:border-gatefold-accent/50 text-left transition-colors flex flex-col gap-1.5"
               >
-                <span className="font-medium text-gatefold-text">{p.name}</span>
-                <Wand2 className="w-3.5 h-3.5 text-gatefold-accent" />
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-gatefold-text text-xs">{p.name}</span>
+                  <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-gatefold-surface-2 text-gatefold-text-3 border border-gatefold-line">
+                    {p.category}
+                  </span>
+                </div>
+                <p className="text-[10px] text-gatefold-text-3 line-clamp-1">{p.description}</p>
+                <div className="flex items-center gap-2 pt-1 border-t border-gatefold-line/50">
+                  <div className="flex items-center gap-1">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full border border-black/40"
+                      style={{ background: p.style.wordActiveColor }}
+                      title="Active Sung Color"
+                    />
+                    <span
+                      className="w-2.5 h-2.5 rounded-full border border-black/40"
+                      style={{ background: p.style.fillColor }}
+                      title="Text Fill Color"
+                    />
+                    <span
+                      className="w-2.5 h-2.5 rounded-full border border-black/40"
+                      style={{ background: p.style.outerStrokeColor }}
+                      title="Outer Stroke Color"
+                    />
+                  </div>
+                  <span className="text-[9px] font-mono text-gatefold-accent uppercase">
+                    {p.style.particlePreset} • {p.style.wordAnimStyle}
+                  </span>
+                </div>
               </button>
             ))}
           </div>

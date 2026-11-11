@@ -61,5 +61,37 @@ describe('usePerfStore', () => {
     toggleTelemetry();
     expect(usePerfStore.getState().showTelemetry).toBe(false);
   });
+
+  it('persists quality mode selection when window.localStorage is present', () => {
+    const storage: Record<string, string> = {};
+    const mockLocalStorage = {
+      getItem: (key: string) => storage[key] || null,
+      setItem: (key: string, val: string) => {
+        storage[key] = val;
+      },
+      removeItem: (key: string) => {
+        delete storage[key];
+      },
+      clear: () => {
+        for (const k of Object.keys(storage)) delete storage[k];
+      },
+    };
+
+    // @ts-expect-error - mock environment
+    globalThis.window = { localStorage: mockLocalStorage };
+    // @ts-expect-error - mock environment
+    globalThis.localStorage = mockLocalStorage;
+
+    const { setQualityMode } = usePerfStore.getState();
+    setQualityMode('ultra');
+
+    expect(mockLocalStorage.getItem('substellar_perf_settings_v1')).toBe('ultra');
+
+    // Clean up
+    // @ts-expect-error - mock cleanup
+    delete globalThis.window;
+    // @ts-expect-error - mock cleanup
+    delete globalThis.localStorage;
+  });
 });
 

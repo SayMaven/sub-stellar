@@ -1,7 +1,23 @@
+/**
+ * SubStellar - High-Performance Particle Engine (Zero-GC Object Pooling)
+ *
+ * Supports 7 distinct procedural particle shapes:
+ * - Stardust (soft celestial micro-orbs)
+ * - Sparkle (4-point anime twinkle diamond cross)
+ * - Cosmic (concentric orbital rings with bright core)
+ * - Sakura (delicate falling cherry blossom petals)
+ * - Notes (melodic musical notes ♪ ♫)
+ * - Firefly (warm glowing floating embers)
+ * - Heart (pop idol heart pops ♥)
+ *
+ * Advanced physics: velocity, gravity direction, particle scale, lifetime, and color modes.
+ */
+
 import { ParticleContainer, Particle, Texture, Rectangle, Container } from 'pixi.js';
 import { ObjectPool, type Poolable } from '../pixi/ObjectPool';
+import type { ParticlePresetType } from '../../types';
 
-export type ParticleType = 'stardust' | 'sparkle' | 'cosmic';
+export type ParticleType = ParticlePresetType;
 
 export interface ParticlePresetConfig {
   speedMin: number;
@@ -13,7 +29,7 @@ export interface ParticlePresetConfig {
   gravityY: number;
 }
 
-export const PRESET_CONFIGS: Record<ParticleType, ParticlePresetConfig> = {
+export const PRESET_CONFIGS: Record<ParticlePresetType, ParticlePresetConfig> = {
   stardust: {
     speedMin: 20,
     speedMax: 80,
@@ -41,7 +57,52 @@ export const PRESET_CONFIGS: Record<ParticleType, ParticlePresetConfig> = {
     scaleMax: 1.8,
     gravityY: -30, // Shimmering cosmic rise
   },
+  sakura: {
+    speedMin: 25,
+    speedMax: 70,
+    decayMin: 0.35,
+    decayMax: 0.75,
+    scaleMin: 0.7,
+    scaleMax: 1.3,
+    gravityY: 35, // Falling petals
+  },
+  notes: {
+    speedMin: 35,
+    speedMax: 90,
+    decayMin: 0.4,
+    decayMax: 0.85,
+    scaleMin: 0.6,
+    scaleMax: 1.2,
+    gravityY: -25, // Rising melodic notes
+  },
+  firefly: {
+    speedMin: 15,
+    speedMax: 50,
+    decayMin: 0.25,
+    decayMax: 0.6,
+    scaleMin: 0.5,
+    scaleMax: 1.1,
+    gravityY: -15, // Gentle floating embers
+  },
+  heart: {
+    speedMin: 40,
+    speedMax: 110,
+    decayMin: 0.45,
+    decayMax: 0.9,
+    scaleMin: 0.6,
+    scaleMax: 1.3,
+    gravityY: -30, // Pop heart floating up
+  },
 };
+
+export interface ParticleEmitOptions {
+  speedMultiplier?: number;
+  gravity?: 'up' | 'none' | 'down';
+  sizeMultiplier?: number;
+  lifetimeMultiplier?: number;
+  colorMode?: 'lyric' | 'glow' | 'rainbow';
+  glowColorHex?: string;
+}
 
 export class ParticleState implements Poolable {
   public x = 0;
@@ -60,7 +121,7 @@ export class ParticleState implements Poolable {
   public life = 0;
   public maxLife = 1;
   public alive = false;
-  public type: ParticleType = 'stardust';
+  public type: ParticlePresetType = 'stardust';
   public pixiParticle: Particle | null = null;
 
   public reset(): void {
@@ -95,47 +156,167 @@ export class ParticleState implements Poolable {
 }
 
 /**
- * Creates procedural glowing circular texture in memory without external asset loading.
+ * Procedural texture generators for 7 distinct particle types
  */
-function createProceduralParticleTexture(): Texture {
+function createShapeTextures(): Record<ParticlePresetType, Texture> {
+  const result: Record<ParticlePresetType, Texture> = {
+    stardust: Texture.EMPTY,
+    sparkle: Texture.EMPTY,
+    cosmic: Texture.EMPTY,
+    sakura: Texture.EMPTY,
+    notes: Texture.EMPTY,
+    firefly: Texture.EMPTY,
+    heart: Texture.EMPTY,
+  };
+
   if (typeof document === 'undefined') {
-    return Texture.EMPTY;
+    return result;
   }
 
-  const canvas = document.createElement('canvas');
-  canvas.width = 32;
-  canvas.height = 32;
-  const ctx = canvas.getContext('2d');
+  const drawToTexture = (drawFn: (ctx: CanvasRenderingContext2D) => void): Texture => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      drawFn(ctx);
+    }
+    return Texture.from(canvas);
+  };
 
-  if (ctx) {
-    const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    gradient.addColorStop(0.3, 'rgba(180, 215, 255, 0.9)');
-    gradient.addColorStop(0.7, 'rgba(120, 170, 255, 0.4)');
-    gradient.addColorStop(1, 'rgba(50, 100, 220, 0)');
-
-    ctx.fillStyle = gradient;
+  // 1. Stardust: Soft radial glowing micro-orb
+  result.stardust = drawToTexture((ctx) => {
+    const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    g.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    g.addColorStop(0.3, 'rgba(210, 235, 255, 0.9)');
+    g.addColorStop(0.7, 'rgba(140, 180, 255, 0.4)');
+    g.addColorStop(1, 'rgba(50, 100, 220, 0)');
+    ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(16, 16, 16, 0, Math.PI * 2);
     ctx.fill();
+  });
 
-    // 4-pointed cross star glint in center
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.fillRect(15, 6, 2, 20);
-    ctx.fillRect(6, 15, 20, 2);
-  }
+  // 2. Sparkle: Sharp 4-point anime diamond flare
+  result.sparkle = drawToTexture((ctx) => {
+    const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 12);
+    g.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    g.addColorStop(0.5, 'rgba(255, 255, 255, 0.5)');
+    g.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(16, 16, 12, 0, Math.PI * 2);
+    ctx.fill();
 
-  return Texture.from(canvas);
+    // 4-pointed diamond star
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.beginPath();
+    ctx.moveTo(16, 2);
+    ctx.quadraticCurveTo(16, 16, 30, 16);
+    ctx.quadraticCurveTo(16, 16, 16, 30);
+    ctx.quadraticCurveTo(16, 16, 2, 16);
+    ctx.quadraticCurveTo(16, 16, 16, 2);
+    ctx.fill();
+  });
+
+  // 3. Cosmic: Concentric glowing orbit rings with bright core
+  result.cosmic = drawToTexture((ctx) => {
+    // Outer halo
+    ctx.strokeStyle = 'rgba(180, 220, 255, 0.7)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(16, 16, 13, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner orbital ring
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(16, 16, 11, 5, Math.PI / 4, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Bright core
+    ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+    ctx.beginPath();
+    ctx.arc(16, 16, 4, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // 4. Sakura: Notched anime cherry blossom petal
+  result.sakura = drawToTexture((ctx) => {
+    ctx.save();
+    ctx.translate(16, 16);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.beginPath();
+    // Heart-notched elongated petal shape
+    ctx.moveTo(0, 12);
+    ctx.bezierCurveTo(-9, 4, -8, -8, -3, -12);
+    ctx.lineTo(0, -9); // notch
+    ctx.lineTo(3, -12);
+    ctx.bezierCurveTo(8, -8, 9, 4, 0, 12);
+    ctx.fill();
+    ctx.restore();
+  });
+
+  // 5. Notes: Musical eighth note (♪)
+  result.notes = drawToTexture((ctx) => {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    // Note head (tilted oval)
+    ctx.beginPath();
+    ctx.ellipse(11, 22, 5, 3.5, -Math.PI / 6, 0, Math.PI * 2);
+    ctx.fill();
+    // Stem
+    ctx.fillRect(14, 6, 2.5, 16);
+    // Flag
+    ctx.beginPath();
+    ctx.moveTo(16.5, 6);
+    ctx.bezierCurveTo(23, 9, 24, 15, 23, 17);
+    ctx.bezierCurveTo(21, 14, 18, 11, 16.5, 11);
+    ctx.closePath();
+    ctx.fill();
+  });
+
+  // 6. Firefly: Warm glowing floating ember
+  result.firefly = drawToTexture((ctx) => {
+    const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 15);
+    g.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    g.addColorStop(0.2, 'rgba(255, 235, 140, 0.9)');
+    g.addColorStop(0.5, 'rgba(255, 170, 50, 0.5)');
+    g.addColorStop(1, 'rgba(255, 100, 20, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(16, 16, 15, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // 7. Heart: Stylized pop idol heart (♥)
+  result.heart = drawToTexture((ctx) => {
+    ctx.save();
+    ctx.translate(16, 14);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.beginPath();
+    ctx.moveTo(0, 10);
+    ctx.bezierCurveTo(-11, 2, -11, -8, 0, -5);
+    ctx.bezierCurveTo(11, -8, 11, 2, 0, 10);
+    ctx.fill();
+    ctx.restore();
+  });
+
+  return result;
 }
+
+const RAINBOW_TINTS = [
+  0xff3b30, 0xff9500, 0xffcc00, 0x34c759, 0x00c7be, 0x32ade6, 0x5856d6, 0xaf52de,
+];
 
 export class ParticleManager {
   private pool: ObjectPool<ParticleState>;
   public readonly container: ParticleContainer;
-  private particleTexture: Texture;
+  private textures: Record<ParticlePresetType, Texture>;
   public readonly stageContainer: Container;
 
   constructor(maxParticles: number = 750) {
-    this.particleTexture = createProceduralParticleTexture();
+    this.textures = createShapeTextures();
 
     this.container = new ParticleContainer({
       dynamicProperties: {
@@ -143,8 +324,9 @@ export class ParticleManager {
         rotation: true,
         color: true,
         vertex: true,
+        uvs: true,
       },
-      boundsArea: new Rectangle(0, 0, 1280, 720),
+      boundsArea: new Rectangle(0, 0, 1920, 1080),
     });
 
     this.stageContainer = new Container();
@@ -154,7 +336,7 @@ export class ParticleManager {
     this.pool = new ObjectPool<ParticleState>(() => {
       const state = new ParticleState();
       const p = new Particle({
-        texture: this.particleTexture,
+        texture: this.textures.stardust,
         x: -100,
         y: -100,
         anchorX: 0.5,
@@ -168,49 +350,76 @@ export class ParticleManager {
   }
 
   /**
-   * Emits a burst of particles using the zero-GC object pool.
+   * Emits a burst of particles using the zero-GC object pool with custom physics & shapes.
    */
   public emit(
-    type: ParticleType,
+    type: ParticlePresetType,
     originX: number,
     originY: number,
     count: number,
-    tint: number = 0x8fb4ff
+    tint: number = 0x8fb4ff,
+    options?: ParticleEmitOptions
   ): void {
-    const config = PRESET_CONFIGS[type];
+    const config = PRESET_CONFIGS[type] || PRESET_CONFIGS.stardust;
+    const speedMult = options?.speedMultiplier ?? 1.0;
+    const sizeMult = options?.sizeMultiplier ?? 1.0;
+    const lifetimeMult = options?.lifetimeMultiplier ?? 1.0;
+    const gravityDir = options?.gravity ?? 'none';
+    const colorMode = options?.colorMode ?? 'lyric';
+
+    const chosenTexture = this.textures[type] || this.textures.stardust;
 
     for (let i = 0; i < count; i++) {
       const p = this.pool.acquire();
       if (!p) break; // Reached hardware capacity limit
 
       p.type = type;
-      p.x = originX + (Math.random() - 0.5) * 16;
-      p.y = originY + (Math.random() - 0.5) * 12;
-      p.tint = tint;
+      p.x = originX + (Math.random() - 0.5) * 20;
+      p.y = originY + (Math.random() - 0.5) * 16;
 
-      const speed = config.speedMin + Math.random() * (config.speedMax - config.speedMin);
+      // Color strategy
+      if (colorMode === 'rainbow') {
+        p.tint = RAINBOW_TINTS[Math.floor(Math.random() * RAINBOW_TINTS.length)];
+      } else {
+        p.tint = tint;
+      }
+
+      const baseSpeed = config.speedMin + Math.random() * (config.speedMax - config.speedMin);
+      const speed = baseSpeed * speedMult;
+
       const angle =
-        type === 'stardust'
-          ? Math.random() * Math.PI * 2
-          : type === 'sparkle'
-          ? Math.random() * Math.PI * 2
-          : -Math.PI / 2 + (Math.random() - 0.5) * 1.2; // Upward cone
+        type === 'sakura'
+          ? Math.PI / 4 + (Math.random() - 0.5) * 0.8 // Downward angle
+          : type === 'notes' || type === 'firefly' || type === 'heart'
+          ? -Math.PI / 2 + (Math.random() - 0.5) * 1.4 // Upward cone
+          : Math.random() * Math.PI * 2; // 360 burst
 
       p.vx = Math.cos(angle) * speed;
       p.vy = Math.sin(angle) * speed;
-      p.ay = config.gravityY;
 
-      p.scale = config.scaleMin + Math.random() * (config.scaleMax - config.scaleMin);
+      // Gravity determination
+      if (gravityDir === 'up') {
+        p.ay = -Math.abs(config.gravityY || 20);
+      } else if (gravityDir === 'down') {
+        p.ay = Math.abs(config.gravityY || 20);
+      } else {
+        p.ay = 0;
+      }
+
+      const baseScale = config.scaleMin + Math.random() * (config.scaleMax - config.scaleMin);
+      p.scale = baseScale * sizeMult;
       p.scaleSpeed = (Math.random() - 0.5) * 0.2;
       p.rotation = Math.random() * Math.PI * 2;
       p.rotationSpeed = (Math.random() - 0.5) * 4;
 
-      p.decay = config.decayMin + Math.random() * (config.decayMax - config.decayMin);
+      const baseDecay = config.decayMin + Math.random() * (config.decayMax - config.decayMin);
+      p.decay = baseDecay / Math.max(0.1, lifetimeMult);
       p.alpha = 1;
       p.life = 0;
       p.maxLife = 1 / p.decay;
 
       if (p.pixiParticle) {
+        p.pixiParticle.texture = chosenTexture;
         p.pixiParticle.x = p.x;
         p.pixiParticle.y = p.y;
         p.pixiParticle.alpha = p.alpha;
@@ -249,7 +458,7 @@ export class ParticleManager {
       p.x += p.vx * deltaSeconds;
       p.y += p.vy * deltaSeconds;
 
-      p.scale = Math.max(0.1, p.scale + p.scaleSpeed * deltaSeconds);
+      p.scale = Math.max(0.05, p.scale + p.scaleSpeed * deltaSeconds);
       p.rotation += p.rotationSpeed * deltaSeconds;
 
       // Sync to PixiJS GPU particle
@@ -274,9 +483,10 @@ export class ParticleManager {
 
   public destroy(): void {
     this.stageContainer.destroy({ children: true });
-    if (this.particleTexture !== Texture.EMPTY) {
-      this.particleTexture.destroy(true);
+    for (const key of Object.keys(this.textures) as ParticlePresetType[]) {
+      if (this.textures[key] !== Texture.EMPTY) {
+        this.textures[key].destroy(true);
+      }
     }
   }
 }
-

@@ -42,9 +42,35 @@ interface PerfStoreState {
   toggleTelemetry: () => void;
 }
 
+const PERF_STORAGE_KEY = 'substellar_perf_settings_v1';
+
+function loadSavedPerfMode(): QualityMode {
+  if (typeof window === 'undefined') return 'low';
+  try {
+    const raw = localStorage.getItem(PERF_STORAGE_KEY);
+    if (raw && (raw === 'low' || raw === 'balanced' || raw === 'ultra')) {
+      return raw as QualityMode;
+    }
+  } catch {
+    // Fallback on error
+  }
+  return 'low';
+}
+
+function savePerfMode(mode: QualityMode) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(PERF_STORAGE_KEY, mode);
+  } catch {
+    // Ignore error
+  }
+}
+
+const initialPerfMode = loadSavedPerfMode();
+
 export const usePerfStore = create<PerfStoreState>((set) => ({
-  mode: 'low', // Default for low-end hardware friendliness as per master plan
-  profile: PERF_PROFILES.low,
+  mode: initialPerfMode,
+  profile: PERF_PROFILES[initialPerfMode] || PERF_PROFILES.low,
   metrics: {
     fps: 60,
     activeParticles: 0,
@@ -55,6 +81,7 @@ export const usePerfStore = create<PerfStoreState>((set) => ({
   showTelemetry: false,
 
   setQualityMode: (mode: QualityMode) => {
+    savePerfMode(mode);
     set({
       mode,
       profile: PERF_PROFILES[mode],
@@ -66,6 +93,7 @@ export const usePerfStore = create<PerfStoreState>((set) => ({
       const order: QualityMode[] = ['low', 'balanced', 'ultra'];
       const nextIndex = (order.indexOf(state.mode) + 1) % order.length;
       const nextMode = order[nextIndex];
+      savePerfMode(nextMode);
       return {
         mode: nextMode,
         profile: PERF_PROFILES[nextMode],
