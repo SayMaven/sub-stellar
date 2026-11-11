@@ -45,6 +45,7 @@ Thumbs.db
 temp/
 tmp/
 docs/
+CHANGELOG.md
 
 # Kuromoji dictionary copied from node_modules on postinstall
 public/dict/

@@ -26,10 +26,15 @@ import {
   type FuriganaSegment,
 } from '../engine/text/furiganaAlign';
 import { furiganaService } from '../services/furiganaService';
-import { cacheActiveMediaFile, clearCachedMediaFile } from '../services/mediaCache';
+import {
+  cacheActiveMediaFile,
+  clearCachedMediaFile,
+  clearCachedProjectHandle,
+} from '../services/mediaCache';
 import { tauriBridge } from '../services/tauriBridge';
 
 export const AUTOSAVE_STORAGE_KEY = 'substellar:project-autosave:v1';
+export const AUTOSAVE_PATH_STORAGE_KEY = 'substellar:project-filepath:v1';
 
 export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   fontFamily: 'Segoe UI, Noto Sans JP, sans-serif',
@@ -284,7 +289,23 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
   style: DEFAULT_SUBTITLE_STYLE,
 
   setActiveTab: (tab: StudioTab) => set({ activeTab: tab }),
-  setProjectFilePath: (path: string | null) => set({ projectFilePath: path }),
+  setProjectFilePath: (path: string | null) => {
+    set({ projectFilePath: path });
+    try {
+      if (typeof localStorage !== 'undefined') {
+        if (path && path.trim().length > 0) {
+          localStorage.setItem(AUTOSAVE_PATH_STORAGE_KEY, path.trim());
+        } else {
+          localStorage.removeItem(AUTOSAVE_PATH_STORAGE_KEY);
+        }
+      }
+    } catch {
+      // Ignore storage errors
+    }
+    if (!path) {
+      void clearCachedProjectHandle();
+    }
+  },
   setAspectRatio: (aspect: AspectRatio) => set({ aspectRatio: aspect }),
   setCanvasResolution: (res: CanvasResolutionPreset) => set({ canvasResolution: res }),
   setZoom: (zoom: number) => set({ zoom: Math.min(200, Math.max(50, zoom)) }),
@@ -975,6 +996,10 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(AUTOSAVE_STORAGE_KEY, get().exportProjectJson());
+        const currentPath = get().projectFilePath;
+        if (currentPath && currentPath.trim().length > 0) {
+          localStorage.setItem(AUTOSAVE_PATH_STORAGE_KEY, currentPath.trim());
+        }
       }
     } catch {
       // Ignore quota errors
@@ -983,6 +1008,14 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
 
   loadSampleTrack: () => {
     void clearCachedMediaFile();
+    void clearCachedProjectHandle();
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(AUTOSAVE_PATH_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore
+    }
     set({
       status: 'ready',
       errorMessage: null,
@@ -1203,6 +1236,14 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       }
     }
     void clearCachedMediaFile();
+    void clearCachedProjectHandle();
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(AUTOSAVE_PATH_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore
+    }
     set({
       status: 'idle',
       errorMessage: null,

@@ -20,7 +20,11 @@ import {
   type HardwareCapabilities,
   type ExportProgress,
 } from '../../services/tauriBridge';
-import { saveProjectToDisk, saveExportTextToDisk } from '../../services/mediaCache';
+import {
+  saveProjectToDisk,
+  saveExportTextToDisk,
+  openProjectWithFilePicker,
+} from '../../services/mediaCache';
 import { FFmpegExportPipeline } from '../../engine/export/FFmpegExportPipeline';
 import type { CanvasResolutionPreset } from '../../types';
 
@@ -33,7 +37,6 @@ export const ExportDrawer: React.FC = () => {
     aspectRatio,
     canvasResolution,
     setCanvasResolution,
-    exportProjectJson,
     importProjectJson,
     saveToLocalStorage,
     projectFilePath,
@@ -149,20 +152,22 @@ export const ExportDrawer: React.FC = () => {
   };
 
   const handleSaveProject = async () => {
+    const latest = useStudioStore.getState();
     const baseName =
-      (track.title || 'substellar_project').toLowerCase().replace(/[^a-z0-9_-]/g, '_') ||
+      (latest.track.title || 'substellar_project').toLowerCase().replace(/[^a-z0-9_-]/g, '_') ||
       'substellar_project';
-    const json = exportProjectJson();
-    saveToLocalStorage();
+    const json = latest.exportProjectJson();
+    latest.saveToLocalStorage();
     try {
       const res = await saveProjectToDisk({
         json,
         defaultFilename: `${baseName}.substellar`,
-        existingPath: projectFilePath,
-        forceSaveAs: true,
+        existingPath: latest.projectFilePath,
+        forceSaveAs: false,
       });
       if (res.saved && res.path) {
         setProjectFilePath(res.path);
+        latest.saveToLocalStorage();
         setLastSavedPath(res.path);
         setExportSuccess(`Project saved to: ${res.path} (${lines.length} subtitle lines).`);
       }
@@ -186,6 +191,23 @@ export const ExportDrawer: React.FC = () => {
       } catch (err) {
         setErrorMessage(err instanceof Error ? err.message : 'Failed to open project file.');
       }
+    }
+    const picked = await openProjectWithFilePicker();
+    if (picked) {
+      if (picked.contents) {
+        try {
+          importProjectJson(picked.contents);
+          setProjectFilePath(picked.path);
+          saveToLocalStorage();
+          setExportSuccess(`Loaded project file: ${picked.path}`);
+          setErrorMessage(null);
+        } catch (err) {
+          setErrorMessage(
+            err instanceof Error ? err.message : 'Failed to parse .substellar project file.'
+          );
+        }
+      }
+      return;
     }
     projectFileInputRef.current?.click();
   };

@@ -3,7 +3,11 @@ import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { MainStage } from '../studio/MainStage';
 import { TelemetryOverlay } from '../common/TelemetryOverlay';
-import { useStudioStore, AUTOSAVE_STORAGE_KEY } from '../../stores/useStudioStore';
+import {
+  useStudioStore,
+  AUTOSAVE_STORAGE_KEY,
+  AUTOSAVE_PATH_STORAGE_KEY,
+} from '../../stores/useStudioStore';
 import { usePerfStore } from '../../stores/usePerfStore';
 import { isEditableTarget } from '../../engine/layout/layoutMath';
 import { restoreCachedMediaFile, saveProjectToDisk } from '../../services/mediaCache';
@@ -59,6 +63,10 @@ export const Shell: React.FC = () => {
           if (saved) {
             importProjectJson(saved);
           }
+          const savedPath = localStorage.getItem(AUTOSAVE_PATH_STORAGE_KEY);
+          if (savedPath && savedPath.trim().length > 0) {
+            setProjectFilePath(savedPath.trim());
+          }
         }
       } catch {
         // Ignore corrupt auto-save
@@ -109,7 +117,7 @@ export const Shell: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [importProjectJson, setTrack]);
+  }, [importProjectJson, setTrack, setProjectFilePath]);
 
   // Debounced auto-save to localStorage whenever project state changes
   useEffect(() => {
@@ -117,26 +125,29 @@ export const Shell: React.FC = () => {
       saveToLocalStorage();
     }, 500);
     return () => clearTimeout(timer);
-  }, [lines, style, track, aspectRatio, canvasResolution, saveToLocalStorage]);
+  }, [lines, style, track, aspectRatio, canvasResolution, projectFilePath, saveToLocalStorage]);
 
   // Keyboard shortcut controller
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        const json = exportProjectJson();
-        saveToLocalStorage();
+        const latest = useStudioStore.getState();
+        const json = latest.exportProjectJson();
+        latest.saveToLocalStorage();
         const slug =
-          (track.title || 'substellar_project').toLowerCase().replace(/[^a-z0-9_-]/g, '_') ||
-          'substellar_project';
+          (latest.track.title || 'substellar_project')
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]/g, '_') || 'substellar_project';
         void saveProjectToDisk({
           json,
           defaultFilename: `${slug}.substellar`,
-          existingPath: projectFilePath,
+          existingPath: latest.projectFilePath,
           forceSaveAs: e.shiftKey,
         }).then((res) => {
           if (res.saved && res.path) {
-            setProjectFilePath(res.path);
+            latest.setProjectFilePath(res.path);
+            latest.saveToLocalStorage();
             window.dispatchEvent(
               new CustomEvent('substellar:project-saved', { detail: { path: res.path } })
             );

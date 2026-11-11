@@ -26,7 +26,11 @@ import { useStudioStore } from '../../stores/useStudioStore';
 import { generateAss, generateSrt } from '../../engine/text/SubtitleExporter';
 import { getCanvasPixelDimensions } from '../../engine/layout/layoutMath';
 import { parseLrc } from '../../services/lyrics/lrcParser';
-import { saveProjectToDisk, saveExportTextToDisk } from '../../services/mediaCache';
+import {
+  saveProjectToDisk,
+  saveExportTextToDisk,
+  openProjectWithFilePicker,
+} from '../../services/mediaCache';
 import { tauriBridge } from '../../services/tauriBridge';
 import { AutoFuriganaDialog } from '../furigana/AutoFuriganaDialog';
 import type { AspectRatio, CanvasResolutionPreset } from '../../types';
@@ -59,7 +63,6 @@ export const Header: React.FC = () => {
   const loadLocalMedia = useStudioStore((s) => s.loadLocalMedia);
   const loadLocalMediaFromPath = useStudioStore((s) => s.loadLocalMediaFromPath);
   const importLyrics = useStudioStore((s) => s.importLyrics);
-  const exportProjectJson = useStudioStore((s) => s.exportProjectJson);
   const importProjectJson = useStudioStore((s) => s.importProjectJson);
   const saveToLocalStorage = useStudioStore((s) => s.saveToLocalStorage);
   const projectFilePath = useStudioStore((s) => s.projectFilePath);
@@ -115,19 +118,22 @@ export const Header: React.FC = () => {
   const handleSaveProject = async (forceSaveAs = false) => {
     setOpenMenu(null);
     try {
-      const json = exportProjectJson();
-      saveToLocalStorage();
+      const latest = useStudioStore.getState();
+      const json = latest.exportProjectJson();
+      latest.saveToLocalStorage();
       const slug =
-        (track.title || 'substellar_project').toLowerCase().replace(/[^a-z0-9_-]/g, '_') ||
-        'substellar_project';
+        (latest.track.title || 'substellar_project')
+          .toLowerCase()
+          .replace(/[^a-z0-9_-]/g, '_') || 'substellar_project';
       const res = await saveProjectToDisk({
         json,
         defaultFilename: `${slug}.substellar`,
-        existingPath: projectFilePath,
+        existingPath: latest.projectFilePath,
         forceSaveAs,
       });
       if (res.saved && res.path) {
         setProjectFilePath(res.path);
+        latest.saveToLocalStorage();
         const baseName = res.path.split(/[/\\]/).pop() || res.path;
         setSavedToast(baseName);
         setTimeout(() => setSavedToast(null), 2400);
@@ -152,6 +158,22 @@ export const Header: React.FC = () => {
       } catch (err) {
         setErrorMessage(err instanceof Error ? err.message : 'Failed to open project file.');
       }
+    }
+    const picked = await openProjectWithFilePicker();
+    if (picked) {
+      if (picked.contents) {
+        try {
+          importProjectJson(picked.contents);
+          setProjectFilePath(picked.path);
+          saveToLocalStorage();
+          setActiveTab('studio');
+        } catch (err) {
+          setErrorMessage(
+            err instanceof Error ? err.message : 'Invalid .substellar project file.'
+          );
+        }
+      }
+      return;
     }
     projectInputRef.current?.click();
   };

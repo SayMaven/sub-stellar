@@ -10,8 +10,10 @@ import { downloadFile } from '../engine/text/SubtitleExporter';
 const DB_NAME = 'substellar-media-db';
 const STORE_NAME = 'media-blobs';
 const ACTIVE_MEDIA_KEY = 'last-active-media';
+const ACTIVE_PROJECT_HANDLE_KEY = 'last-project-file-handle';
 const MAX_IDB_CACHE_BYTES = 350 * 1024 * 1024; // 350 MB cap so standard HD music videos dropped via drag-and-drop remain cached across restarts
 let lastRestoredObjectUrl: string | null = null;
+let activeProjectFileHandle: FileSystemFileHandleLike | null = null;
 
 export interface CachedMediaRecord {
   blob: Blob;
@@ -19,6 +21,36 @@ export interface CachedMediaRecord {
   type: string;
   isVideo: boolean;
   savedAt: number;
+}
+
+interface FileSystemWritableFileStreamLike {
+  write: (data: string) => Promise<void>;
+  close: () => Promise<void>;
+}
+
+interface FileSystemFileHandleLike {
+  name: string;
+  getFile?: () => Promise<File>;
+  createWritable: () => Promise<FileSystemWritableFileStreamLike>;
+  queryPermission?: (descriptor?: { mode?: 'read' | 'readwrite' }) => Promise<PermissionState>;
+  requestPermission?: (descriptor?: { mode?: 'read' | 'readwrite' }) => Promise<PermissionState>;
+}
+
+interface FilePickerWindow {
+  showSaveFilePicker?: (options?: {
+    suggestedName?: string;
+    types?: Array<{
+      description: string;
+      accept: Record<string, string[]>;
+    }>;
+  }) => Promise<FileSystemFileHandleLike>;
+  showOpenFilePicker?: (options?: {
+    multiple?: boolean;
+    types?: Array<{
+      description: string;
+      accept: Record<string, string[]>;
+    }>;
+  }) => Promise<FileSystemFileHandleLike[]>;
 }
 
 function openMediaDb(): Promise<IDBDatabase | null> {
@@ -38,6 +70,83 @@ function openMediaDb(): Promise<IDBDatabase | null> {
       req.onerror = () => resolve(null);
     } catch {
       resolve(null);
+    }
+  });
+}
+
+async function cacheProjectHandle(handle: FileSystemFileHandleLike): Promise<void> {
+  activeProjectFileHandle = handle;
+  const db = await openMediaDb();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).put(handle, ACTIVE_PROJECT_HANDLE_KEY);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        resolve();
+      };
+    } catch {
+      db.close();
+      resolve();
+    }
+  });
+}
+
+async function getCachedProjectHandle(): Promise<FileSystemFileHandleLike | null> {
+  if (activeProjectFileHandle) {
+    return activeProjectFileHandle;
+  }
+  const db = await openMediaDb();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).get(ACTIVE_PROJECT_HANDLE_KEY);
+      req.onsuccess = () => {
+        db.close();
+        const handle = (req.result as FileSystemFileHandleLike | undefined) ?? null;
+        if (handle && typeof handle.createWritable === 'function') {
+          activeProjectFileHandle = handle;
+          resolve(handle);
+        } else {
+          resolve(null);
+        }
+      };
+      req.onerror = () => {
+        db.close();
+        resolve(null);
+      };
+    } catch {
+      db.close();
+      resolve(null);
+    }
+  });
+}
+
+export async function clearCachedProjectHandle(): Promise<void> {
+  activeProjectFileHandle = null;
+  const db = await openMediaDb();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).delete(ACTIVE_PROJECT_HANDLE_KEY);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        resolve();
+      };
+    } catch {
+      db.close();
+      resolve();
     }
   });
 }
@@ -142,20 +251,40 @@ export async function clearCachedMediaFile(): Promise<void> {
   });
 }
 
-interface SaveFilePickerWindow {
-  showSaveFilePicker?: (options?: {
-    suggestedName?: string;
-    types?: Array<{
-      description: string;
-      accept: Record<string, string[]>;
-    }>;
-  }) => Promise<{
-    name: string;
-    createWritable: () => Promise<{
-      write: (data: string) => Promise<void>;
-      close: () => Promise<void>;
-    }>;
-  }>;
+export async function openProjectWithFilePicker(): Promise<{
+  path: string;
+  contents: string;
+} | null> {
+  const win = (typeof window !== 'undefined' ? window : undefined) as
+    | (Window & FilePickerWindow)
+    | undefined;
+  if (!win || typeof win.showOpenFilePicker !== 'function') {
+    return null;
+  }
+  try {
+    const handles = await win.showOpenFilePicker({
+      multiple: false,
+      types: [
+        {
+          description: 'SubStellar Project (.substellar)',
+          accept: { 'application/json': ['.substellar', '.json'] },
+        },
+      ],
+    });
+    const handle = handles?.[0];
+    if (!handle || typeof handle.getFile !== 'function') {
+      return null;
+    }
+    const file = await handle.getFile();
+    const contents = await file.text();
+    await cacheProjectHandle(handle);
+    return { path: handle.name || file.name, contents };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { path: '', contents: '' };
+    }
+    return null;
+  }
 }
 
 export async function saveProjectToDisk(options: {
@@ -165,28 +294,56 @@ export async function saveProjectToDisk(options: {
   forceSaveAs: boolean;
 }): Promise<{ saved: boolean; path: string | null }> {
   const { json, defaultFilename, existingPath, forceSaveAs } = options;
+  const normalizedExisting = existingPath && existingPath.trim().length > 0 ? existingPath.trim() : null;
 
   // 1. Native Tauri Desktop Path
   if (tauriBridge.isAvailable()) {
-    let targetPath = !forceSaveAs && existingPath ? existingPath : null;
+    let targetPath = !forceSaveAs && normalizedExisting ? normalizedExisting : null;
     if (!targetPath) {
-      targetPath = await tauriBridge.saveProjectDialog(defaultFilename);
+      const suggested = normalizedExisting
+        ? normalizedExisting.split(/[/\\]/).pop() || defaultFilename
+        : defaultFilename;
+      targetPath = await tauriBridge.saveProjectDialog(suggested);
     }
     if (!targetPath) {
-      return { saved: false, path: existingPath };
+      return { saved: false, path: normalizedExisting };
     }
     const writtenPath = await tauriBridge.writeProjectFile(targetPath, json);
     return { saved: true, path: writtenPath };
   }
 
-  // 2. Chromium / WebView2 File System Access API (opens native Windows Explorer Save As dialog)
+  // 2. Chromium / WebView2 File System Access API
   const win = (typeof window !== 'undefined' ? window : undefined) as
-    | (Window & SaveFilePickerWindow)
+    | (Window & FilePickerWindow)
     | undefined;
   if (win && typeof win.showSaveFilePicker === 'function') {
+    // Reuse existing FileSystemFileHandle on normal Save (Ctrl+S) without opening Save As dialog!
+    if (!forceSaveAs && normalizedExisting) {
+      const existingHandle = await getCachedProjectHandle();
+      if (existingHandle) {
+        try {
+          if (typeof existingHandle.queryPermission === 'function') {
+            let perm = await existingHandle.queryPermission({ mode: 'readwrite' });
+            if (perm !== 'granted' && typeof existingHandle.requestPermission === 'function') {
+              perm = await existingHandle.requestPermission({ mode: 'readwrite' });
+            }
+          }
+          const writable = await existingHandle.createWritable();
+          await writable.write(json);
+          await writable.close();
+          return { saved: true, path: existingHandle.name || normalizedExisting };
+        } catch {
+          // If the handle was invalidated or file moved, fall through to Save As picker
+        }
+      }
+    }
+
     try {
+      const suggested = normalizedExisting
+        ? normalizedExisting.split(/[/\\]/).pop() || defaultFilename
+        : defaultFilename;
       const handle = await win.showSaveFilePicker({
-        suggestedName: defaultFilename,
+        suggestedName: suggested,
         types: [
           {
             description: 'SubStellar Project (.substellar)',
@@ -194,20 +351,24 @@ export async function saveProjectToDisk(options: {
           },
         ],
       });
+      await cacheProjectHandle(handle);
       const writable = await handle.createWritable();
       await writable.write(json);
       await writable.close();
       return { saved: true, path: handle.name };
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        return { saved: false, path: existingPath };
+        return { saved: false, path: normalizedExisting };
       }
     }
   }
 
   // 3. Standard Browser Download Fallback
-  downloadFile(defaultFilename, json, 'application/json;charset=utf-8');
-  return { saved: true, path: defaultFilename };
+  const fallbackName = normalizedExisting
+    ? normalizedExisting.split(/[/\\]/).pop() || defaultFilename
+    : defaultFilename;
+  downloadFile(fallbackName, json, 'application/json;charset=utf-8');
+  return { saved: true, path: fallbackName };
 }
 
 export async function saveExportTextToDisk(options: {
@@ -233,7 +394,7 @@ export async function saveExportTextToDisk(options: {
 
   // 2. Chromium / WebView2 File System Access API
   const win = (typeof window !== 'undefined' ? window : undefined) as
-    | (Window & SaveFilePickerWindow)
+    | (Window & FilePickerWindow)
     | undefined;
   if (win && typeof win.showSaveFilePicker === 'function') {
     try {
@@ -264,5 +425,3 @@ export async function saveExportTextToDisk(options: {
   downloadFile(defaultFilename, content, 'text/plain;charset=utf-8');
   return { saved: true, path: defaultFilename };
 }
-
-

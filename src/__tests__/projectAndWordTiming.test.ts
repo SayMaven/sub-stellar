@@ -186,4 +186,72 @@ describe('Phase 8: Canvas Resolution, Project Save/Load, Line CRUD & Per-Word Vo
     line1 = useStudioStore.getState().lines.find((l) => l.id === 'line-1')!;
     expect(line1.tokens.every((t) => t.disableAnim)).toBe(true);
   });
+
+  it('reuses existing file handle on subsequent Ctrl+S saves without reopening Save As dialog', async () => {
+    const { saveProjectToDisk, clearCachedProjectHandle } = await import('../services/mediaCache');
+    await clearCachedProjectHandle();
+
+    let pickerCallCount = 0;
+    let writtenContents = '';
+    const fakeHandle = {
+      name: 'test1.substellar',
+      createWritable: async () => ({
+        write: async (data: string) => {
+          writtenContents = data;
+        },
+        close: async () => {},
+      }),
+    };
+
+    const g = globalThis as unknown as {
+      window?: { showSaveFilePicker?: () => Promise<typeof fakeHandle> };
+    };
+    const prevWindow = g.window;
+    g.window = {
+      ...(prevWindow || {}),
+      showSaveFilePicker: async () => {
+        pickerCallCount++;
+        return fakeHandle;
+      },
+    };
+
+    try {
+      // 1st save (no existingPath yet): opens Save As dialog once
+      const first = await saveProjectToDisk({
+        json: '{"step":1}',
+        defaultFilename: 'test1.substellar',
+        existingPath: null,
+        forceSaveAs: false,
+      });
+      expect(first).toEqual({ saved: true, path: 'test1.substellar' });
+      expect(pickerCallCount).toBe(1);
+      expect(writtenContents).toBe('{"step":1}');
+
+      // 2nd save (Ctrl+S with existingPath = 'test1.substellar', forceSaveAs = false):
+      // writes directly to test1.substellar WITHOUT reopening the Save As dialog!
+      const second = await saveProjectToDisk({
+        json: '{"step":2}',
+        defaultFilename: 'test1.substellar',
+        existingPath: 'test1.substellar',
+        forceSaveAs: false,
+      });
+      expect(second).toEqual({ saved: true, path: 'test1.substellar' });
+      expect(pickerCallCount).toBe(1);
+      expect(writtenContents).toBe('{"step":2}');
+
+      // 3rd save (Ctrl+Shift+S with forceSaveAs = true): opens Save As dialog again
+      const third = await saveProjectToDisk({
+        json: '{"step":3}',
+        defaultFilename: 'test1.substellar',
+        existingPath: 'test1.substellar',
+        forceSaveAs: true,
+      });
+      expect(third).toEqual({ saved: true, path: 'test1.substellar' });
+      expect(pickerCallCount).toBe(2);
+      expect(writtenContents).toBe('{"step":3}');
+    } finally {
+      g.window = prevWindow;
+      await clearCachedProjectHandle();
+    }
+  });
 });
