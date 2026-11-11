@@ -24,6 +24,10 @@ interface BuiltTokenNode {
   startTime: number;
   endTime: number;
   disableAnim: boolean;
+  wipeMask?: Graphics | null;
+  rubyWipeMask?: Graphics | null;
+  wipeTotalWidth?: number;
+  rubyWipeTotalWidth?: number;
 }
 
 interface BuiltLineState {
@@ -33,6 +37,7 @@ interface BuiltLineState {
   baseY: number;
   transBaseY: number;
   scaleFactor: number;
+  textPadding: number;
   transitionSec: number;
   wordAnimStyle: WordAnimationStyle;
   particleEnabled: boolean;
@@ -189,6 +194,7 @@ const PixiViewportInner: React.FC = () => {
       baseY,
       transBaseY,
       scaleFactor,
+      textPadding,
       transitionSec,
       wordAnimStyle,
       particleEnabled,
@@ -206,10 +212,14 @@ const PixiViewportInner: React.FC = () => {
       const token = tokens[idx];
       if (token.disableAnim) {
         token.activeBase.alpha = 0;
+        token.activeBase.visible = false;
         token.inactiveBase.alpha = 1;
+        if (token.wipeMask) token.wipeMask.scale.x = 0;
         if (token.activeRuby && token.inactiveRuby) {
           token.activeRuby.alpha = 0;
+          token.activeRuby.visible = false;
           token.inactiveRuby.alpha = 1;
+          if (token.rubyWipeMask) token.rubyWipeMask.scale.x = 0;
         }
         token.container.y = 0;
         token.container.scale.set(1);
@@ -224,39 +234,81 @@ const PixiViewportInner: React.FC = () => {
       }
 
       let enterProgress = 0;
-      let highlightAlpha = 0;
 
       if (wordAnimStyle === 'smooth-sweep') {
-        // Continuous smooth linear color flow across words with zero position displacement
+        // Geometric horizontal wipe with zero bounce and 100% solid opacity (never dimmed / never washed out)
+        token.inactiveBase.alpha = 1;
+        if (token.inactiveRuby) token.inactiveRuby.alpha = 1;
+
         if (isTokenActive) {
           const wordSpan = Math.max(0.01, token.endTime - token.startTime);
-          highlightAlpha = Math.min(1, Math.max(0, (currentTime - token.startTime) / wordSpan));
+          const progress = Math.min(1, Math.max(0, (currentTime - token.startTime) / wordSpan));
+          token.activeBase.alpha = 1;
+          token.activeBase.visible = true;
+
+          if (token.wipeMask && token.wipeTotalWidth) {
+            const currentWipePx = textPadding + token.baseWidth * progress;
+            token.wipeMask.scale.x = Math.min(1, Math.max(0, currentWipePx / token.wipeTotalWidth));
+          }
+
+          if (token.activeRuby && token.rubyWipeMask && token.rubyWipeTotalWidth && token.inactiveRuby) {
+            token.activeRuby.alpha = 1;
+            token.activeRuby.visible = true;
+            const rubyTextPadding = Math.ceil(textPadding * 0.6);
+            const currentRubyWipePx = rubyTextPadding + token.inactiveRuby.width * progress;
+            token.rubyWipeMask.scale.x = Math.min(
+              1,
+              Math.max(0, currentRubyWipePx / token.rubyWipeTotalWidth)
+            );
+          }
         } else if (isTokenPassed) {
-          highlightAlpha = 1;
+          token.activeBase.alpha = 1;
+          token.activeBase.visible = true;
+          if (token.wipeMask) token.wipeMask.scale.x = 1;
+
+          if (token.activeRuby) {
+            token.activeRuby.alpha = 1;
+            token.activeRuby.visible = true;
+            if (token.rubyWipeMask) token.rubyWipeMask.scale.x = 1;
+          }
         } else {
-          highlightAlpha = 0;
+          token.activeBase.alpha = 0;
+          token.activeBase.visible = false;
+          if (token.wipeMask) token.wipeMask.scale.x = 0;
+
+          if (token.activeRuby) {
+            token.activeRuby.alpha = 0;
+            token.activeRuby.visible = false;
+            if (token.rubyWipeMask) token.rubyWipeMask.scale.x = 0;
+          }
         }
       } else {
+        // Standard Alpha and Motion animations for other styles
+        if (token.wipeMask) token.wipeMask.scale.x = 1;
+        if (token.rubyWipeMask) token.rubyWipeMask.scale.x = 1;
+
         if (isTokenActive) {
           enterProgress = easeOutCubic((currentTime - token.startTime) / transitionSec);
         } else if (isTokenPassed && wordAnimStyle === 'sweep') {
           enterProgress = 1;
         }
 
-        highlightAlpha =
+        const highlightAlpha =
           isTokenActive
             ? Math.max(0.35, enterProgress)
             : isTokenPassed && wordAnimStyle === 'sweep'
             ? 1
             : 0;
-      }
 
-      token.activeBase.alpha = highlightAlpha;
-      token.inactiveBase.alpha = 1 - highlightAlpha * 0.92;
+        token.activeBase.alpha = highlightAlpha;
+        token.activeBase.visible = highlightAlpha > 0;
+        token.inactiveBase.alpha = 1 - highlightAlpha * 0.92;
 
-      if (token.activeRuby && token.inactiveRuby) {
-        token.activeRuby.alpha = highlightAlpha;
-        token.inactiveRuby.alpha = 1 - highlightAlpha * 0.92;
+        if (token.activeRuby && token.inactiveRuby) {
+          token.activeRuby.alpha = highlightAlpha;
+          token.activeRuby.visible = highlightAlpha > 0;
+          token.inactiveRuby.alpha = 1 - highlightAlpha * 0.92;
+        }
       }
 
       let motionOffsetX = 0;
@@ -710,9 +762,24 @@ const PixiViewportInner: React.FC = () => {
       activeBase.alpha = 0;
       tokenContainer.addChild(activeBase);
 
+      // Create geometric horizontal wipe mask for smooth-sweep karaoke
+      const wipeTotalWidth = inactiveBase.width + textPadding * 2;
+      const wipeTotalHeight = inactiveBase.height + textPadding * 2;
+      const wipeMask = new Graphics();
+      wipeMask.rect(0, 0, wipeTotalWidth, wipeTotalHeight);
+      wipeMask.fill(0xffffff);
+      wipeMask.x = -textPadding;
+      wipeMask.y = -textPadding;
+      wipeMask.scale.x = 0;
+      tokenContainer.addChild(wipeMask);
+      activeBase.mask = wipeMask;
+
       // Ruby Text Nodes (if present)
       let inactiveRuby: Text | null = null;
       let activeRuby: Text | null = null;
+      let rubyWipeMask: Graphics | null = null;
+      let rubyWipeTotalWidth = 0;
+
       if (token.isRuby && token.ruby) {
         const inactiveRubyStyle = new TextStyle({
           fontFamily: fontStack,
@@ -759,6 +826,18 @@ const PixiViewportInner: React.FC = () => {
 
         tokenContainer.addChild(inactiveRuby);
         tokenContainer.addChild(activeRuby);
+
+        const rubyTextPadding = Math.ceil(textPadding * 0.6);
+        rubyWipeTotalWidth = inactiveRuby.width + rubyTextPadding * 2;
+        const rubyWipeTotalHeight = inactiveRuby.height + rubyTextPadding * 2;
+        rubyWipeMask = new Graphics();
+        rubyWipeMask.rect(0, 0, rubyWipeTotalWidth, rubyWipeTotalHeight);
+        rubyWipeMask.fill(0xffffff);
+        rubyWipeMask.x = metrics.rubyX - rubyTextPadding;
+        rubyWipeMask.y = metrics.rubyY - rubyTextPadding;
+        rubyWipeMask.scale.x = 0;
+        tokenContainer.addChild(rubyWipeMask);
+        activeRuby.mask = rubyWipeMask;
       }
 
       tokenContainer.x = currentX;
@@ -788,6 +867,10 @@ const PixiViewportInner: React.FC = () => {
         startTime: token.startTime,
         endTime: token.endTime,
         disableAnim: token.disableAnim,
+        wipeMask,
+        rubyWipeMask,
+        wipeTotalWidth,
+        rubyWipeTotalWidth,
       });
     });
 
@@ -831,6 +914,7 @@ const PixiViewportInner: React.FC = () => {
       baseY,
       transBaseY,
       scaleFactor,
+      textPadding,
       transitionSec,
       wordAnimStyle: style.wordAnimStyle,
       particleEnabled: style.particleEnabled,

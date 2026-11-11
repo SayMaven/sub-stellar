@@ -416,45 +416,121 @@ export class FFmpegExportPipeline {
         ctx.restore();
       }
 
-      const isHighlighted =
-        isTokenActive || (isTokenPassed && (animStyle === 'sweep' || animStyle === 'smooth-sweep'));
+      if (animStyle === 'smooth-sweep') {
+        const isPassed = currentTime >= m.endTime;
+        const isCurrent = currentTime >= m.startTime && currentTime < m.endTime;
 
-      // Layer 2: Inner outline
-      if (innerStroke > 0) {
-        ctx.lineWidth = innerStroke;
-        ctx.strokeStyle = isHighlighted ? activeHighlightColor : options.style.outlineColor;
-        ctx.strokeText(m.base, metrics.baseX, tokenBaselineY);
-      }
-
-      // Layer 3: Fill (supports vertical gradient when fillGradientEnabled is true)
-      if (options.style.fillGradientEnabled && typeof ctx.createLinearGradient === 'function') {
-        const grad = ctx.createLinearGradient(
-          metrics.baseX,
-          tokenBaselineY - baseFontSize,
-          metrics.baseX,
-          tokenBaselineY
-        );
-        if (isHighlighted) {
-          grad.addColorStop(0, activeHighlightColor);
-          grad.addColorStop(1, options.style.outlineColor);
-        } else {
+        // 1. Draw base text (inactive, solid color)
+        if (innerStroke > 0) {
+          ctx.lineWidth = innerStroke;
+          ctx.strokeStyle = options.style.outlineColor;
+          ctx.strokeText(m.base, metrics.baseX, tokenBaselineY);
+        }
+        if (options.style.fillGradientEnabled && typeof ctx.createLinearGradient === 'function') {
+          const grad = ctx.createLinearGradient(
+            metrics.baseX,
+            tokenBaselineY - baseFontSize,
+            metrics.baseX,
+            tokenBaselineY
+          );
           grad.addColorStop(0, options.style.primaryColor);
           grad.addColorStop(1, options.style.fillGradientEndColor || '#b8d0ff');
+          ctx.fillStyle = grad;
+        } else {
+          ctx.fillStyle = options.style.primaryColor;
         }
-        ctx.fillStyle = grad;
+        ctx.fillText(m.base, metrics.baseX, tokenBaselineY);
+
+        if (m.isRuby && m.ruby) {
+          ctx.font = `700 ${rubyFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
+          ctx.lineWidth = Math.max(2, Math.round(outerStroke * 0.55));
+          ctx.strokeStyle = options.style.secondaryOutlineColor;
+          ctx.strokeText(m.ruby, metrics.rubyX, metrics.rubyY);
+          ctx.fillStyle = rubyFillColor;
+          ctx.fillText(m.ruby, metrics.rubyX, metrics.rubyY);
+          ctx.font = `700 ${baseFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
+        }
+
+        // 2. Draw active highlighted text clipped horizontally (crisp geometric wipe)
+        if (isCurrent || isPassed) {
+          const span = Math.max(0.01, m.endTime - m.startTime);
+          const progress = isPassed ? 1 : Math.min(1, Math.max(0, (currentTime - m.startTime) / span));
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(metrics.baseX - 2, 0, m.baseWidth * progress + 2, options.height);
+          ctx.clip();
+
+          if (innerStroke > 0) {
+            ctx.lineWidth = innerStroke;
+            ctx.strokeStyle = activeHighlightColor;
+            ctx.strokeText(m.base, metrics.baseX, tokenBaselineY);
+          }
+          if (options.style.fillGradientEnabled && typeof ctx.createLinearGradient === 'function') {
+            const grad = ctx.createLinearGradient(
+              metrics.baseX,
+              tokenBaselineY - baseFontSize,
+              metrics.baseX,
+              tokenBaselineY
+            );
+            grad.addColorStop(0, activeHighlightColor);
+            grad.addColorStop(1, options.style.outlineColor);
+            ctx.fillStyle = grad;
+          } else {
+            ctx.fillStyle = activeHighlightColor;
+          }
+          ctx.fillText(m.base, metrics.baseX, tokenBaselineY);
+
+          if (m.isRuby && m.ruby) {
+            ctx.font = `700 ${rubyFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
+            ctx.lineWidth = Math.max(2, Math.round(outerStroke * 0.55));
+            ctx.strokeStyle = options.style.secondaryOutlineColor;
+            ctx.strokeText(m.ruby, metrics.rubyX, metrics.rubyY);
+            ctx.fillStyle = rubyActiveColor;
+            ctx.fillText(m.ruby, metrics.rubyX, metrics.rubyY);
+          }
+          ctx.restore();
+        }
       } else {
-        ctx.fillStyle = isHighlighted ? activeHighlightColor : options.style.primaryColor;
-      }
-      ctx.fillText(m.base, metrics.baseX, tokenBaselineY);
+        const isHighlighted = isTokenActive || (isTokenPassed && animStyle === 'sweep');
 
-      if (m.isRuby && m.ruby) {
-        ctx.font = `700 ${rubyFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
-        ctx.lineWidth = Math.max(2, Math.round(outerStroke * 0.55));
-        ctx.strokeStyle = options.style.secondaryOutlineColor;
-        ctx.strokeText(m.ruby, metrics.rubyX, metrics.rubyY);
+        // Layer 2: Inner outline
+        if (innerStroke > 0) {
+          ctx.lineWidth = innerStroke;
+          ctx.strokeStyle = isHighlighted ? activeHighlightColor : options.style.outlineColor;
+          ctx.strokeText(m.base, metrics.baseX, tokenBaselineY);
+        }
 
-        ctx.fillStyle = isHighlighted ? rubyActiveColor : rubyFillColor;
-        ctx.fillText(m.ruby, metrics.rubyX, metrics.rubyY);
+        // Layer 3: Fill (supports vertical gradient when fillGradientEnabled is true)
+        if (options.style.fillGradientEnabled && typeof ctx.createLinearGradient === 'function') {
+          const grad = ctx.createLinearGradient(
+            metrics.baseX,
+            tokenBaselineY - baseFontSize,
+            metrics.baseX,
+            tokenBaselineY
+          );
+          if (isHighlighted) {
+            grad.addColorStop(0, activeHighlightColor);
+            grad.addColorStop(1, options.style.outlineColor);
+          } else {
+            grad.addColorStop(0, options.style.primaryColor);
+            grad.addColorStop(1, options.style.fillGradientEndColor || '#b8d0ff');
+          }
+          ctx.fillStyle = grad;
+        } else {
+          ctx.fillStyle = isHighlighted ? activeHighlightColor : options.style.primaryColor;
+        }
+        ctx.fillText(m.base, metrics.baseX, tokenBaselineY);
+
+        if (m.isRuby && m.ruby) {
+          ctx.font = `700 ${rubyFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
+          ctx.lineWidth = Math.max(2, Math.round(outerStroke * 0.55));
+          ctx.strokeStyle = options.style.secondaryOutlineColor;
+          ctx.strokeText(m.ruby, metrics.rubyX, metrics.rubyY);
+
+          ctx.fillStyle = isHighlighted ? rubyActiveColor : rubyFillColor;
+          ctx.fillText(m.ruby, metrics.rubyX, metrics.rubyY);
+        }
       }
 
       ctx.restore();
