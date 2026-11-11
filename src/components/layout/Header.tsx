@@ -28,6 +28,7 @@ import { getCanvasPixelDimensions } from '../../engine/layout/layoutMath';
 import { parseLrc } from '../../services/lyrics/lrcParser';
 import { saveProjectToDisk, saveExportTextToDisk } from '../../services/mediaCache';
 import { tauriBridge } from '../../services/tauriBridge';
+import { AutoFuriganaDialog } from '../furigana/AutoFuriganaDialog';
 import type { AspectRatio, CanvasResolutionPreset } from '../../types';
 
 type MenuCategory = 'file' | 'subtitle' | 'view' | 'export' | null;
@@ -72,6 +73,23 @@ export const Header: React.FC = () => {
 
   const [openMenu, setOpenMenu] = useState<MenuCategory>(null);
   const [savedToast, setSavedToast] = useState<string | null>(null);
+  const [noticeToast, setNoticeToast] = useState<string | null>(null);
+  const [furiganaDialogOpen, setFuriganaDialogOpen] = useState(false);
+
+  useEffect(() => {
+    let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleNotice = (e: Event) => {
+      const custom = e as CustomEvent<{ message?: string }>;
+      setNoticeToast(custom.detail?.message || null);
+      if (noticeTimer) clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(() => setNoticeToast(null), 3600);
+    };
+    window.addEventListener('substellar:notice', handleNotice);
+    return () => {
+      window.removeEventListener('substellar:notice', handleNotice);
+      if (noticeTimer) clearTimeout(noticeTimer);
+    };
+  }, []);
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -276,6 +294,10 @@ export const Header: React.FC = () => {
 
   return (
     <header className="h-10 shrink-0 w-full px-3 flex items-center justify-between border-b border-gatefold-line bg-gatefold-panel-strong z-50 select-none">
+      <AutoFuriganaDialog
+        isOpen={furiganaDialogOpen}
+        onClose={() => setFuriganaDialogOpen(false)}
+      />
       {/* Hidden File Inputs */}
       <input
         ref={projectInputRef}
@@ -526,6 +548,20 @@ export const Header: React.FC = () => {
                 <button
                   disabled={lines.length === 0}
                   onClick={() => {
+                    setFuriganaDialogOpen(true);
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 hover:bg-gatefold-hover flex items-center justify-between text-left text-gatefold-text disabled:opacity-40"
+                >
+                  <span className="flex items-center gap-2">
+                    <Sparkles className="w-3.5 h-3.5 text-gatefold-accent" />
+                    <span>Auto Furigana — Semua Baris...</span>
+                  </span>
+                </button>
+
+                <button
+                  disabled={lines.length === 0}
+                  onClick={() => {
                     setLines([]);
                     setOpenMenu(null);
                   }}
@@ -708,6 +744,16 @@ export const Header: React.FC = () => {
           >
             <Check className="w-3 h-3 shrink-0" />
             <span className="truncate">Saved: {savedToast}</span>
+          </span>
+        )}
+
+        {/* Notice Badge (e.g. word timing re-split after furigana edit) */}
+        {noticeToast && (
+          <span
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-mono max-w-[260px] truncate"
+            title={noticeToast}
+          >
+            <span className="truncate">{noticeToast}</span>
           </span>
         )}
 

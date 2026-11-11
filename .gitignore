@@ -46,3 +46,6 @@ temp/
 tmp/
 docs/
 
+# Kuromoji dictionary copied from node_modules on postinstall
+public/dict/
+

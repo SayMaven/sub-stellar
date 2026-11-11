@@ -6,8 +6,9 @@ import { tokenizeSubtitleText, computeRubyPosition } from '../../engine/text/Rub
 import { getCanvasPixelDimensions } from '../../engine/layout/layoutMath';
 import { ParticleManager } from '../../engine/particles/ParticleManager';
 import { playbackEngine } from '../../engine/audio/PlaybackEngine';
+import { tauriBridge } from '../../services/tauriBridge';
 import type { ParticlePresetType } from '../../types';
-import { Music, Play } from 'lucide-react';
+import { Music, Play, FolderOpen } from 'lucide-react';
 
 const CJK_TOKEN_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
@@ -59,7 +60,7 @@ function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - c, 3);
 }
 
-export const PixiViewport: React.FC = () => {
+const PixiViewportInner: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -79,10 +80,50 @@ export const PixiViewport: React.FC = () => {
   const lines = useStudioStore((s) => s.lines);
   const style = useStudioStore((s) => s.style);
   const track = useStudioStore((s) => s.track);
+  const setTrack = useStudioStore((s) => s.setTrack);
+  const loadLocalMediaFromPath = useStudioStore((s) => s.loadLocalMediaFromPath);
+  const saveToLocalStorage = useStudioStore((s) => s.saveToLocalStorage);
   const isPlaying = useStudioStore((s) => s.isPlaying);
   const togglePlay = useStudioStore((s) => s.togglePlay);
   const aspectRatio = useStudioStore((s) => s.aspectRatio);
   const canvasResolution = useStudioStore((s) => s.canvasResolution);
+
+  const handleVideoError = useCallback(async () => {
+    const currentTrack = useStudioStore.getState().track;
+    // If asset:// URL failed in WebView2, automatically recover via raw binary Blob URL from Rust
+    if (
+      currentTrack.mediaFilePath &&
+      tauriBridge.isAvailable() &&
+      currentTrack.videoUrl &&
+      !currentTrack.videoUrl.startsWith('blob:')
+    ) {
+      try {
+        const blobUrl = await tauriBridge.readMediaBlobUrl(currentTrack.mediaFilePath);
+        setTrack({ videoUrl: blobUrl });
+        return;
+      } catch {
+        // Fall through if file was moved/deleted
+      }
+    }
+    // Clear broken URL so the studio backdrop & Relink Video button appear instead of a blank black element
+    if (currentTrack.videoUrl) {
+      setTrack({ videoUrl: undefined });
+    }
+  }, [setTrack]);
+
+  const handleRelinkVideo = useCallback(async () => {
+    if (tauriBridge.isAvailable()) {
+      try {
+        const chosen = await tauriBridge.openMediaDialog();
+        if (chosen) {
+          await loadLocalMediaFromPath(chosen, { preserveTimelineState: true });
+          saveToLocalStorage();
+        }
+      } catch {
+        // Ignore
+      }
+    }
+  }, [loadLocalMediaFromPath, saveToLocalStorage]);
 
   const activeLineId = useStudioStore((s) => {
     const byTime = s.lines.find(
@@ -773,6 +814,7 @@ export const PixiViewport: React.FC = () => {
           ref={videoRef}
           src={track.videoUrl}
           playsInline
+          onError={() => void handleVideoError()}
           className="absolute inset-0 w-full h-full object-contain z-0"
         />
       ) : track.coverUrl ? (
@@ -794,6 +836,18 @@ export const PixiViewport: React.FC = () => {
             <span>•</span>
             <span>{track.artist}</span>
           </div>
+
+          {tauriBridge.isAvailable() && (
+            <button
+              type="button"
+              onClick={() => void handleRelinkVideo()}
+              className="absolute top-4 right-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/60 hover:bg-gatefold-accent/20 border border-white/15 hover:border-gatefold-accent text-[11px] font-medium text-gatefold-text hover:text-gatefold-accent transition-colors cursor-pointer"
+              title="Pilih atau tautkan ulang file video untuk proyek ini"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-gatefold-accent" />
+              <span>Load / Relink Video</span>
+            </button>
+          )}
 
           {!isPlaying && (
             <button
@@ -820,3 +874,5 @@ export const PixiViewport: React.FC = () => {
     </div>
   );
 };
+
+export const PixiViewport = React.memo(PixiViewportInner);

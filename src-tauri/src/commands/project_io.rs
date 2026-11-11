@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use tauri::Manager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenedProjectFile {
@@ -319,18 +320,54 @@ pub async fn project_open_dialog() -> Result<Option<OpenedProjectFile>, String> 
 }
 
 #[tauri::command]
-pub async fn media_open_dialog() -> Result<Option<String>, String> {
+pub async fn media_open_dialog(app: tauri::AppHandle) -> Result<Option<String>, String> {
     #[cfg(target_os = "windows")]
     {
-        tauri::async_runtime::spawn_blocking(win_dialog::show_open_media_dialog)
+        let chosen = tauri::async_runtime::spawn_blocking(win_dialog::show_open_media_dialog)
             .await
-            .map_err(|e| format!("Failed to open media file dialog: {}", e))
+            .map_err(|e| format!("Failed to open media file dialog: {}", e))?;
+
+        if let Some(ref path) = chosen {
+            let target = PathBuf::from(path);
+            let _ = app.asset_protocol_scope().allow_file(&target);
+            if let Some(parent) = target.parent() {
+                let _ = app.asset_protocol_scope().allow_directory(parent, false);
+            }
+        }
+        Ok(chosen)
     }
 
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = app;
         Ok(None)
     }
+}
+
+#[tauri::command]
+pub fn allow_asset_file(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    let target = PathBuf::from(path.trim());
+    if !target.exists() {
+        return Err(format!("Media file not found on disk: {}", target.display()));
+    }
+    let _ = app.asset_protocol_scope().allow_file(&target);
+    if let Some(parent) = target.parent() {
+        let _ = app.asset_protocol_scope().allow_directory(parent, false);
+    }
+    Ok(target.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn read_local_media_bytes(path: String) -> Result<tauri::ipc::Response, String> {
+    let target = PathBuf::from(path.trim());
+    if !target.exists() {
+        return Err(format!("Media file not found on disk: {}", target.display()));
+    }
+    let bytes = tauri::async_runtime::spawn_blocking(move || fs::read(&target))
+        .await
+        .map_err(|e| format!("Failed to join media read task: {}", e))?
+        .map_err(|e| format!("Failed to read media file: {}", e))?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]

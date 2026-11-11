@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   Play,
   Pause,
@@ -19,27 +19,56 @@ function formatTime(seconds: number): string {
     .padStart(2, '0')}`;
 }
 
-export const TransportBar: React.FC = () => {
-  const {
-    isPlaying,
-    currentTime,
-    duration,
-    volume,
-    isMuted,
-    isLooping,
-    togglePlay,
-    seek,
-    stepTime,
-    setVolume,
-    toggleMute,
-    toggleLoop,
-  } = useStudioStore();
+const TransportBarInner: React.FC = () => {
+  const isPlaying = useStudioStore((s) => s.isPlaying);
+  const duration = useStudioStore((s) => s.duration);
+  const volume = useStudioStore((s) => s.volume);
+  const isMuted = useStudioStore((s) => s.isMuted);
+  const isLooping = useStudioStore((s) => s.isLooping);
+  const togglePlay = useStudioStore((s) => s.togglePlay);
+  const seek = useStudioStore((s) => s.seek);
+  const stepTime = useStudioStore((s) => s.stepTime);
+  const setVolume = useStudioStore((s) => s.setVolume);
+  const toggleMute = useStudioStore((s) => s.toggleMute);
+  const toggleLoop = useStudioStore((s) => s.toggleLoop);
+
+  const timeLabelRef = useRef<HTMLSpanElement>(null);
+  const scrubberRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const syncTimeDom = (time: number, dur: number) => {
+      if (timeLabelRef.current) {
+        timeLabelRef.current.textContent = formatTime(time);
+      }
+      if (scrubberRef.current) {
+        scrubberRef.current.value = String(time);
+        const pct = dur > 0 ? Math.max(0, Math.min(100, (time / dur) * 100)) : 0;
+        scrubberRef.current.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--surface-2) ${pct}%)`;
+      }
+    };
+
+    const initial = useStudioStore.getState();
+    syncTimeDom(initial.currentTime, initial.duration);
+
+    let lastTime = initial.currentTime;
+    let lastDuration = initial.duration;
+    const unsubscribe = useStudioStore.subscribe((state) => {
+      if (state.currentTime !== lastTime || state.duration !== lastDuration) {
+        lastTime = state.currentTime;
+        lastDuration = state.duration;
+        syncTimeDom(state.currentTime, state.duration);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const handleScrubberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     seek(parseFloat(e.target.value));
   };
 
-  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const initialTime = useStudioStore.getState().currentTime;
+  const progressPercent = duration > 0 ? (initialTime / duration) * 100 : 0;
 
   return (
     <div
@@ -94,16 +123,20 @@ export const TransportBar: React.FC = () => {
         </button>
       </div>
 
-      <span className="text-[11px] font-mono text-gatefold-text-2 w-[52px] text-right tabular-nums">
-        {formatTime(currentTime)}
+      <span
+        ref={timeLabelRef}
+        className="text-[11px] font-mono text-gatefold-text-2 w-[52px] text-right tabular-nums"
+      >
+        {formatTime(initialTime)}
       </span>
 
       <input
+        ref={scrubberRef}
         type="range"
         min={0}
         max={duration || 100}
         step={0.01}
-        value={currentTime}
+        defaultValue={initialTime}
         onChange={handleScrubberChange}
         aria-label="Seek"
         className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer accent-gatefold-accent focus:outline-none"
@@ -138,3 +171,5 @@ export const TransportBar: React.FC = () => {
     </div>
   );
 };
+
+export const TransportBar = React.memo(TransportBarInner);

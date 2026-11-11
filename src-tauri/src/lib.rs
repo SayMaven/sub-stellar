@@ -20,6 +20,8 @@ pub fn run() {
             commands::project_io::project_write_file,
             commands::project_io::project_open_dialog,
             commands::project_io::media_open_dialog,
+            commands::project_io::allow_asset_file,
+            commands::project_io::read_local_media_bytes,
             commands::project_io::export_save_dialog,
             commands::project_io::reveal_in_explorer,
         ])

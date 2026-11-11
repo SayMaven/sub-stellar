@@ -21,13 +21,14 @@ import {
   Ban,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
+import { FuriganaEditor } from '../furigana/FuriganaEditor';
 import type { ParticlePresetType, WordAnimationStyle } from '../../types';
 
 interface SubtitleInspectorProps {
   width?: number;
 }
 
-export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ width = 320 }) => {
+const SubtitleInspectorBody: React.FC = React.memo(() => {
   const [tab, setTab] = useState<'text' | 'colors' | 'style' | 'particles' | 'presets'>('text');
   const [selectedTokenIdx, setSelectedTokenIdx] = useState<number>(0);
 
@@ -37,7 +38,6 @@ export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ width = 32
   const addLine = useStudioStore((s) => s.addLine);
   const duplicateLine = useStudioStore((s) => s.duplicateLine);
   const deleteLine = useStudioStore((s) => s.deleteLine);
-  const updateLineText = useStudioStore((s) => s.updateLineText);
   const updateLineTranslation = useStudioStore((s) => s.updateLineTranslation);
   const updateLineTiming = useStudioStore((s) => s.updateLineTiming);
   const updateTokenTiming = useStudioStore((s) => s.updateTokenTiming);
@@ -86,10 +86,7 @@ export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ width = 32
 
   if (!activeLine) {
     return (
-      <aside
-        style={{ width }}
-        className="shrink-0 border-l border-gatefold-line bg-gatefold-panel-strong flex flex-col h-full text-xs select-none"
-      >
+      <>
         <div className="h-10 px-3 border-b border-gatefold-line flex items-center text-gatefold-text-3 font-medium">
           Subtitle Inspector
         </div>
@@ -112,7 +109,7 @@ export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ width = 32
             </button>
           </div>
         </div>
-      </aside>
+      </>
     );
   }
 
@@ -146,10 +143,7 @@ export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ width = 32
     : 0;
 
   return (
-    <aside
-      style={{ width }}
-      className="shrink-0 border-l border-gatefold-line bg-gatefold-panel-strong flex flex-col h-full text-xs select-none"
-    >
+    <>
       {/* Inspector Tabs */}
       <div className="h-10 px-1.5 border-b border-gatefold-line flex items-center justify-between bg-gatefold-panel">
         <div className="flex gap-0.5 w-full justify-between">
@@ -334,24 +328,8 @@ export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ width = 32
               </div>
             </div>
 
-            {/* Markdown Ruby Text Editor */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold">
-                  Subtitle Text & Ruby
-                </span>
-                <span className="text-[10px] text-gatefold-accent font-mono">
-                  {`{Kanji|Ruby}`} format
-                </span>
-              </div>
-              <textarea
-                rows={2}
-                value={activeLine.text}
-                onChange={(e) => updateLineText(activeLine.id, e.target.value)}
-                placeholder="Type subtitle lyrics here (e.g. kamu dan aku or {何|なに})..."
-                className="w-full px-2.5 py-1.5 bg-gatefold-surface border border-gatefold-line rounded font-mono text-xs text-gatefold-text focus:border-gatefold-accent focus:outline-none resize-none"
-              />
-            </div>
+            {/* Subtitle Text, Reading (Furigana) & Raw Syntax */}
+            <FuriganaEditor line={activeLine} />
 
             {/* Secondary Translation (Editable!) */}
             <div className="space-y-1">
@@ -1406,6 +1384,15 @@ export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ width = 32
           </div>
         )}
       </div>
-    </aside>
+    </>
   );
-};
+});
+
+export const SubtitleInspector: React.FC<SubtitleInspectorProps> = React.memo(({ width = 320 }) => (
+  <aside
+    style={{ width }}
+    className="shrink-0 border-l border-gatefold-line bg-gatefold-panel-strong flex flex-col h-full text-xs select-none"
+  >
+    <SubtitleInspectorBody />
+  </aside>
+));

@@ -13,7 +13,7 @@ import { useStudioStore } from '../../stores/useStudioStore';
 import { waveformManager } from '../../engine/audio/WaveformManager';
 import { RubyEditorModal } from '../furigana/RubyEditorModal';
 
-export const TimelineDrawer: React.FC = () => {
+const TimelineDrawerInner: React.FC = () => {
   const duration = useStudioStore((s) => s.duration);
   const isPlaying = useStudioStore((s) => s.isPlaying);
   const seek = useStudioStore((s) => s.seek);
@@ -243,7 +243,15 @@ export const TimelineDrawer: React.FC = () => {
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const sync = () => setViewport({ scrollLeft: el.scrollLeft, width: el.clientWidth });
+    const sync = () => {
+      const nextLeft = el.scrollLeft;
+      const nextWidth = el.clientWidth;
+      setViewport((prev) =>
+        prev.scrollLeft === nextLeft && prev.width === nextWidth
+          ? prev
+          : { scrollLeft: nextLeft, width: nextWidth }
+      );
+    };
     sync();
     el.addEventListener('scroll', sync, { passive: true });
     const observer = new ResizeObserver(sync);
@@ -594,3 +602,5 @@ export const TimelineDrawer: React.FC = () => {
     </div>
   );
 };
+
+export const TimelineDrawer = React.memo(TimelineDrawerInner);

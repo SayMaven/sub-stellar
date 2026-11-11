@@ -220,8 +220,41 @@ export const tauriBridge = {
   /** Converts an absolute local file path into a URL the webview can load (asset protocol). */
   async toPlayableUrl(path: string): Promise<string> {
     if (!isTauriEnvironment()) return path;
+    let normalizedPath = path;
+    try {
+      normalizedPath = await invokeTauri<string>('allow_asset_file', { path });
+    } catch {
+      // Continue with original path if allow_asset_file fails
+    }
     const { convertFileSrc } = await import('@tauri-apps/api/core');
-    return convertFileSrc(path);
+    return convertFileSrc(normalizedPath);
+  },
+
+  /** Fallback that reads a local media file directly as raw bytes via IPC and returns a Blob URL. */
+  async readMediaBlobUrl(path: string): Promise<string> {
+    const buffer = await invokeTauri<ArrayBuffer | Uint8Array>('read_local_media_bytes', {
+      path,
+    });
+    const lower = path.toLowerCase();
+    const mime = lower.endsWith('.webm')
+      ? 'video/webm'
+      : lower.endsWith('.mov')
+      ? 'video/quicktime'
+      : lower.endsWith('.mkv')
+      ? 'video/x-matroska'
+      : lower.endsWith('.mp3')
+      ? 'audio/mpeg'
+      : lower.endsWith('.wav')
+      ? 'audio/wav'
+      : lower.endsWith('.flac')
+      ? 'audio/flac'
+      : lower.endsWith('.ogg')
+      ? 'audio/ogg'
+      : lower.endsWith('.m4a')
+      ? 'audio/mp4'
+      : 'video/mp4';
+    const blob = new Blob([buffer as BlobPart], { type: mime });
+    return URL.createObjectURL(blob);
   },
 
   async saveProjectDialog(defaultName: string): Promise<string | null> {

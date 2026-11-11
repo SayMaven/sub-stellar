@@ -5,7 +5,10 @@
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/copy-kuromoji-dict.mjs",
+    "predev": "node scripts/copy-kuromoji-dict.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-kuromoji-dict.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
@@ -13,6 +16,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@sglkc/kuromoji": "^1.1.0",
     "@tauri-apps/api": "^2.2.0",
     "lucide-react": "^1.16.0",
     "pixi.js": "^8.6.6",

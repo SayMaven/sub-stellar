@@ -59,12 +59,32 @@ export const MainStage: React.FC = () => {
   useEffect(() => {
     const el = stageAreaRef.current;
     if (!el) return;
+    let rafId: number | null = null;
+
+    const updateSize = (w: number, h: number) => {
+      const nextW = Math.max(0, Math.floor(w));
+      const nextH = Math.max(0, Math.floor(h));
+      setAreaSize((prev) =>
+        prev.width === nextW && prev.height === nextH ? prev : { width: nextW, height: nextH }
+      );
+    };
+
+    updateSize(el.clientWidth, el.clientHeight);
+
     const observer = new ResizeObserver((entries) => {
-      const rect = entries[0].contentRect;
-      setAreaSize({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        updateSize(rect.width, rect.height);
+      });
     });
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
   }, []);
 
   const stageSize = computeStageSize(
@@ -89,19 +109,57 @@ export const MainStage: React.FC = () => {
       handle.setPointerCapture(e.pointerId);
       const startX = e.clientX;
       const startWidth = inspectorWidth;
+      const startAreaWidth = stageAreaRef.current?.clientWidth ?? areaSize.width;
+      const startAreaHeight = stageAreaRef.current?.clientHeight ?? areaSize.height;
+      let rafId: number | null = null;
+      let latestClientX = startX;
+
+      const applyResize = () => {
+        rafId = null;
+        const nextInspectorWidth = clampInspectorWidth(startWidth + (startX - latestClientX));
+        const deltaInspector = nextInspectorWidth - startWidth;
+        const nextAreaWidth = Math.max(0, Math.floor(startAreaWidth - deltaInspector));
+        const nextAreaHeight = Math.max(0, Math.floor(startAreaHeight));
+
+        setInspectorWidth((prev) => (prev === nextInspectorWidth ? prev : nextInspectorWidth));
+        setAreaSize((prev) =>
+          prev.width === nextAreaWidth && prev.height === nextAreaHeight
+            ? prev
+            : { width: nextAreaWidth, height: nextAreaHeight }
+        );
+      };
 
       const onMove = (ev: PointerEvent) => {
-        setInspectorWidth(clampInspectorWidth(startWidth + (startX - ev.clientX)));
+        latestClientX = ev.clientX;
+        if (rafId === null) {
+          rafId = requestAnimationFrame(applyResize);
+        }
       };
-      const onUp = (ev: PointerEvent) => {
-        handle.releasePointerCapture(ev.pointerId);
+
+      const onEnd = (ev: PointerEvent) => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        try {
+          if (handle.hasPointerCapture(ev.pointerId)) {
+            handle.releasePointerCapture(ev.pointerId);
+          }
+        } catch {
+          // Ignore if pointer capture was already released
+        }
         handle.removeEventListener('pointermove', onMove);
-        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointerup', onEnd);
+        handle.removeEventListener('pointercancel', onEnd);
+        handle.removeEventListener('lostpointercapture', onEnd);
       };
+
       handle.addEventListener('pointermove', onMove);
-      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointerup', onEnd);
+      handle.addEventListener('pointercancel', onEnd);
+      handle.addEventListener('lostpointercapture', onEnd);
     },
-    [inspectorWidth, clampInspectorWidth]
+    [inspectorWidth, areaSize.width, areaSize.height, clampInspectorWidth]
   );
 
   const handleInspectorResizeKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -122,19 +180,60 @@ export const MainStage: React.FC = () => {
       const startY = e.clientY;
       const startHeight = timelineHeight;
       const available = workspaceRef.current?.clientHeight ?? 800;
+      const startAreaWidth = stageAreaRef.current?.clientWidth ?? areaSize.width;
+      const startAreaHeight = stageAreaRef.current?.clientHeight ?? areaSize.height;
+      let rafId: number | null = null;
+      let latestClientY = startY;
+
+      const applyResize = () => {
+        rafId = null;
+        const nextTimelineHeight = clampTimelineHeight(
+          startHeight + (startY - latestClientY),
+          available
+        );
+        const deltaTimeline = nextTimelineHeight - startHeight;
+        const nextAreaWidth = Math.max(0, Math.floor(startAreaWidth));
+        const nextAreaHeight = Math.max(0, Math.floor(startAreaHeight - deltaTimeline));
+
+        setTimelineHeight((prev) => (prev === nextTimelineHeight ? prev : nextTimelineHeight));
+        setAreaSize((prev) =>
+          prev.width === nextAreaWidth && prev.height === nextAreaHeight
+            ? prev
+            : { width: nextAreaWidth, height: nextAreaHeight }
+        );
+      };
 
       const onMove = (ev: PointerEvent) => {
-        setTimelineHeight(clampTimelineHeight(startHeight + (startY - ev.clientY), available));
+        latestClientY = ev.clientY;
+        if (rafId === null) {
+          rafId = requestAnimationFrame(applyResize);
+        }
       };
-      const onUp = (ev: PointerEvent) => {
-        handle.releasePointerCapture(ev.pointerId);
+
+      const onEnd = (ev: PointerEvent) => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        try {
+          if (handle.hasPointerCapture(ev.pointerId)) {
+            handle.releasePointerCapture(ev.pointerId);
+          }
+        } catch {
+          // Ignore if pointer capture was already released
+        }
         handle.removeEventListener('pointermove', onMove);
-        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointerup', onEnd);
+        handle.removeEventListener('pointercancel', onEnd);
+        handle.removeEventListener('lostpointercapture', onEnd);
       };
+
       handle.addEventListener('pointermove', onMove);
-      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointerup', onEnd);
+      handle.addEventListener('pointercancel', onEnd);
+      handle.addEventListener('lostpointercapture', onEnd);
     },
-    [timelineHeight]
+    [timelineHeight, areaSize.width, areaSize.height]
   );
 
   const handleResizeKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -268,20 +367,28 @@ export const MainStage: React.FC = () => {
 
       {/* Main Workspace Split: Viewport (Left) + Resizable Divider + Subtitle Inspector (Right) */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
-        {/* Canvas Stage Area: scrolls when zoomed beyond fit */}
-        <div ref={stageAreaRef} className="flex-1 min-w-0 min-h-0 flex overflow-auto p-3">
-          {isCompletelyEmpty ? (
-            <div className="m-auto w-full flex justify-center">
-              <EmptyStudioState />
-            </div>
-          ) : (
-            <div
-              className="relative m-auto shrink-0 border border-gatefold-line bg-black rounded-lg overflow-hidden"
-              style={{ width: stageSize.width, height: stageSize.height }}
-            >
-              <PixiViewport />
-            </div>
-          )}
+        {/* Outer measured stage container (never scrolls, prevents ResizeObserver scrollbar feedback loop) */}
+        <div ref={stageAreaRef} className="flex-1 min-w-0 min-h-0 flex overflow-hidden">
+          <div
+            className={`w-full h-full flex p-3 ${
+              zoom > 100 ? 'overflow-auto' : 'overflow-hidden'
+            }`}
+          >
+            {isCompletelyEmpty ? (
+              <div className="m-auto w-full flex justify-center">
+                <EmptyStudioState />
+              </div>
+            ) : (
+              <div
+                className={`relative m-auto shrink-0 border border-gatefold-line bg-black rounded-lg overflow-hidden ${
+                  zoom <= 100 ? 'max-w-full max-h-full' : ''
+                }`}
+                style={{ width: stageSize.width, height: stageSize.height }}
+              >
+                <PixiViewport />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Vertical Resize Handle between Video Stage and Inspector Sidebar */}

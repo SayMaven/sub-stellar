@@ -11,6 +11,21 @@ import type {
   SubStellarProjectFile,
 } from '../types';
 import { tokenizeSubtitleText } from '../engine/text/RubyLayout';
+import {
+  alignReading,
+  applyFuriganaEdit,
+  applyPlainEdit,
+  containsKanji,
+  hasFurigana,
+  markdownToSegments,
+  segmentsFromMorphTokens,
+  segmentsToMarkdown,
+  segmentsToPlain,
+  stripRuby,
+  type FuriganaEdit,
+  type FuriganaSegment,
+} from '../engine/text/furiganaAlign';
+import { furiganaService } from '../services/furiganaService';
 import { cacheActiveMediaFile, clearCachedMediaFile } from '../services/mediaCache';
 import { tauriBridge } from '../services/tauriBridge';
 
@@ -112,6 +127,58 @@ function buildEvenTokens(text: string, startTime: number, endTime: number): Ruby
   }));
 }
 
+interface RelabelResult {
+  line: SubtitleLine;
+  /** True when the token count changed so per-word timings were re-split evenly. */
+  timingReset: boolean;
+}
+
+/**
+ * Applies new markdown text to a line. Per-word timings (and mute flags) are kept when the
+ * token count is unchanged, otherwise they are re-split evenly.
+ */
+function relabelLine(line: SubtitleLine, text: string): RelabelResult {
+  const parsed = tokenizeSubtitleText(text);
+  if (parsed.length > 0 && parsed.length === line.tokens.length) {
+    return {
+      line: {
+        ...line,
+        text,
+        tokens: parsed.map((pt, idx) => ({
+          ...line.tokens[idx],
+          text: pt.base,
+          ruby: pt.ruby,
+        })),
+      },
+      timingReset: false,
+    };
+  }
+  return {
+    line: { ...line, text, tokens: buildEvenTokens(text, line.startTime, line.endTime) },
+    timingReset: line.tokens.length > 0 && parsed.length !== line.tokens.length,
+  };
+}
+
+function emitNotice(message: string): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('substellar:notice', { detail: { message } }));
+  }
+}
+
+export interface FuriganaActionResult {
+  ok: boolean;
+  message?: string;
+}
+
+export interface AutoFuriganaAllResult {
+  total: number;
+  processed: number;
+  skipped: number;
+  failed: number;
+  timingReset: number;
+  cancelled: boolean;
+}
+
 interface StudioStoreState {
   activeTab: StudioTab;
   aspectRatio: AspectRatio;
@@ -167,12 +234,24 @@ interface StudioStoreState {
   setAllTokensAnimDisabled: (lineId: string, disabled: boolean) => void;
   resolveOverlappingLines: () => number;
   setTokensForLine: (lineId: string, tokens: RubyToken[], serializedText?: string) => void;
+  updateLinePlainText: (id: string, plain: string) => void;
+  setLineReading: (id: string, reading: string) => FuriganaActionResult;
+  editLineFurigana: (id: string, edit: FuriganaEdit) => void;
+  autoFuriganaLine: (id: string) => Promise<FuriganaActionResult>;
+  autoFuriganaAll: (options: {
+    overwrite: boolean;
+    onProgress?: (done: number, total: number) => void;
+    signal?: { cancelled: boolean };
+  }) => Promise<AutoFuriganaAllResult>;
   exportProjectJson: () => string;
   importProjectJson: (jsonString: string) => void;
   saveToLocalStorage: () => void;
   loadSampleTrack: () => void;
   loadLocalMedia: (file: File) => void;
-  loadLocalMediaFromPath: (filePath: string) => Promise<void>;
+  loadLocalMediaFromPath: (
+    filePath: string,
+    options?: { preserveTimelineState?: boolean }
+  ) => Promise<void>;
   clearProject: () => void;
   setErrorMessage: (msg: string | null) => void;
 }
@@ -686,6 +765,138 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
     });
   },
 
+  updateLinePlainText: (id: string, plain: string) => {
+    // Power users typing {Kanji|Ruby} directly keep the raw-syntax behavior.
+    if (/\{[^|{}]+\|[^|{}]+\}/.test(plain)) {
+      get().updateLineText(id, plain);
+      return;
+    }
+    set({
+      lines: get().lines.map((l) => {
+        if (l.id !== id) return l;
+        const segments = applyPlainEdit(markdownToSegments(l.text), plain);
+        return relabelLine(l, segmentsToMarkdown(segments)).line;
+      }),
+    });
+  },
+
+  setLineReading: (id: string, reading: string) => {
+    const line = get().lines.find((l) => l.id === id);
+    if (!line) return { ok: false, message: 'Baris tidak ditemukan.' };
+
+    const plain = stripRuby(line.text);
+    let segments: FuriganaSegment[];
+    if (reading.trim().length === 0) {
+      segments = markdownToSegments(plain);
+    } else {
+      const aligned = alignReading(plain, reading, markdownToSegments(line.text));
+      if (!aligned.ok) return { ok: false, message: aligned.error.message };
+      segments = aligned.segments;
+    }
+
+    const relabeled = relabelLine(line, segmentsToMarkdown(segments));
+    if (relabeled.line.text === line.text) return { ok: true };
+    set({ lines: get().lines.map((l) => (l.id === id ? relabeled.line : l)) });
+    if (relabeled.timingReset) {
+      emitNotice('Timing kata direset karena segmentasi berubah.');
+    }
+    return { ok: true };
+  },
+
+  editLineFurigana: (id: string, edit: FuriganaEdit) => {
+    const line = get().lines.find((l) => l.id === id);
+    if (!line) return;
+    const current = markdownToSegments(line.text);
+    const next = applyFuriganaEdit(current, edit);
+    if (next === current) return;
+    const relabeled = relabelLine(line, segmentsToMarkdown(next));
+    set({ lines: get().lines.map((l) => (l.id === id ? relabeled.line : l)) });
+    if (relabeled.timingReset) {
+      emitNotice('Timing kata direset karena segmentasi berubah.');
+    }
+  },
+
+  autoFuriganaLine: async (id: string) => {
+    const line = get().lines.find((l) => l.id === id);
+    if (!line) return { ok: false, message: 'Baris tidak ditemukan.' };
+    const plain = stripRuby(line.text);
+    if (!containsKanji(plain)) {
+      return { ok: true, message: 'Tidak ada kanji di baris ini.' };
+    }
+    try {
+      const [tokens] = await furiganaService.analyze([plain]);
+      const segments = segmentsFromMorphTokens(tokens ?? []);
+      if (segmentsToPlain(segments) !== plain) {
+        return { ok: false, message: 'Hasil analisis tidak cocok dengan teks asli.' };
+      }
+      // The line may have been edited while the worker was busy.
+      const latest = get().lines.find((l) => l.id === id);
+      if (!latest || latest.text !== line.text) {
+        return { ok: false, message: 'Baris berubah saat dianalisis, coba lagi.' };
+      }
+      const relabeled = relabelLine(latest, segmentsToMarkdown(segments));
+      set({ lines: get().lines.map((l) => (l.id === id ? relabeled.line : l)) });
+      if (relabeled.timingReset) {
+        emitNotice('Timing kata direset karena segmentasi berubah.');
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  },
+
+  autoFuriganaAll: async ({ overwrite, onProgress, signal }) => {
+    const snapshot = get().lines;
+    const targets = snapshot
+      .map((line) => ({ line, plain: stripRuby(line.text) }))
+      .filter(({ line, plain }) => containsKanji(plain) && (overwrite || !hasFurigana(line.text)));
+
+    const result: AutoFuriganaAllResult = {
+      total: snapshot.length,
+      processed: 0,
+      skipped: snapshot.length - targets.length,
+      failed: 0,
+      timingReset: 0,
+      cancelled: false,
+    };
+    if (targets.length === 0) return result;
+
+    const analyzed = await furiganaService.analyzeAll(
+      targets.map((t) => t.plain),
+      { onProgress, signal }
+    );
+
+    const updates = new Map<string, { original: string; next: SubtitleLine }>();
+    targets.forEach((target, k) => {
+      const tokens = analyzed[k];
+      if (!tokens) return;
+      const segments = segmentsFromMorphTokens(tokens);
+      if (segmentsToPlain(segments) !== target.plain) {
+        result.failed++;
+        return;
+      }
+      const relabeled = relabelLine(target.line, segmentsToMarkdown(segments));
+      if (relabeled.timingReset) result.timingReset++;
+      updates.set(target.line.id, { original: target.line.text, next: relabeled.line });
+    });
+
+    // Never overwrite a line the user edited while the analysis was running.
+    set({
+      lines: get().lines.map((l) => {
+        const update = updates.get(l.id);
+        if (!update) return l;
+        if (l.text !== update.original) {
+          result.failed++;
+          return l;
+        }
+        result.processed++;
+        return update.next;
+      }),
+    });
+    result.cancelled = Boolean(signal?.cancelled);
+    return result;
+  },
+
   exportProjectJson: () => {
     const state = get();
     const payload: SubStellarProjectFile = {
@@ -870,7 +1081,11 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
     }
   },
 
-  loadLocalMediaFromPath: async (filePath: string) => {
+  loadLocalMediaFromPath: async (
+    filePath: string,
+    options?: { preserveTimelineState?: boolean }
+  ) => {
+    const preserve = Boolean(options?.preserveTimelineState);
     const prevTrack = get().track;
     if (prevTrack.videoUrl?.startsWith('blob:') && typeof URL.revokeObjectURL === 'function') {
       try {
@@ -892,6 +1107,26 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
     const filename = filePath.split(/[/\\]/).pop() || 'Local Media';
     const title = filename.replace(/\.[^/.]+$/, '');
 
+    const applyResolvedMedia = (resolvedUrl: string, detectedDuration: number) => {
+      const current = get();
+      set({
+        track: {
+          ...(preserve ? current.track : {}),
+          id: preserve && current.track.id ? current.track.id : `local-${Date.now()}`,
+          title: preserve && current.track.title ? current.track.title : title,
+          artist: preserve && current.track.artist ? current.track.artist : 'Local Media',
+          duration: detectedDuration,
+          videoUrl: isVideo ? resolvedUrl : undefined,
+          audioUrl: !isVideo ? resolvedUrl : undefined,
+          mediaFilePath: filePath,
+        },
+        duration: detectedDuration,
+        currentTime: preserve ? current.currentTime : 0,
+        status: 'ready',
+        errorMessage: null,
+      });
+    };
+
     if (typeof document !== 'undefined') {
       const media = document.createElement(isVideo ? 'video' : 'audio');
       media.src = playableUrl;
@@ -905,42 +1140,48 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       };
 
       media.onloadedmetadata = () => {
-        const duration = media.duration && !isNaN(media.duration) ? media.duration : 180;
+        const detectedDuration =
+          media.duration && !isNaN(media.duration)
+            ? media.duration
+            : get().track.duration || 180;
         cleanupProbe();
-        set({
-          track: {
-            id: `local-${Date.now()}`,
-            title,
-            artist: 'Local Media',
-            duration,
-            videoUrl: isVideo ? playableUrl : undefined,
-            audioUrl: !isVideo ? playableUrl : undefined,
-            mediaFilePath: filePath,
-          },
-          duration,
-          currentTime: 0,
-          status: 'ready',
-          errorMessage: null,
-        });
+        applyResolvedMedia(playableUrl, detectedDuration);
       };
 
-      media.onerror = () => {
+      media.onerror = async () => {
         cleanupProbe();
-        set({
-          track: {
-            id: `local-${Date.now()}`,
-            title,
-            artist: 'Local Media',
-            duration: 180,
-            videoUrl: isVideo ? playableUrl : undefined,
-            audioUrl: !isVideo ? playableUrl : undefined,
-            mediaFilePath: filePath,
-          },
-          duration: 180,
-          currentTime: 0,
-          status: 'ready',
-          errorMessage: null,
-        });
+        // If asset:// URL failed to load (e.g., special characters, drive scope, or WebView2 asset quirk),
+        // fall back to reading raw binary bytes from Rust into a Blob URL!
+        if (tauriBridge.isAvailable()) {
+          try {
+            const blobUrl = await tauriBridge.readMediaBlobUrl(filePath);
+            const fallbackMedia = document.createElement(isVideo ? 'video' : 'audio');
+            fallbackMedia.src = blobUrl;
+            fallbackMedia.preload = 'metadata';
+            const cleanupFallback = () => {
+              fallbackMedia.onloadedmetadata = null;
+              fallbackMedia.onerror = null;
+              fallbackMedia.removeAttribute('src');
+              fallbackMedia.load();
+            };
+            fallbackMedia.onloadedmetadata = () => {
+              const detectedDuration =
+                fallbackMedia.duration && !isNaN(fallbackMedia.duration)
+                  ? fallbackMedia.duration
+                  : get().track.duration || 180;
+              cleanupFallback();
+              applyResolvedMedia(blobUrl, detectedDuration);
+            };
+            fallbackMedia.onerror = () => {
+              cleanupFallback();
+              applyResolvedMedia(blobUrl, get().track.duration || 180);
+            };
+            return;
+          } catch {
+            // Fall through if file no longer exists on disk
+          }
+        }
+        applyResolvedMedia(playableUrl, get().track.duration || 180);
       };
     }
   },

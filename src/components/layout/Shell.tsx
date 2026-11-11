@@ -66,17 +66,14 @@ export const Shell: React.FC = () => {
 
       const currentTrack = useStudioStore.getState().track;
 
-      // 1. If a native disk mediaFilePath exists (e.g. YouTube download or native file), restore asset URL
+      // 1. If a native disk mediaFilePath exists (e.g. YouTube download or native file), restore via loadLocalMediaFromPath (with automatic Blob fallback)
       if (currentTrack.mediaFilePath && tauriBridge.isAvailable()) {
         try {
-          const playable = await tauriBridge.toPlayableUrl(currentTrack.mediaFilePath);
-          const isAudioOnly = Boolean(currentTrack.audioUrl && !currentTrack.videoUrl);
-          if (isMounted) {
-            setTrack({
-              videoUrl: isAudioOnly ? undefined : playable,
-              audioUrl: isAudioOnly ? playable : undefined,
+          await useStudioStore
+            .getState()
+            .loadLocalMediaFromPath(currentTrack.mediaFilePath, {
+              preserveTimelineState: true,
             });
-          }
           return;
         } catch {
           // Fall through to IndexedDB cache
@@ -91,10 +88,17 @@ export const Shell: React.FC = () => {
 
       if (hasStaleBlob) {
         const cached = await restoreCachedMediaFile();
-        if (isMounted && cached) {
+        if (!isMounted) return;
+        if (cached) {
           setTrack({
             videoUrl: cached.isVideo ? cached.url : undefined,
             audioUrl: !cached.isVideo ? cached.url : undefined,
+          });
+        } else {
+          // Clear expired blob URL from previous session so <video> does not render a dead black frame
+          setTrack({
+            videoUrl: undefined,
+            audioUrl: undefined,
           });
         }
       }

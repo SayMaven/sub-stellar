@@ -10,7 +10,7 @@ import { downloadFile } from '../engine/text/SubtitleExporter';
 const DB_NAME = 'substellar-media-db';
 const STORE_NAME = 'media-blobs';
 const ACTIVE_MEDIA_KEY = 'last-active-media';
-const MAX_IDB_CACHE_BYTES = 50 * 1024 * 1024; // 50 MB cap to prevent multi-GB RAM spikes in WebView2 Storage Service
+const MAX_IDB_CACHE_BYTES = 350 * 1024 * 1024; // 350 MB cap so standard HD music videos dropped via drag-and-drop remain cached across restarts
 let lastRestoredObjectUrl: string | null = null;
 
 export interface CachedMediaRecord {
