@@ -121,7 +121,7 @@ SubStellar dilisensikan secara ganda (*dual-licensed*) di bawah pilihan Anda:
 Lihat berkas [LICENSE](LICENSE) untuk informasi lebih lanjut.
 
 **Penghargaan Khusus & Inspirasi:**
-* **[Gatefold](https://github.com/SayMaven/gatefold-foobar2000):** Inspirasi bahasa desain tema modern OKLCH dan arsitektur pencarian lirik multi-source.
+* **[Gatefold](https://github.com/DEVIROYrus/gatefold-foobar2000):** Inspirasi bahasa desain tema modern OKLCH dan arsitektur pencarian lirik multi-source.
 * **[PixiJS](https://pixijs.com):** Engine rendering 2D WebGL/WebGPU performa tinggi.
 * **[Tauri](https://tauri.app):** Framework desktop lintas-platform yang ringan dan aman.
 

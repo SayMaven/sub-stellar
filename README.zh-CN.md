@@ -121,7 +121,7 @@ SubStellar 采用**双重开源许可（Dual-Licensed）**，您可以任选其�
 详情请参阅 [LICENSE](LICENSE) 文件。
 
 **特别致谢与灵感来源：**
-* **[Gatefold](https://github.com/SayMaven/gatefold-foobar2000)：** 启发了本项目的 OKLCH 动态色彩设计语言与多源歌词搜索架构。
+* **[Gatefold](https://github.com/DEVIROYrus/gatefold-foobar2000)：** 启发了本项目的 OKLCH 动态色彩设计语言与多源歌词搜索架构。
 * **[PixiJS](https://pixijs.com)：** 高性能 2D WebGL/WebGPU 渲染引擎。
 * **[Tauri](https://tauri.app)：** 轻量、安全的跨平台桌面应用框架。
 

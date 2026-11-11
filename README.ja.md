@@ -121,7 +121,7 @@ SubStellar は以下のいずれかのライセンスを選択できる**デュ�
 詳細は [LICENSE](LICENSE) ファイルをご確認ください。
 
 **謝辞・インスピレーション：**
-* **[Gatefold](https://github.com/SayMaven/gatefold-foobar2000)：** OKLCHデザイン言語およびマルチソース歌詞取得アーキテクチャのインスピレーション。
+* **[Gatefold](https://github.com/DEVIROYrus/gatefold-foobar2000)：** OKLCHデザイン言語およびマルチソース歌詞取得アーキテクチャのインスピレーション。
 * **[PixiJS](https://pixijs.com)：** 高速2D WebGL/WebGPUレンダリングエンジン。
 * **[Tauri](https://tauri.app)：** 軽量で安全なクロスプラットフォーム・デスクトップフレームワーク。
 

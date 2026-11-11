@@ -121,6 +121,6 @@ SubStellar is dual-licensed under your choice of either:
 See [LICENSE](LICENSE) for details.
 
 **Special Thanks & Inspiration:**
-* **[Gatefold](https://github.com/SayMaven/gatefold-foobar2000):** Inspiration for the OKLCH design language and multi-source lyrics architecture.
+* **[Gatefold](https://github.com/DEVIROYrus/gatefold-foobar2000):** Inspiration for the OKLCH design language and multi-source lyrics architecture.
 * **[PixiJS](https://pixijs.com):** High-performance 2D WebGL/WebGPU rendering engine.
 * **[Tauri](https://tauri.app):** Lightweight, secure cross-platform desktop framework.
