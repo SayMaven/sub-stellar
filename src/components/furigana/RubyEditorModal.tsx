@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, Plus, Trash2, Sparkles, BookOpen } from 'lucide-react';
+import { X, Check, Plus, Trash2, Languages, BookOpen } from 'lucide-react';
 import {
   parseMarkdownRuby,
   serializeToMarkdownRuby,
@@ -246,7 +246,7 @@ export const RubyEditorModal: React.FC<RubyEditorModalProps> = ({
                     }`}
                     title={seg.isRuby ? 'Remove Furigana' : 'Enable Furigana'}
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
+                    <Languages className="w-3.5 h-3.5" />
                   </button>
                 </div>
 

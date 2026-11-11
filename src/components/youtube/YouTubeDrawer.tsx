@@ -8,7 +8,6 @@ import {
   FileAudio,
   RefreshCw,
   Clock,
-  Sparkles,
   Layers,
   ClipboardPaste,
   Wand2,
@@ -1246,7 +1245,7 @@ export const YouTubeDrawer: React.FC = () => {
                     disabled={isDownloading}
                     className="py-2.5 px-3.5 bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-xs font-semibold text-gatefold-text rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
                   >
-                    <Sparkles className="w-4 h-4 text-gatefold-accent" />
+                    <Music className="w-4 h-4 text-gatefold-accent" />
                     <span>Find Synced Lyrics</span>
                   </button>
                 </div>

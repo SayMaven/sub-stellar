@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import {
   ZoomIn,
   ZoomOut,
-  Sparkles,
+  Languages,
   Layers,
   Volume2,
   Plus,
@@ -562,7 +562,7 @@ const TimelineDrawerInner: React.FC = () => {
                           className="p-0.5 rounded hover:bg-gatefold-accent hover:text-gatefold-bg text-gatefold-text-3 transition-colors opacity-0 group-hover:opacity-100"
                           title="Edit Furigana & Word Durations"
                         >
-                          <Sparkles className="w-3 h-3" />
+                          <Languages className="w-3 h-3" />
                         </button>
                         {blockPxWidth >= 90 && (
                           <span className="text-[9px] font-mono text-gatefold-text-3">

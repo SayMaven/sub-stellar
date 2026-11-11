@@ -1,6 +1,8 @@
 import React, { useRef, useState, useEffect } from 'react';
 import {
-  Sparkles,
+  Subtitles,
+  Languages,
+  Play,
   Search,
   Activity,
   Zap,
@@ -350,7 +352,7 @@ export const Header: React.FC = () => {
           className="flex items-center gap-2 cursor-pointer pr-2 border-r border-gatefold-line shrink-0"
         >
           <div className="flex items-center justify-center w-6 h-6 rounded-md bg-gatefold-accent/20 border border-gatefold-accent/40 text-gatefold-accent">
-            <Sparkles className="w-3.5 h-3.5" />
+            <Subtitles className="w-3.5 h-3.5" />
           </div>
           <span className="font-semibold text-xs tracking-wide text-gatefold-text">
             SubStellar
@@ -471,7 +473,7 @@ export const Header: React.FC = () => {
                   className="w-full px-3 py-1.5 hover:bg-gatefold-hover flex items-center justify-between text-left text-gatefold-text-2"
                 >
                   <span className="flex items-center gap-2">
-                    <Sparkles className="w-3.5 h-3.5 text-gatefold-accent" />
+                    <Play className="w-3.5 h-3.5 text-gatefold-accent fill-current" />
                     <span>Load J-Pop Demo Showcase</span>
                   </span>
                 </button>
@@ -576,7 +578,7 @@ export const Header: React.FC = () => {
                   className="w-full px-3 py-1.5 hover:bg-gatefold-hover flex items-center justify-between text-left text-gatefold-text disabled:opacity-40"
                 >
                   <span className="flex items-center gap-2">
-                    <Sparkles className="w-3.5 h-3.5 text-gatefold-accent" />
+                    <Languages className="w-3.5 h-3.5 text-gatefold-accent" />
                     <span>Auto Furigana — Semua Baris...</span>
                   </span>
                 </button>

@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Sparkles,
+  MonitorPlay,
   Download,
   FileText,
   Sliders,
@@ -19,7 +19,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'studio', label: 'Studio Viewport', icon: Sparkles },
+  { id: 'studio', label: 'Studio Viewport', icon: MonitorPlay },
   { id: 'youtube', label: 'YouTube Downloader', icon: Download },
   { id: 'lyrics', label: 'Lyrics Database', icon: FileText },
   { id: 'presets', label: 'Preset Library', icon: Sliders },

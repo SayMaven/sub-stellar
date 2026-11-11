@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { UploadCloud, Sparkles, Video, FileText, HardDrive } from 'lucide-react';
+import { UploadCloud, Play, Video, FileText, HardDrive } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { parseLrc } from '../../services/lyrics/lrcParser';
 import { tauriBridge } from '../../services/tauriBridge';
@@ -149,7 +149,7 @@ export const EmptyStudioState: React.FC = () => {
             onClick={loadSampleTrack}
             className="w-full py-2.5 px-4 rounded-lg bg-gatefold-accent text-gatefold-bg font-semibold text-xs hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2"
           >
-            <Sparkles className="w-4 h-4" />
+            <Play className="w-4 h-4 fill-current" />
             <span>Load J-Pop Showcase (Furigana & Particles)</span>
           </button>
 

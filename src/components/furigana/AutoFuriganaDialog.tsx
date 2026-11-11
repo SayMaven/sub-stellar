@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Sparkles, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Languages, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useStudioStore, type AutoFuriganaAllResult } from '../../stores/useStudioStore';
 import { containsKanji, hasFurigana, stripRuby } from '../../engine/text/furiganaAlign';
 
@@ -70,7 +70,7 @@ export const AutoFuriganaDialog: React.FC<AutoFuriganaDialogProps> = ({ isOpen, 
       <div className="w-full max-w-md bg-gatefold-surface border border-gatefold-line-2 rounded-xl shadow-2xl overflow-hidden">
         <div className="h-12 px-5 border-b border-gatefold-line flex items-center justify-between bg-gatefold-panel">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-gatefold-accent" />
+            <Languages className="w-4 h-4 text-gatefold-accent" />
             <h3 className="text-xs font-semibold text-gatefold-text">Auto Furigana — Semua Baris</h3>
           </div>
           <button
@@ -181,7 +181,7 @@ export const AutoFuriganaDialog: React.FC<AutoFuriganaDialogProps> = ({ isOpen, 
             disabled={running || targetCount === 0}
             className="px-4 py-2 rounded-lg bg-gatefold-accent text-gatefold-bg text-xs font-semibold hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5"
           >
-            <Sparkles className="w-3.5 h-3.5" />
+            {running && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             <span>Mulai</span>
           </button>
         </div>

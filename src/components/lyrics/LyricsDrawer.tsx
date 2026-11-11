@@ -3,7 +3,6 @@ import {
   Search,
   FileText,
   Check,
-  Sparkles,
   AlertCircle,
   RefreshCw,
   Clock,
@@ -293,7 +292,7 @@ export const LyricsDrawer: React.FC = () => {
                           </span>
                           {cand.isWordSynced && (
                             <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                              <Sparkles className="w-2.5 h-2.5" />
+                              <Clock className="w-2.5 h-2.5" />
                               <span>Word-Sync</span>
                             </span>
                           )}
