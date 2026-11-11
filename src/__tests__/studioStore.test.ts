@@ -132,4 +132,17 @@ describe('useStudioStore', () => {
     expect(useStudioStore.getState().status).toBe('ready');
     expect(useStudioStore.getState().lines.length).toBeGreaterThan(0);
   });
+
+  it('resets projectFilePath when loading new media so previous projects are not overwritten', async () => {
+    const { setProjectFilePath, loadLocalMediaFromPath } = useStudioStore.getState();
+
+    setProjectFilePath('C:/projects/test_hatsukoibutterfly.substellar');
+    expect(useStudioStore.getState().projectFilePath).toBe(
+      'C:/projects/test_hatsukoibutterfly.substellar'
+    );
+
+    // Loading a new media file without preserveTimelineState resets projectFilePath to null
+    await loadLocalMediaFromPath('C:/videos/new_video.mp4');
+    expect(useStudioStore.getState().projectFilePath).toBeNull();
+  });
 });

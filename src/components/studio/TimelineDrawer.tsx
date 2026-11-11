@@ -12,6 +12,7 @@ import {
 import { useStudioStore } from '../../stores/useStudioStore';
 import { waveformManager } from '../../engine/audio/WaveformManager';
 import { RubyEditorModal } from '../furigana/RubyEditorModal';
+import { AutoFuriganaDialog } from '../furigana/AutoFuriganaDialog';
 
 const TimelineDrawerInner: React.FC = () => {
   const duration = useStudioStore((s) => s.duration);
@@ -38,6 +39,7 @@ const TimelineDrawerInner: React.FC = () => {
   const [peaks, setPeaks] = useState<Float32Array | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
+  const [isFuriganaBatchOpen, setIsFuriganaBatchOpen] = useState(false);
   const [viewport, setViewport] = useState({ scrollLeft: 0, width: 1200 });
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -378,6 +380,16 @@ const TimelineDrawerInner: React.FC = () => {
             </button>
           )}
 
+          {lines.length > 0 && (
+            <button
+              onClick={() => setIsFuriganaBatchOpen(true)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-[10px] font-sans font-medium text-gatefold-text-2 hover:text-gatefold-text transition-colors"
+              title="Auto-generate Furigana for all lines via Kuromoji"
+            >
+              <span>Auto Furigana All</span>
+            </button>
+          )}
+
           {overlapCount > 0 && (
             <button
               onClick={() => resolveOverlappingLines()}
@@ -599,6 +611,12 @@ const TimelineDrawerInner: React.FC = () => {
           line={editingLine}
         />
       )}
+
+      {/* Batch Auto Furigana Dialog */}
+      <AutoFuriganaDialog
+        isOpen={isFuriganaBatchOpen}
+        onClose={() => setIsFuriganaBatchOpen(false)}
+      />
     </div>
   );
 };

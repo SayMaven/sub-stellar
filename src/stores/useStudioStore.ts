@@ -1058,6 +1058,13 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
   },
 
   loadLocalMedia: (file: File) => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(AUTOSAVE_PATH_STORAGE_KEY);
+      }
+    } catch {}
+    set({ projectFilePath: null });
+
     const prevTrack = get().track;
     if (prevTrack.videoUrl?.startsWith('blob:') && typeof URL.revokeObjectURL === 'function') {
       try {
@@ -1098,7 +1105,13 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       media.onloadedmetadata = () => {
         const duration = media.duration && !isNaN(media.duration) ? media.duration : 180;
         cleanupProbe();
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem(AUTOSAVE_PATH_STORAGE_KEY);
+          }
+        } catch {}
         set({
+          projectFilePath: null,
           track: {
             id: `local-${Date.now()}`,
             title: file.name.replace(/\.[^/.]+$/, ''),
@@ -1117,7 +1130,13 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
 
       media.onerror = () => {
         cleanupProbe();
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem(AUTOSAVE_PATH_STORAGE_KEY);
+          }
+        } catch {}
         set({
+          projectFilePath: null,
           track: {
             id: `local-${Date.now()}`,
             title: file.name.replace(/\.[^/.]+$/, ''),
@@ -1141,6 +1160,15 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
     options?: { preserveTimelineState?: boolean }
   ) => {
     const preserve = Boolean(options?.preserveTimelineState);
+    if (!preserve) {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem(AUTOSAVE_PATH_STORAGE_KEY);
+        }
+      } catch {}
+      set({ projectFilePath: null });
+    }
+
     const prevTrack = get().track;
     if (prevTrack.videoUrl?.startsWith('blob:') && typeof URL.revokeObjectURL === 'function') {
       try {
@@ -1164,7 +1192,15 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
 
     const applyResolvedMedia = (resolvedUrl: string, detectedDuration: number) => {
       const current = get();
+      if (!preserve) {
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem(AUTOSAVE_PATH_STORAGE_KEY);
+          }
+        } catch {}
+      }
       set({
+        projectFilePath: preserve ? current.projectFilePath : null,
         track: {
           ...(preserve ? current.track : {}),
           id: preserve && current.track.id ? current.track.id : `local-${Date.now()}`,

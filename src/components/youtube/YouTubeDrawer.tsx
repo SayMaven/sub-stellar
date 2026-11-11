@@ -189,6 +189,7 @@ export const YouTubeDrawer: React.FC = () => {
   const loadSampleTrack = useStudioStore((s) => s.loadSampleTrack);
   const setActiveTab = useStudioStore((s) => s.setActiveTab);
   const setTrack = useStudioStore((s) => s.setTrack);
+  const setProjectFilePath = useStudioStore((s) => s.setProjectFilePath);
   const importLyrics = useStudioStore((s) => s.importLyrics);
   const autoFuriganaAll = useStudioStore((s) => s.autoFuriganaAll);
   const loadLocalMediaFromPath = useStudioStore((s) => s.loadLocalMediaFromPath);
@@ -542,6 +543,7 @@ export const YouTubeDrawer: React.FC = () => {
       const playable = await tauriBridge.toPlayableUrl(localPath);
 
       const nextTrack = trackFromMetadata(metadata);
+      setProjectFilePath(null);
       setTrack({
         ...nextTrack,
         videoUrl: isAudio ? undefined : playable,
@@ -605,6 +607,7 @@ export const YouTubeDrawer: React.FC = () => {
     try {
       const canonicalUrl = url.trim() || `https://www.youtube.com/watch?v=${metadata.id}`;
       const nextTrack = trackFromMetadata(metadata);
+      setProjectFilePath(null);
       setTrack({ ...nextTrack, videoUrl: undefined, audioUrl: undefined });
       if (autoThemePalette && metadata.thumbnail_url) {
         extractFromCover(metadata.thumbnail_url);
@@ -647,6 +650,7 @@ export const YouTubeDrawer: React.FC = () => {
         historyMatch?.thumbnail_url ||
         `https://i.ytimg.com/vi/${item.video_id}/hqdefault.jpg`;
 
+      setProjectFilePath(null);
       setTrack({
         id: item.video_id,
         title: cleaned.title,
