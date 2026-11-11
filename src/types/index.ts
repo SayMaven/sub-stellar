@@ -7,6 +7,7 @@ export type CanvasResolutionPreset = '720p' | '1080p' | '1440p' | '4k';
 export type WordAnimationStyle =
   | 'pop'
   | 'sweep'
+  | 'smooth-sweep'
   | 'float'
   | 'glow-pulse'
   | 'slide'

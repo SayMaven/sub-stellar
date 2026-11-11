@@ -230,11 +230,11 @@ export const LyricsDrawer: React.FC = () => {
               </div>
             )}
 
-            {/* Widescreen 2-Column Layout: Left = Candidate Cards, Right = Lyrics Full Preview */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Widescreen 2-Column Layout: Left = Candidate Cards, Right = Lyrics Full Preview (Balanced Heights) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
               {/* Left Column: Candidate Matches List */}
-              <div className="lg:col-span-5 space-y-3">
-                <div className="flex justify-between items-center px-1">
+              <div className="lg:col-span-5 flex flex-col h-[560px] space-y-3">
+                <div className="flex justify-between items-center px-1 shrink-0">
                   <span className="text-[10px] font-semibold text-gatefold-text-3 uppercase tracking-wider font-mono">
                     Candidate Matches ({candidates.length})
                   </span>
@@ -243,122 +243,124 @@ export const LyricsDrawer: React.FC = () => {
                   </span>
                 </div>
 
-                {isSearching ? (
-                  <div className="space-y-2">
-                    {[1, 2, 3].map((i) => (
-                      <div
-                        key={i}
-                        className="gatefold-card p-4 animate-pulse flex justify-between items-center"
-                      >
-                        <div className="space-y-2 w-1/2">
-                          <div className="h-4 bg-gatefold-surface-2 rounded w-3/4" />
-                          <div className="h-3 bg-gatefold-surface rounded w-1/2" />
-                        </div>
-                        <div className="h-8 w-24 bg-gatefold-surface-2 rounded" />
-                      </div>
-                    ))}
-                  </div>
-                ) : candidates.length === 0 ? (
-                  <div className="gatefold-card p-8 flex flex-col items-center justify-center text-center space-y-3">
-                    <AlertCircle className="w-8 h-8 text-gatefold-text-3" />
-                    <div className="space-y-1">
-                      <h4 className="text-sm font-semibold text-gatefold-text">
-                        No lyrics candidates found
-                      </h4>
-                      <p className="text-xs text-gatefold-text-3 max-w-sm">
-                        Try searching with alternate spelling, romaji, or paste your LRC subtitle file manually.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setMode('manual')}
-                      className="px-3 py-1.5 rounded-lg bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-xs font-medium text-gatefold-text"
-                    >
-                      Paste Lyrics Manually
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-                    {candidates.map((cand) => {
-                      const isSelected = selectedId === cand.id;
-                      const matchPct = Math.round(cand.similarity * 100);
-
-                      return (
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  {isSearching ? (
+                    <div className="space-y-2">
+                      {[1, 2, 3].map((i) => (
                         <div
-                          key={cand.id}
-                          onClick={() => setSelectedId(cand.id)}
-                          className={`gatefold-card p-3.5 flex flex-col gap-2 cursor-pointer transition-all ${
-                            isSelected
-                              ? 'border-gatefold-accent bg-gatefold-accent/10 shadow-sm'
-                              : 'hover:border-gatefold-line-2'
-                          }`}
+                          key={i}
+                          className="gatefold-card p-4 animate-pulse flex justify-between items-center"
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <h4 className="text-xs font-semibold text-gatefold-text truncate">{cand.title}</h4>
-                              <p className="text-[11px] text-gatefold-text-3 truncate mt-0.5">
-                                {cand.artist} {cand.album ? `• ${cand.album}` : ''}
-                              </p>
-                            </div>
-                            <span
-                              className={`text-xs font-bold font-mono shrink-0 ${
-                                matchPct >= 90
-                                  ? 'text-emerald-400'
-                                  : matchPct >= 75
-                                  ? 'text-cyan-400'
-                                  : 'text-gatefold-text-3'
-                              }`}
-                            >
-                              {matchPct}% Match
-                            </span>
+                          <div className="space-y-2 w-1/2">
+                            <div className="h-4 bg-gatefold-surface-2 rounded w-3/4" />
+                            <div className="h-3 bg-gatefold-surface rounded w-1/2" />
                           </div>
-
-                          <div className="flex items-center justify-between pt-2 border-t border-gatefold-line/60">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.2 rounded bg-gatefold-surface-2 text-gatefold-accent border border-gatefold-line">
-                                {cand.source}
-                              </span>
-                              {cand.isWordSynced && (
-                                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                                  <Clock className="w-2.5 h-2.5" />
-                                  <span>Word-Sync</span>
-                                </span>
-                              )}
-                              {cand.hasTranslation && (
-                                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
-                                  Translation
-                                </span>
-                              )}
-                              {cand.duration > 0 && (
-                                <span className="text-[9px] font-mono text-gatefold-text-3">
-                                  {Math.round(cand.duration)}s
-                                </span>
-                              )}
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleApplyCandidate(cand);
-                              }}
-                              className="px-2.5 py-1 rounded bg-gatefold-accent text-gatefold-bg hover:opacity-90 font-semibold text-[11px] transition-all flex items-center gap-1"
-                              title="Apply to Studio"
-                            >
-                              <Check className="w-3 h-3" />
-                              <span>Apply</span>
-                            </button>
-                          </div>
+                          <div className="h-8 w-24 bg-gatefold-surface-2 rounded" />
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  ) : candidates.length === 0 ? (
+                    <div className="gatefold-card h-full flex flex-col items-center justify-center text-center space-y-3 p-6">
+                      <AlertCircle className="w-8 h-8 text-gatefold-text-3" />
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-semibold text-gatefold-text">
+                          No lyrics candidates found
+                        </h4>
+                        <p className="text-xs text-gatefold-text-3 max-w-sm">
+                          Try searching with alternate spelling, romaji, or paste your LRC subtitle file manually.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setMode('manual')}
+                        className="px-3 py-1.5 rounded-lg bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line text-xs font-medium text-gatefold-text"
+                      >
+                        Paste Lyrics Manually
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 pr-1">
+                      {candidates.map((cand) => {
+                        const isSelected = selectedId === cand.id;
+                        const matchPct = Math.round(cand.similarity * 100);
+
+                        return (
+                          <div
+                            key={cand.id}
+                            onClick={() => setSelectedId(cand.id)}
+                            className={`gatefold-card p-3.5 flex flex-col gap-2 cursor-pointer transition-all ${
+                              isSelected
+                                ? 'border-gatefold-accent bg-gatefold-accent/10 shadow-sm'
+                                : 'hover:border-gatefold-line-2'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <h4 className="text-xs font-semibold text-gatefold-text truncate">{cand.title}</h4>
+                                <p className="text-[11px] text-gatefold-text-3 truncate mt-0.5">
+                                  {cand.artist} {cand.album ? `• ${cand.album}` : ''}
+                                </p>
+                              </div>
+                              <span
+                                className={`text-xs font-bold font-mono shrink-0 ${
+                                  matchPct >= 90
+                                    ? 'text-emerald-400'
+                                    : matchPct >= 75
+                                    ? 'text-cyan-400'
+                                    : 'text-gatefold-text-3'
+                                }`}
+                              >
+                                {matchPct}% Match
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-2 border-t border-gatefold-line/60">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.2 rounded bg-gatefold-surface-2 text-gatefold-accent border border-gatefold-line">
+                                  {cand.source}
+                                </span>
+                                {cand.isWordSynced && (
+                                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                                    <Clock className="w-2.5 h-2.5" />
+                                    <span>Word-Sync</span>
+                                  </span>
+                                )}
+                                {cand.hasTranslation && (
+                                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                                    Translation
+                                  </span>
+                                )}
+                                {cand.duration > 0 && (
+                                  <span className="text-[9px] font-mono text-gatefold-text-3">
+                                    {Math.round(cand.duration)}s
+                                  </span>
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleApplyCandidate(cand);
+                                }}
+                                className="px-2.5 py-1 rounded bg-gatefold-accent text-gatefold-bg hover:opacity-90 font-semibold text-[11px] transition-all flex items-center gap-1"
+                                title="Apply to Studio"
+                              >
+                                <Check className="w-3 h-3" />
+                                <span>Apply</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Right Column: Detailed Candidate Preview Pane */}
-              <div className="lg:col-span-7 space-y-3">
-                <div className="flex justify-between items-center px-1">
+              <div className="lg:col-span-7 flex flex-col h-[560px] space-y-3">
+                <div className="flex justify-between items-center px-1 shrink-0">
                   <span className="text-[10px] font-semibold text-gatefold-text-3 uppercase tracking-wider font-mono">
                     Lyrics Preview & Synchronization Details
                   </span>
@@ -375,8 +377,8 @@ export const LyricsDrawer: React.FC = () => {
                 </div>
 
                 {selectedCandidate ? (
-                  <div className="gatefold-card-strong p-4 space-y-3">
-                    <div className="flex items-center justify-between pb-3 border-b border-gatefold-line">
+                  <div className="gatefold-card-strong p-4 flex flex-col flex-1 min-h-0 space-y-3">
+                    <div className="flex items-center justify-between pb-3 border-b border-gatefold-line shrink-0">
                       <div>
                         <h3 className="text-sm font-semibold text-gatefold-text">{selectedCandidate.title}</h3>
                         <p className="text-xs text-gatefold-text-3 mt-0.5">
@@ -393,12 +395,12 @@ export const LyricsDrawer: React.FC = () => {
                       </button>
                     </div>
 
-                    <pre className="h-[480px] overflow-y-auto text-xs font-mono text-gatefold-text-2 bg-gatefold-surface p-4 rounded-lg whitespace-pre-wrap leading-relaxed border border-gatefold-line">
+                    <pre className="flex-1 min-h-0 overflow-y-auto text-xs font-mono text-gatefold-text-2 bg-gatefold-surface p-4 rounded-lg whitespace-pre-wrap leading-relaxed border border-gatefold-line">
                       {selectedCandidate.syncedLyrics || selectedCandidate.plainLyrics}
                     </pre>
                   </div>
                 ) : (
-                  <div className="gatefold-card p-12 flex flex-col items-center justify-center text-center space-y-2 h-[480px]">
+                  <div className="gatefold-card p-12 flex flex-col flex-1 min-h-0 items-center justify-center text-center space-y-2">
                     <FileText className="w-10 h-10 text-gatefold-text-3 opacity-40" />
                     <h4 className="text-sm font-semibold text-gatefold-text-2">
                       No Lyric Selected

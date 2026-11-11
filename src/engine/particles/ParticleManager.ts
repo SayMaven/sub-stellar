@@ -35,8 +35,8 @@ export const PRESET_CONFIGS: Record<ParticlePresetType, ParticlePresetConfig> = 
     speedMax: 80,
     decayMin: 0.4,
     decayMax: 0.8,
-    scaleMin: 0.4,
-    scaleMax: 0.9,
+    scaleMin: 0.16,
+    scaleMax: 0.32,
     gravityY: -15, // Soft upward drift
   },
   sparkle: {
@@ -44,8 +44,8 @@ export const PRESET_CONFIGS: Record<ParticlePresetType, ParticlePresetConfig> = 
     speedMax: 260,
     decayMin: 0.8,
     decayMax: 1.6,
-    scaleMin: 0.6,
-    scaleMax: 1.4,
+    scaleMin: 0.18,
+    scaleMax: 0.38,
     gravityY: 40, // Radial burst falling under slight gravity
   },
   cosmic: {
@@ -53,8 +53,8 @@ export const PRESET_CONFIGS: Record<ParticlePresetType, ParticlePresetConfig> = 
     speedMax: 120,
     decayMin: 0.3,
     decayMax: 0.6,
-    scaleMin: 0.8,
-    scaleMax: 1.8,
+    scaleMin: 0.2,
+    scaleMax: 0.42,
     gravityY: -30, // Shimmering cosmic rise
   },
   sakura: {
@@ -62,8 +62,8 @@ export const PRESET_CONFIGS: Record<ParticlePresetType, ParticlePresetConfig> = 
     speedMax: 70,
     decayMin: 0.35,
     decayMax: 0.75,
-    scaleMin: 0.7,
-    scaleMax: 1.3,
+    scaleMin: 0.18,
+    scaleMax: 0.36,
     gravityY: 35, // Falling petals
   },
   notes: {
@@ -71,8 +71,8 @@ export const PRESET_CONFIGS: Record<ParticlePresetType, ParticlePresetConfig> = 
     speedMax: 90,
     decayMin: 0.4,
     decayMax: 0.85,
-    scaleMin: 0.6,
-    scaleMax: 1.2,
+    scaleMin: 0.18,
+    scaleMax: 0.34,
     gravityY: -25, // Rising melodic notes
   },
   firefly: {
@@ -80,8 +80,8 @@ export const PRESET_CONFIGS: Record<ParticlePresetType, ParticlePresetConfig> = 
     speedMax: 50,
     decayMin: 0.25,
     decayMax: 0.6,
-    scaleMin: 0.5,
-    scaleMax: 1.1,
+    scaleMin: 0.16,
+    scaleMax: 0.32,
     gravityY: -15, // Gentle floating embers
   },
   heart: {
@@ -89,8 +89,8 @@ export const PRESET_CONFIGS: Record<ParticlePresetType, ParticlePresetConfig> = 
     speedMax: 110,
     decayMin: 0.45,
     decayMax: 0.9,
-    scaleMin: 0.6,
-    scaleMax: 1.3,
+    scaleMin: 0.18,
+    scaleMax: 0.36,
     gravityY: -30, // Pop heart floating up
   },
 };
@@ -158,6 +158,17 @@ export class ParticleState implements Poolable {
 /**
  * Procedural texture generators for 7 distinct particle types
  */
+/**
+ * Procedural texture atlas generator for 7 distinct particle types.
+ *
+ * NOTE FOR PIXIJS v8 ParticleContainer:
+ * In PixiJS v8, all particles within a ParticleContainer batch MUST share the same
+ * underlying TextureSource (Texture.source). Generating independent canvas textures
+ * causes PixiJS to reuse the first particle's TextureSource for all subsequent textures.
+ * By rendering all 7 shapes into a single 512x256 high-resolution texture atlas
+ * (128x128 per tile) and slicing them into sub-textures, all particles share the same
+ * GPU texture source, ensuring sharp, distinct shapes with zero UV bleeding.
+ */
 function createShapeTextures(): Record<ParticlePresetType, Texture> {
   const result: Record<ParticlePresetType, Texture> = {
     stardust: Texture.EMPTY,
@@ -173,134 +184,223 @@ function createShapeTextures(): Record<ParticlePresetType, Texture> {
     return result;
   }
 
-  const drawToTexture = (drawFn: (ctx: CanvasRenderingContext2D) => void): Texture => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 32;
-    canvas.height = 32;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      drawFn(ctx);
-    }
-    return Texture.from(canvas);
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return result;
+  }
+
+  // Clear transparent canvas
+  ctx.clearRect(0, 0, 512, 256);
+
+  // Helper to draw inside a 128x128 cell with center at (64, 64)
+  const drawCell = (col: number, row: number, drawFn: (c: CanvasRenderingContext2D) => void) => {
+    ctx.save();
+    ctx.translate(col * 128 + 64, row * 128 + 64);
+    drawFn(ctx);
+    ctx.restore();
   };
 
-  // 1. Stardust: Soft radial glowing micro-orb
-  result.stardust = drawToTexture((ctx) => {
-    const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+  // 1. Stardust (Cell 0, 0): Sharp celestial orb with luminous glow aura
+  drawCell(0, 0, (c) => {
+    const g = c.createRadialGradient(0, 0, 0, 0, 0, 54);
     g.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    g.addColorStop(0.3, 'rgba(210, 235, 255, 0.9)');
-    g.addColorStop(0.7, 'rgba(140, 180, 255, 0.4)');
-    g.addColorStop(1, 'rgba(50, 100, 220, 0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(16, 16, 16, 0, Math.PI * 2);
-    ctx.fill();
+    g.addColorStop(0.25, 'rgba(230, 245, 255, 0.95)');
+    g.addColorStop(0.55, 'rgba(160, 210, 255, 0.5)');
+    g.addColorStop(1, 'rgba(60, 130, 255, 0)');
+    c.fillStyle = g;
+    c.beginPath();
+    c.arc(0, 0, 54, 0, Math.PI * 2);
+    c.fill();
+
+    // Solid bright core for crisp definition
+    c.fillStyle = '#ffffff';
+    c.beginPath();
+    c.arc(0, 0, 16, 0, Math.PI * 2);
+    c.fill();
   });
 
-  // 2. Sparkle: Sharp 4-point anime diamond flare
-  result.sparkle = drawToTexture((ctx) => {
-    const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 12);
-    g.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    g.addColorStop(0.5, 'rgba(255, 255, 255, 0.5)');
+  // 2. Sparkle (Cell 1, 0): Sharp 4-point anime diamond flare
+  drawCell(1, 0, (c) => {
+    // Subtle central glow
+    const g = c.createRadialGradient(0, 0, 0, 0, 0, 36);
+    g.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+    g.addColorStop(0.4, 'rgba(255, 255, 255, 0.3)');
     g.addColorStop(1, 'rgba(255, 255, 255, 0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(16, 16, 12, 0, Math.PI * 2);
-    ctx.fill();
+    c.fillStyle = g;
+    c.beginPath();
+    c.arc(0, 0, 36, 0, Math.PI * 2);
+    c.fill();
 
-    // 4-pointed diamond star
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.beginPath();
-    ctx.moveTo(16, 2);
-    ctx.quadraticCurveTo(16, 16, 30, 16);
-    ctx.quadraticCurveTo(16, 16, 16, 30);
-    ctx.quadraticCurveTo(16, 16, 2, 16);
-    ctx.quadraticCurveTo(16, 16, 16, 2);
-    ctx.fill();
+    // Primary 4-pointed diamond star (crisp solid vector path)
+    c.fillStyle = '#ffffff';
+    c.beginPath();
+    c.moveTo(0, -56);
+    c.quadraticCurveTo(0, 0, 56, 0);
+    c.quadraticCurveTo(0, 0, 0, 56);
+    c.quadraticCurveTo(0, 0, -56, 0);
+    c.quadraticCurveTo(0, 0, 0, -56);
+    c.closePath();
+    c.fill();
+
+    // Secondary diagonal micro-spikes for extra anime sparkle
+    c.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    c.beginPath();
+    c.moveTo(0, -26);
+    c.quadraticCurveTo(0, 0, 26, 0);
+    c.quadraticCurveTo(0, 0, 0, 26);
+    c.quadraticCurveTo(0, 0, -26, 0);
+    c.quadraticCurveTo(0, 0, 0, -26);
+    c.closePath();
+    c.save();
+    c.rotate(Math.PI / 4);
+    c.fill();
+    c.restore();
+
+    // Solid core highlight
+    c.fillStyle = '#ffffff';
+    c.beginPath();
+    c.arc(0, 0, 6, 0, Math.PI * 2);
+    c.fill();
   });
 
-  // 3. Cosmic: Concentric glowing orbit rings with bright core
-  result.cosmic = drawToTexture((ctx) => {
-    // Outer halo
-    ctx.strokeStyle = 'rgba(180, 220, 255, 0.7)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(16, 16, 13, 0, Math.PI * 2);
-    ctx.stroke();
+  // 3. Cosmic (Cell 2, 0): Concentric orbital rings with bright core
+  drawCell(2, 0, (c) => {
+    // Outer orbit ring
+    c.strokeStyle = 'rgba(190, 225, 255, 0.85)';
+    c.lineWidth = 5;
+    c.beginPath();
+    c.arc(0, 0, 50, 0, Math.PI * 2);
+    c.stroke();
 
-    // Inner orbital ring
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.ellipse(16, 16, 11, 5, Math.PI / 4, 0, Math.PI * 2);
-    ctx.stroke();
+    // Tilted elliptical orbit ring
+    c.strokeStyle = '#ffffff';
+    c.lineWidth = 4;
+    c.beginPath();
+    c.ellipse(0, 0, 48, 20, Math.PI / 3, 0, Math.PI * 2);
+    c.stroke();
 
-    // Bright core
-    ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-    ctx.beginPath();
-    ctx.arc(16, 16, 4, 0, Math.PI * 2);
-    ctx.fill();
+    // Second counter-tilted ring
+    c.strokeStyle = 'rgba(140, 200, 255, 0.7)';
+    c.lineWidth = 3;
+    c.beginPath();
+    c.ellipse(0, 0, 48, 20, -Math.PI / 3, 0, Math.PI * 2);
+    c.stroke();
+
+    // Core star
+    c.fillStyle = '#ffffff';
+    c.beginPath();
+    c.arc(0, 0, 16, 0, Math.PI * 2);
+    c.fill();
+
+    // Orbiting mini satellites
+    c.fillStyle = '#ffffff';
+    c.beginPath();
+    c.arc(36, -34, 5, 0, Math.PI * 2);
+    c.arc(-36, 34, 5, 0, Math.PI * 2);
+    c.fill();
   });
 
-  // 4. Sakura: Notched anime cherry blossom petal
-  result.sakura = drawToTexture((ctx) => {
-    ctx.save();
-    ctx.translate(16, 16);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.beginPath();
+  // 4. Sakura (Cell 3, 0): Crisp notched cherry blossom petal
+  drawCell(3, 0, (c) => {
+    c.fillStyle = '#ffffff';
+    c.beginPath();
     // Heart-notched elongated petal shape
-    ctx.moveTo(0, 12);
-    ctx.bezierCurveTo(-9, 4, -8, -8, -3, -12);
-    ctx.lineTo(0, -9); // notch
-    ctx.lineTo(3, -12);
-    ctx.bezierCurveTo(8, -8, 9, 4, 0, 12);
-    ctx.fill();
-    ctx.restore();
+    c.moveTo(0, 48);
+    c.bezierCurveTo(-38, 16, -34, -34, -14, -50);
+    c.lineTo(0, -36); // Center notch
+    c.lineTo(14, -50);
+    c.bezierCurveTo(34, -34, 38, 16, 0, 48);
+    c.closePath();
+    c.fill();
+
+    // Delicate inner central vein line
+    c.strokeStyle = 'rgba(255, 182, 193, 0.6)';
+    c.lineWidth = 3;
+    c.beginPath();
+    c.moveTo(0, 36);
+    c.lineTo(0, -20);
+    c.stroke();
   });
 
-  // 5. Notes: Musical eighth note (♪)
-  result.notes = drawToTexture((ctx) => {
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  // 5. Notes (Cell 0, 1): Musical eighth note (♪)
+  drawCell(0, 1, (c) => {
+    c.fillStyle = '#ffffff';
     // Note head (tilted oval)
-    ctx.beginPath();
-    ctx.ellipse(11, 22, 5, 3.5, -Math.PI / 6, 0, Math.PI * 2);
-    ctx.fill();
-    // Stem
-    ctx.fillRect(14, 6, 2.5, 16);
-    // Flag
-    ctx.beginPath();
-    ctx.moveTo(16.5, 6);
-    ctx.bezierCurveTo(23, 9, 24, 15, 23, 17);
-    ctx.bezierCurveTo(21, 14, 18, 11, 16.5, 11);
-    ctx.closePath();
-    ctx.fill();
+    c.beginPath();
+    c.ellipse(-16, 26, 20, 14, -Math.PI / 6, 0, Math.PI * 2);
+    c.fill();
+
+    // Vertical Stem
+    c.fillRect(-2, -38, 10, 66);
+
+    // Dynamic musical flag
+    c.beginPath();
+    c.moveTo(8, -38);
+    c.bezierCurveTo(34, -28, 38, -6, 32, 6);
+    c.bezierCurveTo(26, -6, 18, -18, 8, -18);
+    c.closePath();
+    c.fill();
   });
 
-  // 6. Firefly: Warm glowing floating ember
-  result.firefly = drawToTexture((ctx) => {
-    const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 15);
+  // 6. Firefly (Cell 1, 1): Warm glowing floating ember
+  drawCell(1, 1, (c) => {
+    const g = c.createRadialGradient(0, 0, 0, 0, 0, 56);
     g.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    g.addColorStop(0.2, 'rgba(255, 235, 140, 0.9)');
-    g.addColorStop(0.5, 'rgba(255, 170, 50, 0.5)');
+    g.addColorStop(0.2, 'rgba(255, 240, 150, 0.95)');
+    g.addColorStop(0.5, 'rgba(255, 175, 40, 0.5)');
     g.addColorStop(1, 'rgba(255, 100, 20, 0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(16, 16, 15, 0, Math.PI * 2);
-    ctx.fill();
+    c.fillStyle = g;
+    c.beginPath();
+    c.arc(0, 0, 56, 0, Math.PI * 2);
+    c.fill();
+
+    // Solid warm core
+    c.fillStyle = '#ffffff';
+    c.beginPath();
+    c.arc(0, 0, 15, 0, Math.PI * 2);
+    c.fill();
   });
 
-  // 7. Heart: Stylized pop idol heart (♥)
-  result.heart = drawToTexture((ctx) => {
-    ctx.save();
-    ctx.translate(16, 14);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.beginPath();
-    ctx.moveTo(0, 10);
-    ctx.bezierCurveTo(-11, 2, -11, -8, 0, -5);
-    ctx.bezierCurveTo(11, -8, 11, 2, 0, 10);
-    ctx.fill();
-    ctx.restore();
+  // 7. Heart (Cell 2, 1): Pop idol heart (♥)
+  drawCell(2, 1, (c) => {
+    c.fillStyle = '#ffffff';
+    c.beginPath();
+    c.moveTo(0, 42);
+    c.bezierCurveTo(-46, 10, -46, -38, 0, -18);
+    c.bezierCurveTo(46, -38, 46, 10, 0, 42);
+    c.closePath();
+    c.fill();
+
+    // Inner highlight gleam
+    c.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    c.beginPath();
+    c.arc(-16, -14, 6, 0, Math.PI * 2);
+    c.fill();
   });
+
+  // Create single atlas texture from canvas
+  const atlasTexture = Texture.from(canvas);
+
+  // Slice individual shape textures with shared TextureSource
+  const shapeMap: Record<ParticlePresetType, { col: number; row: number }> = {
+    stardust: { col: 0, row: 0 },
+    sparkle: { col: 1, row: 0 },
+    cosmic: { col: 2, row: 0 },
+    sakura: { col: 3, row: 0 },
+    notes: { col: 0, row: 1 },
+    firefly: { col: 1, row: 1 },
+    heart: { col: 2, row: 1 },
+  };
+
+  for (const [key, pos] of Object.entries(shapeMap)) {
+    result[key as ParticlePresetType] = new Texture({
+      source: atlasTexture.source,
+      frame: new Rectangle(pos.col * 128, pos.row * 128, 128, 128),
+    });
+  }
 
   return result;
 }

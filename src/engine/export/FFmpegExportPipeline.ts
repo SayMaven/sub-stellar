@@ -352,6 +352,10 @@ export class FFmpegExportPipeline {
           motionY = -Math.round(11 * scale * Math.sin(phase * Math.PI));
         } else if (animStyle === 'sweep') {
           motionY = -Math.round(4 * scale * enterProgress);
+        } else if (animStyle === 'smooth-sweep') {
+          motionX = 0;
+          motionY = 0;
+          scaleBoost = 1;
         } else if (animStyle === 'glow-pulse') {
           motionY = -Math.round(6 * scale * Math.sin(phase * Math.PI));
           scaleBoost = 1 + 0.08 * Math.sin(phase * Math.PI);
@@ -412,7 +416,8 @@ export class FFmpegExportPipeline {
         ctx.restore();
       }
 
-      const isHighlighted = isTokenActive || (isTokenPassed && animStyle === 'sweep');
+      const isHighlighted =
+        isTokenActive || (isTokenPassed && (animStyle === 'sweep' || animStyle === 'smooth-sweep'));
 
       // Layer 2: Inner outline
       if (innerStroke > 0) {

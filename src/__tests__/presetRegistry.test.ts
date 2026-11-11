@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { VISUAL_PRESETS } from '../engine/presets/presetRegistry';
 
 describe('Visual Presets Registry', () => {
-  it('contains at least 10 unique visual presets', () => {
-    expect(VISUAL_PRESETS.length).toBeGreaterThanOrEqual(10);
+  it('contains at least 16 unique visual presets', () => {
+    expect(VISUAL_PRESETS.length).toBeGreaterThanOrEqual(16);
   });
 
   it('each preset has a unique ID, name, category, and complete subtitle style', () => {
@@ -28,7 +28,7 @@ describe('Visual Presets Registry', () => {
       expect(['stardust', 'sparkle', 'cosmic', 'sakura', 'notes', 'firefly', 'heart']).toContain(
         style.particlePreset
       );
-      expect(['pop', 'sweep', 'float', 'glow-pulse', 'slide', 'staccato', 'zoom-strike', 'wave']).toContain(
+      expect(['pop', 'sweep', 'smooth-sweep', 'float', 'glow-pulse', 'slide', 'staccato', 'zoom-strike', 'wave']).toContain(
         style.wordAnimStyle
       );
     }

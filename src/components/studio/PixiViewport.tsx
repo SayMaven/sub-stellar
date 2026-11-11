@@ -224,18 +224,32 @@ const PixiViewportInner: React.FC = () => {
       }
 
       let enterProgress = 0;
-      if (isTokenActive) {
-        enterProgress = easeOutCubic((currentTime - token.startTime) / transitionSec);
-      } else if (isTokenPassed && wordAnimStyle === 'sweep') {
-        enterProgress = 1;
-      }
+      let highlightAlpha = 0;
 
-      const highlightAlpha =
-        isTokenActive
-          ? Math.max(0.35, enterProgress)
-          : isTokenPassed && wordAnimStyle === 'sweep'
-          ? 1
-          : 0;
+      if (wordAnimStyle === 'smooth-sweep') {
+        // Continuous smooth linear color flow across words with zero position displacement
+        if (isTokenActive) {
+          const wordSpan = Math.max(0.01, token.endTime - token.startTime);
+          highlightAlpha = Math.min(1, Math.max(0, (currentTime - token.startTime) / wordSpan));
+        } else if (isTokenPassed) {
+          highlightAlpha = 1;
+        } else {
+          highlightAlpha = 0;
+        }
+      } else {
+        if (isTokenActive) {
+          enterProgress = easeOutCubic((currentTime - token.startTime) / transitionSec);
+        } else if (isTokenPassed && wordAnimStyle === 'sweep') {
+          enterProgress = 1;
+        }
+
+        highlightAlpha =
+          isTokenActive
+            ? Math.max(0.35, enterProgress)
+            : isTokenPassed && wordAnimStyle === 'sweep'
+            ? 1
+            : 0;
+      }
 
       token.activeBase.alpha = highlightAlpha;
       token.inactiveBase.alpha = 1 - highlightAlpha * 0.92;
@@ -248,7 +262,7 @@ const PixiViewportInner: React.FC = () => {
       let motionOffsetX = 0;
       let motionOffsetY = 0;
       let scaleBoost = 1;
-      if (isTokenActive) {
+      if (isTokenActive && wordAnimStyle !== 'smooth-sweep') {
         const wordSpan = Math.max(0.05, token.endTime - token.startTime);
         const wordPhase = Math.min(1, Math.max(0, (currentTime - token.startTime) / wordSpan));
 

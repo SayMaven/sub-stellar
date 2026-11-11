@@ -175,9 +175,9 @@ export const StudioColorPicker: React.FC<StudioColorPickerProps> = ({
         <ChevronDown className="w-3 h-3 text-gatefold-text-3 group-hover:text-gatefold-text transition-transform duration-150" />
       </button>
 
-      {/* Modern Popover */}
+      {/* Modern Popover - 100% Solid & Opaque (No transparency bleed) */}
       {isOpen && (
-        <div className="absolute left-0 top-full mt-1.5 z-50 w-64 p-3 bg-gatefold-panel border border-gatefold-line-2 rounded-xl shadow-2xl space-y-3 select-none">
+        <div className="absolute left-0 top-full mt-1.5 z-50 w-64 p-3 bg-[#181b22] border border-gatefold-line-2 rounded-xl shadow-2xl shadow-black/80 space-y-3 select-none">
           {/* Header & Preview */}
           <div className="flex items-center justify-between gap-2 pb-2 border-b border-gatefold-line">
             <div className="flex items-center gap-2">

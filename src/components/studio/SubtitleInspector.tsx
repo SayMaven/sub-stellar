@@ -29,6 +29,7 @@ import {
 import { useStudioStore } from '../../stores/useStudioStore';
 import { FuriganaEditor } from '../furigana/FuriganaEditor';
 import { StudioColorPicker } from '../common/StudioColorPicker';
+import { StudioFontPicker } from './StudioFontPicker';
 import {
   discoverSystemFonts,
   loadFontFromFile,
@@ -788,10 +789,11 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
                 Word-to-Word Vocal Animation
               </span>
 
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-3 gap-1.5">
                 {(
                   [
                     { id: 'pop', label: 'Pop Bounce', desc: 'Bouncy scale punch' },
+                    { id: 'smooth-sweep', label: 'Karaoke Flow', desc: 'Smooth zero-bounce flow' },
                     { id: 'sweep', label: 'Karaoke Sweep', desc: 'Horizontal wipe' },
                     { id: 'float', label: 'Vocal Float', desc: 'Airy floating wave' },
                     { id: 'glow-pulse', label: 'Glow Pulse', desc: 'Neon bloom pulse' },
@@ -863,40 +865,17 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
                 Typography & Font Family
               </span>
 
-              {/* Font Family Dropdown */}
+              {/* Modern Custom Gatefold Font Family Picker */}
               <div className="space-y-1">
                 <label className="text-[10px] text-gatefold-text-3 block">Font Family</label>
-                <select
+                <StudioFontPicker
                   value={style.fontFamily}
-                  onChange={(e) => setStyle({ fontFamily: e.target.value })}
-                  className="w-full px-2 py-1.5 bg-gatefold-surface border border-gatefold-line rounded text-xs text-gatefold-text focus:border-gatefold-accent focus:outline-none font-sans"
-                >
-                  <optgroup label="Curated J-Pop & Vocaloid">
-                    {CURATED_FONTS.map((f) => (
-                      <option key={f.family} value={f.family}>
-                        {f.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                  {customFonts.length > 0 && (
-                    <optgroup label="Custom Imported Fonts">
-                      {customFonts.map((f) => (
-                        <option key={f.family} value={f.family}>
-                          {f.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {systemFonts.length > 0 && (
-                    <optgroup label="Discovered System Fonts">
-                      {systemFonts.map((f) => (
-                        <option key={f.family} value={f.family}>
-                          {f.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
+                  onChange={(family) => setStyle({ fontFamily: family })}
+                  curatedFonts={CURATED_FONTS}
+                  customFonts={customFonts}
+                  systemFonts={systemFonts}
+                  onImportFontFile={handleFontFile}
+                />
               </div>
 
               {/* Drag-and-drop / Upload custom font box */}
