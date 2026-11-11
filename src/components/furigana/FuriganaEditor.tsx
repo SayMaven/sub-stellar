@@ -116,9 +116,34 @@ const FuriganaEditorInner: React.FC<FuriganaEditorProps> = ({ line }) => {
     <div className="space-y-2.5">
       {/* Plain text (no braces) */}
       <div className="space-y-1.5">
-        <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold">
-          Subtitle Text
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] uppercase font-mono text-gatefold-text-3 font-semibold">
+            Subtitle Text
+          </span>
+          {showReading ? (
+            <button
+              type="button"
+              onClick={() => void handleAuto()}
+              disabled={busy}
+              title="Isi bacaan Furigana otomatis untuk baris ini menggunakan Kuromoji"
+              className="px-2 py-0.5 rounded bg-gatefold-accent/15 text-gatefold-accent hover:bg-gatefold-accent/25 border border-gatefold-accent/30 text-[10px] font-mono flex items-center gap-1 transition-colors disabled:opacity-40"
+            >
+              {busy ? (
+                <Loader2 className="w-3 h-3 animate-spin text-gatefold-accent" />
+              ) : (
+                <Sparkles className="w-3 h-3 text-gatefold-accent" />
+              )}
+              <span>{busy ? 'Menganalisis…' : 'Auto Furigana'}</span>
+            </button>
+          ) : (
+            <span
+              className="text-[9px] font-mono text-gatefold-text-3 px-1.5 py-0.5 rounded bg-gatefold-surface border border-gatefold-line"
+              title="Baris ini tidak mengandung Kanji. Furigana hanya dibutuhkan untuk karakter Kanji Jepang."
+            >
+              No Kanji (Furigana N/A)
+            </span>
+          )}
+        </div>
         <textarea
           rows={2}
           value={plain}
@@ -127,6 +152,12 @@ const FuriganaEditorInner: React.FC<FuriganaEditorProps> = ({ line }) => {
           className={`${inputClass} font-mono resize-none`}
         />
       </div>
+
+      {!showReading && plain.trim().length > 0 && (
+        <div className="text-[10px] font-mono text-gatefold-text-3/80 bg-gatefold-surface/40 border border-gatefold-line/60 rounded px-2.5 py-1.5 flex items-center justify-between">
+          <span>Baris ini tidak memiliki karakter Kanji (Furigana tidak diperlukan).</span>
+        </div>
+      )}
 
       {showReading && (
         <>
@@ -148,7 +179,7 @@ const FuriganaEditorInner: React.FC<FuriganaEditorProps> = ({ line }) => {
                 ) : (
                   <Sparkles className="w-3 h-3 text-gatefold-accent" />
                 )}
-                <span>{busy ? 'Menganalisis…' : 'Auto'}</span>
+                <span>{busy ? 'Menganalisis…' : 'Auto Furigana'}</span>
               </button>
             </div>
             <input
