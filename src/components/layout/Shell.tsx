@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useEffect } from 'react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { MainStage } from '../studio/MainStage';
+import { YouTubeDrawer } from '../youtube/YouTubeDrawer';
 import { TelemetryOverlay } from '../common/TelemetryOverlay';
 import {
   useStudioStore,
@@ -13,9 +14,6 @@ import { isEditableTarget } from '../../engine/layout/layoutMath';
 import { restoreCachedMediaFile, saveProjectToDisk } from '../../services/mediaCache';
 import { tauriBridge } from '../../services/tauriBridge';
 
-const YouTubeDrawer = lazy(() =>
-  import('../youtube/YouTubeDrawer').then((m) => ({ default: m.YouTubeDrawer }))
-);
 const LyricsDrawer = lazy(() =>
   import('../lyrics/LyricsDrawer').then((m) => ({ default: m.LyricsDrawer }))
 );
@@ -114,8 +112,14 @@ export const Shell: React.FC = () => {
 
     void restoreLastSession();
 
+    // Background warm-up of yt-dlp binary check so opening the YouTube tab is 0ms instant
+    const warmupTimer = setTimeout(() => {
+      void tauriBridge.checkYtDlp().catch(() => {});
+    }, 200);
+
     return () => {
       isMounted = false;
+      clearTimeout(warmupTimer);
     };
   }, [importProjectJson, setTrack, setProjectFilePath]);
 

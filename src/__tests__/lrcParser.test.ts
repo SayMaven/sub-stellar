@@ -126,5 +126,34 @@ I kept moving forward
     expect(autoParsed).toHaveLength(2);
     expect(autoParsed[0].text).toBe('進み続けた');
   });
+
+  it('merges separate primary and translation SRT/VTT tracks downloaded from YouTube', () => {
+    const primaryVtt = `
+WEBVTT
+
+00:00:05.000 --> 00:00:09.000
+星街すいせい &amp; Miku
+
+00:00:10.000 --> 00:00:14.000
+夜の空を駆ける
+    `.trim();
+
+    const translationSrt = `
+1
+00:00:05,100 --> 00:00:08,900
+Hoshimachi Suisei & Miku
+
+2
+00:00:10,000 --> 00:00:14,000
+Racing across the night sky
+    `.trim();
+
+    const lines = parseLrc(primaryVtt, translationSrt);
+    expect(lines).toHaveLength(2);
+    expect(lines[0].text).toBe('星街すいせい & Miku');
+    expect(lines[0].translation).toBe('Hoshimachi Suisei & Miku');
+    expect(lines[1].text).toBe('夜の空を駆ける');
+    expect(lines[1].translation).toBe('Racing across the night sky');
+  });
 });
 

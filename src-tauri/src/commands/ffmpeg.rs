@@ -82,10 +82,25 @@ where
     f(lock.as_mut().unwrap())
 }
 
+fn hide_console_window(cmd: &mut Command) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = cmd;
+    }
+}
+
 /// Locate FFmpeg binary on PATH or sidecar
 pub fn find_ffmpeg() -> Option<String> {
     // 1. Try "ffmpeg" directly on PATH
-    if let Ok(output) = Command::new("ffmpeg").arg("-version").output() {
+    let mut probe_cmd = Command::new("ffmpeg");
+    hide_console_window(&mut probe_cmd);
+    if let Ok(output) = probe_cmd.arg("-version").output() {
         if output.status.success() {
             return Some("ffmpeg".to_string());
         }
@@ -111,6 +126,7 @@ pub fn find_ffmpeg() -> Option<String> {
 /// Probes if a specific video encoder can successfully encode on this machine
 pub fn probe_single_encoder(ffmpeg_bin: &str, encoder: &str, format: &str) -> bool {
     let mut cmd = Command::new(ffmpeg_bin);
+    hide_console_window(&mut cmd);
     cmd.args([
         "-hide_banner",
         "-loglevel",
@@ -141,7 +157,9 @@ pub fn probe_single_encoder(ffmpeg_bin: &str, encoder: &str, format: &str) -> bo
 pub fn ffmpeg_check_binary() -> Result<FFmpegInfo, String> {
     match find_ffmpeg() {
         Some(bin) => {
-            let out = Command::new(&bin)
+            let mut cmd = Command::new(&bin);
+            hide_console_window(&mut cmd);
+            let out = cmd
                 .arg("-version")
                 .output()
                 .map_err(|e| e.to_string())?;
@@ -185,7 +203,9 @@ pub fn probe_hardware_capabilities() -> Result<HardwareCapabilities, String> {
         }
     };
 
-    let version_out = Command::new(&ffmpeg_bin)
+    let mut ver_cmd = Command::new(&ffmpeg_bin);
+    hide_console_window(&mut ver_cmd);
+    let version_out = ver_cmd
         .arg("-version")
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or("").to_string())
@@ -249,7 +269,8 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
     let ffmpeg_bin = find_ffmpeg().ok_or_else(|| "FFmpeg binary not found on system".to_string())?;
 
     let mut cmd = Command::new(&ffmpeg_bin);
-    cmd.args(["-y", "-hide_banner", "-loglevel", "warning"]);
+    hide_console_window(&mut cmd);
+    cmd.args(["-y", "-hide_banner", "-loglevel", "error"]);
 
     // Raw video input from stdin
     cmd.args([
@@ -390,7 +411,7 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
 
     cmd.arg(&config.output_path);
     cmd.stdin(Stdio::piped());
-    cmd.stderr(Stdio::inherit());
+    cmd.stderr(Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn FFmpeg: {}", e))?;
     let stdin = child.stdin.take().ok_or_else(|| "Failed to open FFmpeg stdin".to_string())?;
@@ -529,6 +550,7 @@ pub fn ffmpeg_export_ass_burnin(
     let vf_arg = format!("subtitles='{}'", normalized_ass);
 
     let mut cmd = Command::new(&ffmpeg_bin);
+    hide_console_window(&mut cmd);
     cmd.args(["-y", "-hide_banner", "-i", &video_input, "-vf", &vf_arg]);
 
     match enc.as_str() {

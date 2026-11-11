@@ -29,20 +29,18 @@ import { FFmpegExportPipeline } from '../../engine/export/FFmpegExportPipeline';
 import type { CanvasResolutionPreset } from '../../types';
 
 export const ExportDrawer: React.FC = () => {
-  const {
-    lines,
-    style,
-    track,
-    duration,
-    aspectRatio,
-    canvasResolution,
-    setCanvasResolution,
-    importProjectJson,
-    saveToLocalStorage,
-    projectFilePath,
-    setProjectFilePath,
-    loadLocalMediaFromPath,
-  } = useStudioStore();
+  const lines = useStudioStore((s) => s.lines);
+  const style = useStudioStore((s) => s.style);
+  const track = useStudioStore((s) => s.track);
+  const duration = useStudioStore((s) => s.duration);
+  const aspectRatio = useStudioStore((s) => s.aspectRatio);
+  const canvasResolution = useStudioStore((s) => s.canvasResolution);
+  const setCanvasResolution = useStudioStore((s) => s.setCanvasResolution);
+  const importProjectJson = useStudioStore((s) => s.importProjectJson);
+  const saveToLocalStorage = useStudioStore((s) => s.saveToLocalStorage);
+  const projectFilePath = useStudioStore((s) => s.projectFilePath);
+  const setProjectFilePath = useStudioStore((s) => s.setProjectFilePath);
+  const loadLocalMediaFromPath = useStudioStore((s) => s.loadLocalMediaFromPath);
 
   const [format, setFormat] = useState<'ass' | 'srt' | 'mp4' | 'webm' | 'prores'>('ass');
   const [mp4RenderMethod, setMp4RenderMethod] = useState<'canvas_pipe' | 'ass_burnin'>(
@@ -363,6 +361,14 @@ export const ExportDrawer: React.FC = () => {
           outlineColor: style.innerStrokeColor,
           secondaryOutlineColor: style.outerStrokeColor,
           outlineThickness: style.outerStrokeWidth,
+          innerStrokeWidth: style.innerStrokeWidth,
+          fillGradientEnabled: style.fillGradientEnabled,
+          fillGradientEndColor: style.fillGradientEndColor,
+          glowColor: style.glowColor,
+          glowBlur: style.glowBlur,
+          rubyFillColor: style.rubyFillColor,
+          rubyActiveColor: style.rubyActiveColor,
+          translationFillColor: style.translationFillColor,
           rubySizeRatio: style.rubyScale,
           wordTransitionMs: style.wordTransitionMs,
           wordAnimStyle: style.wordAnimStyle,

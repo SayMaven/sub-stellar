@@ -18,7 +18,9 @@ import { parseLrc } from '../../services/lyrics/lrcParser';
 import type { LyricsCandidate } from '../../services/lyrics/types';
 
 export const LyricsDrawer: React.FC = () => {
-  const { track, setActiveTab, importLyrics } = useStudioStore();
+  const track = useStudioStore((s) => s.track);
+  const setActiveTab = useStudioStore((s) => s.setActiveTab);
+  const importLyrics = useStudioStore((s) => s.importLyrics);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [title, setTitle] = useState(track.title || 'Stellar Night Flight');

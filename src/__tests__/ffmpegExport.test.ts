@@ -100,5 +100,34 @@ describe('FFmpegExportPipeline', () => {
     expect(result.success).toBe(true);
     expect(lastProgress).toBe(100);
   });
+
+  it('renders gradient fills, glow shadows, and custom ruby colors with parity', async () => {
+    const pipeline = new FFmpegExportPipeline();
+
+    const result = await pipeline.runExport({
+      outputPath: 'test_parity.mp4',
+      mode: 'mp4_burnin',
+      width: 640,
+      height: 360,
+      fps: 10,
+      duration: 0.3,
+      lines: sampleLines,
+      style: {
+        ...sampleStyle,
+        fontFamily: 'Yu Gothic UI',
+        innerStrokeWidth: 2,
+        fillGradientEnabled: true,
+        fillGradientEndColor: '#b8d0ff',
+        glowColor: '#5770b0',
+        glowBlur: 12,
+        rubyFillColor: '#8fb4ff',
+        rubyActiveColor: '#5affb5',
+        translationFillColor: '#bfc3ca',
+        wordAnimStyle: 'sweep',
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
 });
 

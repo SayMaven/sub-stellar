@@ -543,6 +543,9 @@ const PixiViewportInner: React.FC = () => {
     const rubyFillHex = style.rubyFillColor || '#8fb4ff';
     const rubyActiveHex = style.rubyActiveColor || '#5affb5';
     const transFillHex = style.translationFillColor || '#bfc3ca';
+    const fontStack = Array.from(
+      new Set([style.fontFamily || 'Segoe UI', 'Segoe UI', 'Noto Sans JP', 'sans-serif'])
+    );
 
     // Create at most 2 shared FillGradient instances per line and track them for explicit .destroy()
     let normalFill: string | FillGradient = fillHex;
@@ -580,7 +583,7 @@ const PixiViewportInner: React.FC = () => {
       // Layer 1: Outer Dark Stroke + Soft DropShadow Glow
       if (scaledOuterStroke > 0 || scaledGlowBlur > 0) {
         const outerStyle = new TextStyle({
-          fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
+          fontFamily: fontStack,
           fontSize: scaledFontSize,
           fontWeight: 'bold',
           fill: outerStrokeHex,
@@ -612,7 +615,7 @@ const PixiViewportInner: React.FC = () => {
 
       // Layer 2A: Inactive Base Text
       const inactiveBaseStyle = new TextStyle({
-        fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
+        fontFamily: fontStack,
         fontSize: scaledFontSize,
         fontWeight: 'bold',
         fill: normalFill,
@@ -639,7 +642,7 @@ const PixiViewportInner: React.FC = () => {
 
       // Layer 2B: Active Highlight Base Text (cross-faded via alpha on ticker)
       const activeBaseStyle = new TextStyle({
-        fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
+        fontFamily: fontStack,
         fontSize: scaledFontSize,
         fontWeight: 'bold',
         fill: activeFill,
@@ -670,7 +673,7 @@ const PixiViewportInner: React.FC = () => {
       let activeRuby: Text | null = null;
       if (token.isRuby && token.ruby) {
         const inactiveRubyStyle = new TextStyle({
-          fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
+          fontFamily: fontStack,
           fontSize: Math.round(scaledFontSize * style.rubyScale),
           fontWeight: 'bold',
           fill: rubyFillHex,
@@ -682,7 +685,7 @@ const PixiViewportInner: React.FC = () => {
           },
         });
         const activeRubyStyle = new TextStyle({
-          fontFamily: ['Segoe UI', 'Noto Sans JP', 'sans-serif'],
+          fontFamily: fontStack,
           fontSize: Math.round(scaledFontSize * style.rubyScale),
           fontWeight: 'bold',
           fill: rubyActiveHex,
@@ -757,7 +760,7 @@ const PixiViewportInner: React.FC = () => {
     const transBaseY = baseY + scaledFontSize + Math.round(10 * scaleFactor);
     if (activeLine.translation) {
       const transStyle = new TextStyle({
-        fontFamily: ['Segoe UI', 'sans-serif'],
+        fontFamily: fontStack,
         fontSize: Math.max(14, Math.round(scaledFontSize * 0.45)),
         fill: transFillHex,
         padding: Math.ceil(textPadding * 0.6),

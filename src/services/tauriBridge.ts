@@ -60,6 +60,11 @@ export interface YouTubeFormat {
   filesize_approx: number;
 }
 
+export interface YouTubeSubtitleTrack {
+  lang: string;
+  name: string;
+}
+
 export interface YouTubeMetadata {
   id: string;
   title: string;
@@ -67,6 +72,7 @@ export interface YouTubeMetadata {
   duration_seconds: number;
   thumbnail_url: string;
   formats: YouTubeFormat[];
+  subtitles?: YouTubeSubtitleTrack[];
 }
 
 export interface YtDlpStatus {
@@ -75,10 +81,27 @@ export interface YtDlpStatus {
   version: string | null;
 }
 
+export interface CachedMediaItem {
+  file_name: string;
+  file_path: string;
+  video_id: string;
+  title: string;
+  channel: string;
+  thumbnail_url: string;
+  duration_seconds: number;
+  format_id: string;
+  format_label: string;
+  size_bytes: number;
+  is_audio: boolean;
+}
+
 export interface OpenedProjectFile {
   path: string;
   contents: string;
 }
+
+let cachedYtDlpStatus: YtDlpStatus | null = null;
+let cachedHardwareCaps: HardwareCapabilities | null = null;
 
 function isTauriEnvironment(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -107,11 +130,16 @@ export const tauriBridge = {
     }
   },
 
-  async probeHardwareCapabilities(): Promise<HardwareCapabilities> {
+  async probeHardwareCapabilities(forceRefresh = false): Promise<HardwareCapabilities> {
+    if (!forceRefresh && cachedHardwareCaps) {
+      return cachedHardwareCaps;
+    }
     try {
-      return await invokeTauri<HardwareCapabilities>('probe_hardware_capabilities');
+      const caps = await invokeTauri<HardwareCapabilities>('probe_hardware_capabilities');
+      cachedHardwareCaps = caps;
+      return caps;
     } catch {
-      return {
+      const fallback: HardwareCapabilities = {
         gpu_accelerated: true,
         recommended_quality: 'balanced',
         primary_encoder: 'libx264',
@@ -121,6 +149,8 @@ export const tauriBridge = {
         ffmpeg_found: false,
         ffmpeg_version: 'Web Browser Fallback',
       };
+      cachedHardwareCaps = fallback;
+      return fallback;
     }
   },
 
@@ -173,16 +203,43 @@ export const tauriBridge = {
     });
   },
 
-  async checkYtDlp(): Promise<YtDlpStatus> {
+  getCachedYtDlpStatus(): YtDlpStatus | null {
+    return cachedYtDlpStatus;
+  },
+
+  async checkYtDlp(forceRefresh = false): Promise<YtDlpStatus> {
+    if (!forceRefresh && cachedYtDlpStatus) {
+      return cachedYtDlpStatus;
+    }
     try {
-      return await invokeTauri<YtDlpStatus>('ytdl_check_binary');
+      const status = await invokeTauri<YtDlpStatus>('ytdl_check_binary', {
+        forceRefresh,
+      });
+      cachedYtDlpStatus = status;
+      return status;
     } catch {
-      return {
+      const fallback: YtDlpStatus = {
         available: false,
         path: null,
         version: null,
       };
+      cachedYtDlpStatus = fallback;
+      return fallback;
     }
+  },
+
+  async listCachedYouTubeMedia(): Promise<CachedMediaItem[]> {
+    if (!isTauriEnvironment()) return [];
+    try {
+      return await invokeTauri<CachedMediaItem[]>('ytdl_list_cached_media');
+    } catch {
+      return [];
+    }
+  },
+
+  async deleteCachedYouTubeMedia(fileName: string): Promise<void> {
+    if (!isTauriEnvironment()) return;
+    await invokeTauri<void>('ytdl_delete_cached_media', { fileName });
   },
 
   async getYouTubeMetadata(url: string): Promise<YouTubeMetadata> {
@@ -209,11 +266,26 @@ export const tauriBridge = {
     }
   },
 
-  async downloadYouTubeMedia(url: string, formatId: string, targetType: string): Promise<string> {
+  async downloadYouTubeMedia(
+    url: string,
+    formatId: string,
+    targetType: string,
+    meta?: { title?: string; channel?: string; durationSeconds?: number }
+  ): Promise<string> {
     return invokeTauri<string>('ytdl_download_media', {
       url,
       formatId,
       targetType,
+      title: meta?.title,
+      channel: meta?.channel,
+      durationSeconds: meta?.durationSeconds,
+    });
+  },
+
+  async downloadYouTubeSubtitle(url: string, lang: string): Promise<string> {
+    return invokeTauri<string>('ytdl_download_subtitle', {
+      url,
+      lang,
     });
   },
 

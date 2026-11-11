@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateAss, generateSrt } from '../engine/text/SubtitleExporter';
+import { generateAss, generateSrt, hexToAssBgr } from '../engine/text/SubtitleExporter';
 import type { SubtitleLine, SubtitleStyle, TrackMetadata } from '../types';
 
 describe('SubtitleExporter (.ass & .srt)', () => {
@@ -69,6 +69,26 @@ describe('SubtitleExporter (.ass & .srt)', () => {
     const srt = generateSrt(mockLines);
 
     expect(srt).toContain('1\n00:00:12,500 --> 00:00:16,800\nもう何もいらない');
+  });
+
+  it('converts #RRGGBB to ASS &H00BBGGRR byte order and respects custom fontFamily & alignment', () => {
+    expect(hexToAssBgr('#8fb4ff')).toBe('&H00FFB48F');
+    expect(hexToAssBgr('#14161b')).toBe('&H001B1614');
+    expect(hexToAssBgr('#5affb5')).toBe('&H00B5FF5A');
+
+    const customAss = generateAss(
+      mockLines,
+      {
+        ...mockStyle,
+        fontFamily: 'Yu Gothic UI',
+        fillColor: '#ff3366',
+        verticalPosition: 'top',
+      },
+      mockTrack
+    );
+
+    expect(customAss).toContain('Style: Default,Yu Gothic UI,52,&H006633FF,&H00FFB48F,&H001B1614');
+    expect(customAss).toContain(',8,40,40,80,1');
   });
 });
 

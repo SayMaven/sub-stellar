@@ -42,10 +42,21 @@ export function isSrtFormat(raw: string): boolean {
   );
 }
 
+function decodeHtmlEntities(str: string): string {
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ');
+}
+
 /**
  * Parses SubRip (.srt) or WebVTT subtitle text into SubtitleLine[] with per-word tokens.
+ * Supports optional secondary translation SRT/VTT track matched by overlapping cue time.
  */
-export function parseSrt(raw: string): SubtitleLine[] {
+export function parseSrt(raw: string, translationRaw?: string): SubtitleLine[] {
   const cleanRaw = raw.replace(/^\uFEFF/, '').trim();
   if (!cleanRaw) return [];
 
@@ -58,6 +69,11 @@ export function parseSrt(raw: string): SubtitleLine[] {
       .map((l) => l.trim())
       .filter(Boolean);
     if (lines.length === 0) continue;
+
+    // Skip WEBVTT header / STYLE / NOTE blocks
+    if (/^(WEBVTT|STYLE|NOTE)\b/i.test(lines[0]) && !lines.some((l) => l.includes('-->'))) {
+      continue;
+    }
 
     // Find the line containing "-->"
     const arrowIdx = lines.findIndex((l) => l.includes('-->'));
@@ -75,17 +91,26 @@ export function parseSrt(raw: string): SubtitleLine[] {
     const startTime = Math.round(rawStart * 100) / 100;
     const endTime = Math.round(Math.max(startTime + 0.3, rawEnd) * 100) / 100;
 
-    // Strip HTML/ASS formatting tags like <i>, </i>, {\an8}
+    // Strip HTML/ASS formatting tags like <i>, </i>, {\an8} and decode HTML entities
     const contentLines = lines
       .slice(arrowIdx + 1)
-      .map((l) => l.replace(/<[^>]+>/g, '').replace(/\{\\[^}]+\}/g, '').trim())
+      .map((l) =>
+        decodeHtmlEntities(l.replace(/<[^>]+>/g, '').replace(/\{\\[^}]+\}/g, '')).trim()
+      )
       .filter(Boolean);
 
     if (contentLines.length === 0) continue;
 
     const primaryText = contentLines[0];
-    const translation =
+    const inlineTranslation =
       contentLines.length > 1 ? contentLines.slice(1).join(' ') : undefined;
+
+    // Deduplicate consecutive identical cues with overlapping or adjacent timestamps
+    const prev = result[result.length - 1];
+    if (prev && prev.text === primaryText && Math.abs(startTime - prev.endTime) <= 0.15) {
+      prev.endTime = Math.max(prev.endTime, endTime);
+      continue;
+    }
 
     const parsedTokens = tokenizeSubtitleText(primaryText);
     const span = Math.max(0.1, endTime - startTime);
@@ -107,8 +132,22 @@ export function parseSrt(raw: string): SubtitleLine[] {
       endTime,
       text: primaryText,
       tokens,
-      translation,
+      translation: inlineTranslation,
     });
+  }
+
+  // Merge secondary translation SRT/VTT if provided
+  if (translationRaw && translationRaw.trim() && isSrtFormat(translationRaw)) {
+    const transCues = parseSrt(translationRaw);
+    for (const line of result) {
+      const mid = (line.startTime + line.endTime) / 2;
+      const matched =
+        transCues.find((tc) => mid >= tc.startTime - 0.4 && mid <= tc.endTime + 0.4) ||
+        transCues.find((tc) => Math.abs(tc.startTime - line.startTime) <= 0.9);
+      if (matched && matched.text.trim()) {
+        line.translation = matched.text.trim();
+      }
+    }
   }
 
   return result;
@@ -187,7 +226,7 @@ export function parseLrc(raw: string, translationRaw?: string): SubtitleLine[] {
     return parseYrc(raw);
   }
   if (isSrtFormat(raw)) {
-    return parseSrt(raw);
+    return parseSrt(raw, translationRaw);
   }
 
   const rawLines = raw.replace(/^\uFEFF/, '').split(/\r?\n/);
