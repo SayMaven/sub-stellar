@@ -29,6 +29,32 @@ const RESOLUTION_PRESETS: { id: CanvasResolutionPreset; label: string }[] = [
   { id: '4k', label: '4K UHD' },
 ];
 
+const LAYOUT_STORAGE_KEY = 'substellar_studio_layout_v1';
+
+interface StoredStudioLayout {
+  timelineHeight?: number;
+  inspectorWidth?: number;
+}
+
+const loadStoredLayout = (): StoredStudioLayout => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    }
+  } catch {}
+  return {};
+};
+
+const saveStoredLayout = (layout: Partial<StoredStudioLayout>) => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const current = loadStoredLayout();
+      localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify({ ...current, ...layout }));
+    }
+  } catch {}
+};
+
 export const MainStage: React.FC = () => {
   const aspectRatio = useStudioStore((s) => s.aspectRatio);
   const setAspectRatio = useStudioStore((s) => s.setAspectRatio);
@@ -53,8 +79,24 @@ export const MainStage: React.FC = () => {
   const workspaceRef = useRef<HTMLDivElement>(null);
   const stageAreaRef = useRef<HTMLDivElement>(null);
   const [areaSize, setAreaSize] = useState({ width: 0, height: 0 });
-  const [timelineHeight, setTimelineHeight] = useState(TIMELINE_DEFAULT_HEIGHT);
-  const [inspectorWidth, setInspectorWidth] = useState<number>(320);
+  const [timelineHeight, setTimelineHeight] = useState(() => {
+    const stored = loadStoredLayout().timelineHeight;
+    return typeof stored === 'number' && stored >= 120 && stored <= 480
+      ? stored
+      : TIMELINE_DEFAULT_HEIGHT;
+  });
+  const [inspectorWidth, setInspectorWidth] = useState<number>(() => {
+    const stored = loadStoredLayout().inspectorWidth;
+    return typeof stored === 'number' && stored >= 240 && stored <= 640 ? stored : 320;
+  });
+
+  // Debounced persistence for studio layout dividers
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveStoredLayout({ timelineHeight, inspectorWidth });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [timelineHeight, inspectorWidth]);
 
   useEffect(() => {
     const el = stageAreaRef.current;

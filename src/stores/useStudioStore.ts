@@ -261,12 +261,22 @@ interface StudioStoreState {
   setErrorMessage: (msg: string | null) => void;
 }
 
+const getInitialSidebarCollapsed = (): boolean => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem('substellar_sidebar_collapsed');
+      if (stored !== null) return stored === 'true';
+    }
+  } catch {}
+  return true;
+};
+
 export const useStudioStore = create<StudioStoreState>((set, get) => ({
   activeTab: 'studio',
   aspectRatio: '16:9',
   canvasResolution: '1080p',
   zoom: 100,
-  sidebarCollapsed: true,
+  sidebarCollapsed: getInitialSidebarCollapsed(),
   isPlaying: false,
   currentTime: 13.2,
   duration: 185.0,
@@ -309,8 +319,20 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
   setAspectRatio: (aspect: AspectRatio) => set({ aspectRatio: aspect }),
   setCanvasResolution: (res: CanvasResolutionPreset) => set({ canvasResolution: res }),
   setZoom: (zoom: number) => set({ zoom: Math.min(200, Math.max(50, zoom)) }),
-  toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
-  setSidebarCollapsed: (collapsed: boolean) => set({ sidebarCollapsed: collapsed }),
+  toggleSidebar: () =>
+    set((state) => {
+      const next = !state.sidebarCollapsed;
+      try {
+        localStorage.setItem('substellar_sidebar_collapsed', String(next));
+      } catch {}
+      return { sidebarCollapsed: next };
+    }),
+  setSidebarCollapsed: (collapsed: boolean) => {
+    try {
+      localStorage.setItem('substellar_sidebar_collapsed', String(collapsed));
+    } catch {}
+    set({ sidebarCollapsed: collapsed });
+  },
 
   play: () => set({ isPlaying: true }),
   pause: () => set({ isPlaying: false }),

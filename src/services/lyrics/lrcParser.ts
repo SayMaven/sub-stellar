@@ -101,9 +101,30 @@ export function parseSrt(raw: string, translationRaw?: string): SubtitleLine[] {
 
     if (contentLines.length === 0) continue;
 
-    const primaryText = contentLines[0];
-    const inlineTranslation =
+    // Inspect multi-line cues: check if line 0 is bracketed Romaji/pronunciation like "[Atashi wa...]"
+    // and line 1 is the actual translated lyrics text.
+    const bracketedLineRegex = /^[(\[（【]([^)\]）】]+)[)\]）】]$/;
+    let primaryText = contentLines[0];
+    let inlineTranslation: string | undefined =
       contentLines.length > 1 ? contentLines.slice(1).join(' ') : undefined;
+
+    if (contentLines.length >= 2) {
+      const matchBracket0 = contentLines[0].match(bracketedLineRegex);
+      const isBracket1 = bracketedLineRegex.test(contentLines[1]);
+
+      if (matchBracket0 && !isBracket1) {
+        // Line 0 is Romaji/phonetic reading in brackets; Line 1 is the actual meaning/translation
+        // Prioritize the actual translated text for primaryText and keep cleaned Romaji in translation
+        primaryText = contentLines[1];
+        inlineTranslation = matchBracket0[1].trim();
+      }
+    } else if (contentLines.length === 1) {
+      // If single line has brackets wrapping the entire line: e.g. "[Atashi wa...]"
+      const singleBracket = contentLines[0].match(bracketedLineRegex);
+      if (singleBracket && !singleBracket[1].includes('|')) {
+        primaryText = singleBracket[1].trim();
+      }
+    }
 
     // Deduplicate consecutive identical cues with overlapping or adjacent timestamps
     const prev = result[result.length - 1];

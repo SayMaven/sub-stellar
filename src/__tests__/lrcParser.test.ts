@@ -155,5 +155,32 @@ Racing across the night sky
     expect(lines[1].text).toBe('夜の空を駆ける');
     expect(lines[1].translation).toBe('Racing across the night sky');
   });
+
+  it('cleans bracketed Romaji and extracts actual translation from YouTube two-line cues', () => {
+    const youtubeIdSrt = `
+1
+00:00:31,740 --> 00:00:37,520
+[Atashi wa ishikoro ni demo nareta nara ii na]
+Lebih baik aku menjadi batu kerikil saja
+    `.trim();
+
+    // Standalone parse: line.text is the actual translation and line.translation is clean Romaji
+    const standalone = parseSrt(youtubeIdSrt);
+    expect(standalone).toHaveLength(1);
+    expect(standalone[0].text).toBe('Lebih baik aku menjadi batu kerikil saja');
+    expect(standalone[0].translation).toBe('Atashi wa ishikoro ni demo nareta nara ii na');
+
+    // Dual-track merge: Japanese primary + Indonesian secondary
+    const japaneseJaSrt = `
+1
+00:00:31,740 --> 00:00:37,520
+あたしは石ころにでもなれたならいいな
+    `.trim();
+
+    const merged = parseLrc(japaneseJaSrt, youtubeIdSrt);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].text).toBe('あたしは石ころにでもなれたならいいな');
+    expect(merged[0].translation).toBe('Lebih baik aku menjadi batu kerikil saja');
+  });
 });
 

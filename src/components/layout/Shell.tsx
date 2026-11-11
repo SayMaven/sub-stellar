@@ -215,25 +215,6 @@ export const Shell: React.FC = () => {
     track.title,
   ]);
 
-  const renderActiveView = () => {
-    switch (activeTab) {
-      case 'studio':
-        return <MainStage />;
-      case 'youtube':
-        return <YouTubeDrawer />;
-      case 'lyrics':
-        return <LyricsDrawer />;
-      case 'presets':
-        return <PresetsDrawer />;
-      case 'export':
-        return <ExportDrawer />;
-      case 'settings':
-        return <SettingsModal />;
-      default:
-        return <MainStage />;
-    }
-  };
-
   return (
     <div className="relative w-screen h-screen flex flex-col overflow-hidden bg-gatefold-bg text-gatefold-text">
       {/* Top Header (40px) */}
@@ -242,16 +223,40 @@ export const Shell: React.FC = () => {
       {/* Middle Workspace: Collapsible Sidebar + Main Viewport / Drawer */}
       <div className="flex-1 min-h-0 flex overflow-hidden relative z-10">
         <Sidebar />
-        <main className="flex-1 min-w-0 min-h-0 flex overflow-hidden">
-          <Suspense
-            fallback={
-              <div className="flex-1 flex items-center justify-center text-xs font-mono text-gatefold-text-3">
-                Loading module...
-              </div>
-            }
+        <main className="flex-1 min-w-0 min-h-0 flex overflow-hidden relative">
+          {/* Main Stage (Persistent DOM to preserve PixiJS canvas, WebGL context, and zoom across tab switches) */}
+          <div
+            className={`w-full h-full flex flex-col overflow-hidden ${
+              activeTab === 'studio' ? 'flex' : 'hidden'
+            }`}
           >
-            {renderActiveView()}
-          </Suspense>
+            <MainStage />
+          </div>
+
+          {/* YouTube Downloader & Cache Workbench (Persistent DOM so active downloads & Furigana tasks never reset) */}
+          <div
+            className={`w-full h-full flex flex-col overflow-hidden ${
+              activeTab === 'youtube' ? 'flex' : 'hidden'
+            }`}
+          >
+            <YouTubeDrawer />
+          </div>
+
+          {/* Other Secondary Drawers / Modals (Loaded on demand) */}
+          {activeTab !== 'studio' && activeTab !== 'youtube' && (
+            <Suspense
+              fallback={
+                <div className="flex-1 flex items-center justify-center text-xs font-mono text-gatefold-text-3">
+                  Loading module...
+                </div>
+              }
+            >
+              {activeTab === 'lyrics' && <LyricsDrawer />}
+              {activeTab === 'presets' && <PresetsDrawer />}
+              {activeTab === 'export' && <ExportDrawer />}
+              {activeTab === 'settings' && <SettingsModal />}
+            </Suspense>
+          )}
         </main>
       </div>
 

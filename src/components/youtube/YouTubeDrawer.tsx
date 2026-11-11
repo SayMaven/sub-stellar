@@ -464,12 +464,16 @@ export const YouTubeDrawer: React.FC = () => {
           importLyrics(parsedLines);
           if (autoFurigana) {
             setDownloadStep('Generating Japanese Furigana ({Kanji|Ruby}) via Kuromoji...');
-            await autoFuriganaAll({ overwrite: false });
+            try {
+              await autoFuriganaAll({ overwrite: false });
+            } catch (fErr) {
+              console.warn('Auto-furigana failed (subtitles retained):', fErr);
+            }
           }
           return true;
         }
-      } catch {
-        // Fall through to external lyrics search if subtitle extraction failed
+      } catch (subErr) {
+        console.warn('Failed to extract official video subtitle, trying external search:', subErr);
       }
     }
 
@@ -493,7 +497,11 @@ export const YouTubeDrawer: React.FC = () => {
             importLyrics(parsedLines);
             if (autoFurigana) {
               setDownloadStep('Generating Japanese Furigana ({Kanji|Ruby}) via Kuromoji...');
-              await autoFuriganaAll({ overwrite: false });
+              try {
+                await autoFuriganaAll({ overwrite: false });
+              } catch (fErr) {
+                console.warn('Auto-furigana failed (lyrics retained):', fErr);
+              }
             }
             return true;
           }
@@ -712,8 +720,8 @@ export const YouTubeDrawer: React.FC = () => {
   );
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto bg-gatefold-bg/30 select-none">
-      <div className="max-w-6xl mx-auto space-y-5">
+    <div className="flex-1 px-4 sm:px-6 lg:px-8 py-5 overflow-y-auto bg-gatefold-bg/30 select-none">
+      <div className="w-full max-w-[1720px] mx-auto space-y-5">
         {/* Top Studio Header Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gatefold-line">
           <div>
