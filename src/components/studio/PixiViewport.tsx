@@ -153,6 +153,12 @@ const PixiViewportInner: React.FC = () => {
 
   // Explicitly destroy all GPU textures, TextStyles, and FillGradients when clearing a subtitle line
   const clearSubtitleGroup = useCallback(() => {
+    if (builtLineRef.current) {
+      for (const token of builtLineRef.current.tokens) {
+        token.activeBase.mask = null;
+        if (token.activeRuby) token.activeRuby.mask = null;
+      }
+    }
     builtLineRef.current = null;
 
     if (subtitleGroupRef.current) {
@@ -211,15 +217,19 @@ const PixiViewportInner: React.FC = () => {
     for (let idx = 0; idx < tokens.length; idx++) {
       const token = tokens[idx];
       if (token.disableAnim) {
+        token.activeBase.mask = null;
         token.activeBase.alpha = 0;
         token.activeBase.visible = false;
         token.inactiveBase.alpha = 1;
-        if (token.wipeMask) token.wipeMask.scale.x = 0;
+        token.inactiveBase.visible = true;
+        if (token.wipeMask) token.wipeMask.clear();
         if (token.activeRuby && token.inactiveRuby) {
+          token.activeRuby.mask = null;
           token.activeRuby.alpha = 0;
           token.activeRuby.visible = false;
           token.inactiveRuby.alpha = 1;
-          if (token.rubyWipeMask) token.rubyWipeMask.scale.x = 0;
+          token.inactiveRuby.visible = true;
+          if (token.rubyWipeMask) token.rubyWipeMask.clear();
         }
         token.container.y = 0;
         token.container.scale.set(1);
@@ -237,55 +247,81 @@ const PixiViewportInner: React.FC = () => {
 
       if (wordAnimStyle === 'smooth-sweep') {
         // Geometric horizontal wipe with zero bounce and 100% solid opacity (never dimmed / never washed out)
-        token.inactiveBase.alpha = 1;
-        if (token.inactiveRuby) token.inactiveRuby.alpha = 1;
-
         if (isTokenActive) {
           const wordSpan = Math.max(0.01, token.endTime - token.startTime);
           const progress = Math.min(1, Math.max(0, (currentTime - token.startTime) / wordSpan));
-          token.activeBase.alpha = 1;
-          token.activeBase.visible = true;
 
-          if (token.wipeMask && token.wipeTotalWidth) {
-            const currentWipePx = textPadding + token.baseWidth * progress;
-            token.wipeMask.scale.x = Math.min(1, Math.max(0, currentWipePx / token.wipeTotalWidth));
+          token.activeBase.visible = true;
+          token.activeBase.alpha = 1;
+          token.inactiveBase.visible = true;
+          token.inactiveBase.alpha = 1;
+
+          if (token.wipeMask) {
+            token.activeBase.mask = token.wipeMask;
+            const wipeWidth = Math.max(1, textPadding + token.baseWidth * progress);
+            token.wipeMask.clear();
+            token.wipeMask.rect(-textPadding, -textPadding, wipeWidth, token.baseHeight + textPadding * 2);
+            token.wipeMask.fill(0xffffff);
           }
 
-          if (token.activeRuby && token.rubyWipeMask && token.rubyWipeTotalWidth && token.inactiveRuby) {
-            token.activeRuby.alpha = 1;
+          if (token.activeRuby && token.inactiveRuby && token.rubyWipeMask) {
             token.activeRuby.visible = true;
+            token.activeRuby.alpha = 1;
+            token.inactiveRuby.visible = true;
+            token.inactiveRuby.alpha = 1;
+            token.activeRuby.mask = token.rubyWipeMask;
+
             const rubyTextPadding = Math.ceil(textPadding * 0.6);
-            const currentRubyWipePx = rubyTextPadding + token.inactiveRuby.width * progress;
-            token.rubyWipeMask.scale.x = Math.min(
-              1,
-              Math.max(0, currentRubyWipePx / token.rubyWipeTotalWidth)
+            const rubyWipeWidth = Math.max(1, rubyTextPadding + token.inactiveRuby.width * progress);
+            token.rubyWipeMask.clear();
+            token.rubyWipeMask.rect(
+              token.activeRuby.x - rubyTextPadding,
+              token.activeRuby.y - rubyTextPadding,
+              rubyWipeWidth,
+              token.inactiveRuby.height + rubyTextPadding * 2
             );
+            token.rubyWipeMask.fill(0xffffff);
           }
         } else if (isTokenPassed) {
-          token.activeBase.alpha = 1;
+          // Token has fully passed: 100% active highlight, mask detached so no stencil clamping
+          token.activeBase.mask = null;
           token.activeBase.visible = true;
-          if (token.wipeMask) token.wipeMask.scale.x = 1;
+          token.activeBase.alpha = 1;
+          token.inactiveBase.visible = false;
+          token.inactiveBase.alpha = 0;
 
           if (token.activeRuby) {
-            token.activeRuby.alpha = 1;
+            token.activeRuby.mask = null;
             token.activeRuby.visible = true;
-            if (token.rubyWipeMask) token.rubyWipeMask.scale.x = 1;
+            token.activeRuby.alpha = 1;
+          }
+          if (token.inactiveRuby) {
+            token.inactiveRuby.visible = false;
+            token.inactiveRuby.alpha = 0;
           }
         } else {
-          token.activeBase.alpha = 0;
+          // Future token: 100% inactive base, mask detached
+          token.activeBase.mask = null;
           token.activeBase.visible = false;
-          if (token.wipeMask) token.wipeMask.scale.x = 0;
+          token.activeBase.alpha = 0;
+          token.inactiveBase.visible = true;
+          token.inactiveBase.alpha = 1;
 
           if (token.activeRuby) {
-            token.activeRuby.alpha = 0;
+            token.activeRuby.mask = null;
             token.activeRuby.visible = false;
-            if (token.rubyWipeMask) token.rubyWipeMask.scale.x = 0;
+            token.activeRuby.alpha = 0;
+          }
+          if (token.inactiveRuby) {
+            token.inactiveRuby.visible = true;
+            token.inactiveRuby.alpha = 1;
           }
         }
       } else {
-        // Standard Alpha and Motion animations for other styles
-        if (token.wipeMask) token.wipeMask.scale.x = 1;
-        if (token.rubyWipeMask) token.rubyWipeMask.scale.x = 1;
+        // Standard Alpha and Motion animations for all other styles
+        // Explicitly clear any masks so WebGL stencil buffer is completely free
+        token.activeBase.mask = null;
+        if (token.activeRuby) token.activeRuby.mask = null;
 
         if (isTokenActive) {
           enterProgress = easeOutCubic((currentTime - token.startTime) / transitionSec);
@@ -302,11 +338,13 @@ const PixiViewportInner: React.FC = () => {
 
         token.activeBase.alpha = highlightAlpha;
         token.activeBase.visible = highlightAlpha > 0;
+        token.inactiveBase.visible = true;
         token.inactiveBase.alpha = 1 - highlightAlpha * 0.92;
 
         if (token.activeRuby && token.inactiveRuby) {
           token.activeRuby.alpha = highlightAlpha;
           token.activeRuby.visible = highlightAlpha > 0;
+          token.inactiveRuby.visible = true;
           token.inactiveRuby.alpha = 1 - highlightAlpha * 0.92;
         }
       }
@@ -764,15 +802,10 @@ const PixiViewportInner: React.FC = () => {
 
       // Create geometric horizontal wipe mask for smooth-sweep karaoke
       const wipeTotalWidth = inactiveBase.width + textPadding * 2;
-      const wipeTotalHeight = inactiveBase.height + textPadding * 2;
       const wipeMask = new Graphics();
-      wipeMask.rect(0, 0, wipeTotalWidth, wipeTotalHeight);
-      wipeMask.fill(0xffffff);
-      wipeMask.x = -textPadding;
-      wipeMask.y = -textPadding;
-      wipeMask.scale.x = 0;
+      wipeMask.renderable = false;
       tokenContainer.addChild(wipeMask);
-      activeBase.mask = wipeMask;
+      // NOTE: activeBase.mask is dynamically attached ONLY during smooth-sweep on the active token
 
       // Ruby Text Nodes (if present)
       let inactiveRuby: Text | null = null;
@@ -829,15 +862,10 @@ const PixiViewportInner: React.FC = () => {
 
         const rubyTextPadding = Math.ceil(textPadding * 0.6);
         rubyWipeTotalWidth = inactiveRuby.width + rubyTextPadding * 2;
-        const rubyWipeTotalHeight = inactiveRuby.height + rubyTextPadding * 2;
         rubyWipeMask = new Graphics();
-        rubyWipeMask.rect(0, 0, rubyWipeTotalWidth, rubyWipeTotalHeight);
-        rubyWipeMask.fill(0xffffff);
-        rubyWipeMask.x = metrics.rubyX - rubyTextPadding;
-        rubyWipeMask.y = metrics.rubyY - rubyTextPadding;
-        rubyWipeMask.scale.x = 0;
+        rubyWipeMask.renderable = false;
         tokenContainer.addChild(rubyWipeMask);
-        activeRuby.mask = rubyWipeMask;
+        // NOTE: activeRuby.mask is dynamically attached ONLY during smooth-sweep on the active token
       }
 
       tokenContainer.x = currentX;
