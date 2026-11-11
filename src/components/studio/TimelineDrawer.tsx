@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import {
   ZoomIn,
   ZoomOut,
@@ -13,6 +13,10 @@ import { useStudioStore } from '../../stores/useStudioStore';
 import { waveformManager } from '../../engine/audio/WaveformManager';
 import { RubyEditorModal } from '../furigana/RubyEditorModal';
 import { AutoFuriganaDialog } from '../furigana/AutoFuriganaDialog';
+import {
+  calculateZoomScrollAnchor,
+  isPointerInScrollbarZone,
+} from '../../engine/layout/timelineScrollMath';
 
 const TimelineDrawerInner: React.FC = () => {
   const duration = useStudioStore((s) => s.duration);
@@ -36,6 +40,7 @@ const TimelineDrawerInner: React.FC = () => {
   });
 
   const [zoom, setZoom] = useState<number>(2); // Default 2x for clearer block separation (1x..16x)
+  const prevZoomRef = useRef<number>(zoom);
   const [peaks, setPeaks] = useState<Float32Array | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
@@ -45,6 +50,8 @@ const TimelineDrawerInner: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
+  const isProgrammaticScrollRef = useRef<boolean>(false);
+  const userScrollCooldownRef = useRef<number>(0);
 
   // Load downsampled waveform peaks via Web Worker
   useEffect(() => {
@@ -101,11 +108,56 @@ const TimelineDrawerInner: React.FC = () => {
     }
   }, [peaks, zoom, viewport.width]);
 
+  // Synchronously adjust scrollLeft when zoom changes so playhead remains anchor-stable before paint
+  useLayoutEffect(() => {
+    const prevZoom = prevZoomRef.current;
+    if (prevZoom !== zoom) {
+      prevZoomRef.current = zoom;
+      const el = containerRef.current;
+      if (el && duration > 0) {
+        const curTime = useStudioStore.getState().currentTime;
+        const targetScrollLeft = calculateZoomScrollAnchor({
+          prevZoom,
+          nextZoom: zoom,
+          clientWidth: el.clientWidth,
+          currentScrollLeft: el.scrollLeft,
+          currentTime: curTime,
+          duration,
+        });
+        isProgrammaticScrollRef.current = true;
+        el.scrollLeft = targetScrollLeft;
+        requestAnimationFrame(() => {
+          isProgrammaticScrollRef.current = false;
+        });
+      }
+    }
+  }, [zoom, duration]);
+
   // Scrubber drag handling
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!containerRef.current || duration <= 0) return;
+    if (e.button !== 0) return; // Primary mouse button only
+
+    const rect = containerRef.current.getBoundingClientRect();
+    if (
+      isPointerInScrollbarZone({
+        clientX: e.clientX,
+        clientY: e.clientY,
+        rect,
+        clientHeight: containerRef.current.clientHeight,
+        clientWidth: containerRef.current.clientWidth,
+      })
+    ) {
+      // User is clicking or dragging the scrollbar! Do not scrub or capture pointer.
+      return;
+    }
+
     setIsScrubbing(true);
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Safe catch
+    }
     updateTimeFromPointer(e.clientX);
   };
 
@@ -248,6 +300,9 @@ const TimelineDrawerInner: React.FC = () => {
     const sync = () => {
       const nextLeft = el.scrollLeft;
       const nextWidth = el.clientWidth;
+      if (!isProgrammaticScrollRef.current) {
+        userScrollCooldownRef.current = Date.now() + 1500;
+      }
       setViewport((prev) =>
         prev.scrollLeft === nextLeft && prev.width === nextWidth
           ? prev
@@ -278,8 +333,14 @@ const TimelineDrawerInner: React.FC = () => {
       const viewStart = el.scrollLeft;
       const viewEnd = viewStart + el.clientWidth;
 
+      if (Date.now() < userScrollCooldownRef.current) return;
+
       if (playheadX > viewEnd - 80 || playheadX < viewStart) {
+        isProgrammaticScrollRef.current = true;
         el.scrollLeft = Math.max(0, playheadX - el.clientWidth * 0.25);
+        requestAnimationFrame(() => {
+          isProgrammaticScrollRef.current = false;
+        });
       }
     };
 
@@ -303,6 +364,12 @@ const TimelineDrawerInner: React.FC = () => {
         setZoom((z) => Math.min(16, z * 2));
       } else if (e.deltaY > 0) {
         setZoom((z) => Math.max(1, z / 2));
+      }
+    } else if (e.shiftKey || (e.deltaX === 0 && e.deltaY !== 0)) {
+      // Natural horizontal mouse wheel scrolling across timeline
+      if (containerRef.current) {
+        const delta = e.shiftKey ? e.deltaY || e.deltaX : e.deltaY;
+        containerRef.current.scrollLeft += delta;
       }
     }
   };
@@ -431,12 +498,16 @@ const TimelineDrawerInner: React.FC = () => {
       <div
         ref={containerRef}
         onWheel={handleWheel}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        className="flex-1 relative cursor-crosshair overflow-x-auto overflow-y-hidden bg-gatefold-bg/50"
+        className="flex-1 relative overflow-x-auto overflow-y-hidden bg-gatefold-bg/50"
       >
-        <div className="h-full relative min-w-full" style={{ width: `${zoom * 100}%` }}>
+        <div
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          className="h-full relative min-w-full cursor-crosshair"
+          style={{ width: `${zoom * 100}%` }}
+        >
           {/* Dynamic Ruler Ticks */}
           <div className="absolute top-0 inset-x-0 h-4 border-b border-gatefold-line/50 pointer-events-none text-[9px] font-mono text-gatefold-text-3">
             {rulerTicks.map((tick) => (
