@@ -111,9 +111,6 @@ flowchart LR
 
 ## 快速开始（从源码构建）
 
-> [!NOTE]
-> 目前尚未发布预编译的发行版安装包，请按照下方对应操作系统的步骤从源码构建并运行 **SubStellar**。
-
 ### 1. 通用前置要求
 * [Node.js](https://nodejs.org/) v20+ 或 v24+
 * [Rust & Cargo](https://rustup.rs/) v1.80+（推荐 v1.94+）

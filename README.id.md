@@ -111,9 +111,6 @@ flowchart LR
 
 ## Memulai (Build dari Source)
 
-> [!NOTE]
-> Paket rilis (*binary release*) belum tersedia saat ini. Ikuti panduan sesuai sistem operasi di bawah ini untuk membangun dan menjalankan **SubStellar** langsung dari *source code*.
-
 ### 1. Prasyarat Umum
 * [Node.js](https://nodejs.org/) v20+ atau v24+
 * [Rust & Cargo](https://rustup.rs/) v1.80+ (v1.94+ direkomendasikan)

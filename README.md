@@ -111,9 +111,6 @@ flowchart LR
 
 ## Quick Start (Build from Source)
 
-> [!NOTE]
-> Pre-built release binaries are not published yet. Follow the OS-specific instructions below to build and run **SubStellar** directly from source.
-
 ### 1. Common Prerequisites
 * [Node.js](https://nodejs.org/) v20+ or v24+
 * [Rust & Cargo](https://rustup.rs/) v1.80+ (v1.94+ recommended)
