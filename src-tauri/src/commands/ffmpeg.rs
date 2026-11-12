@@ -63,12 +63,22 @@ pub struct ExportResult {
     pub error_message: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WsStreamInfo {
+    pub port: u16,
+    pub token: String,
+}
+
 struct PipeWriterState {
     stdin: Option<BufWriter<ChildStdin>>,
+    width: u32,
+    roi_y: u32,
+    is_transparent: bool,
     needs_roi_pad: bool,
     roi_byte_offset: usize,
     roi_byte_len: usize,
     frame_canvas: Vec<u8>,
+    prev_dirty_rect: Option<(usize, usize, usize, usize)>,
     staging_frame: Vec<u8>,
     blank_frame: Option<Vec<u8>>,
     last_frame: Option<Vec<u8>>,
@@ -599,11 +609,15 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
     let session = Arc::new(ActiveExportSession {
         child: Mutex::new(Some(child)),
         pipe: Mutex::new(PipeWriterState {
-            stdin: Some(BufWriter::with_capacity(1024 * 1024, stdin)),
+            stdin: Some(BufWriter::with_capacity(4 * 1024 * 1024, stdin)),
+            width: config.width,
+            roi_y,
+            is_transparent,
             needs_roi_pad,
             roi_byte_offset,
             roi_byte_len,
             frame_canvas,
+            prev_dirty_rect: None,
             staging_frame: Vec::new(),
             blank_frame: None,
             last_frame: None,
@@ -622,6 +636,249 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
     });
 
     Ok(session_id)
+}
+
+/// Opens a dedicated loopback WebSocket binary stream for ultra-fast zero-copy frame transport
+/// bypassing WebView2's single-threaded `http://ipc.localhost` COM bridge.
+#[tauri::command]
+pub fn ffmpeg_open_ws_stream(session_id: String) -> Result<WsStreamInfo, String> {
+    use std::net::TcpListener;
+    use super::ws_pipe;
+
+    let session = with_sessions(|map| map.get(&session_id).cloned())
+        .ok_or_else(|| format!("Export session not found: {}", session_id))?;
+
+    // Ensure pre-allocated reusable frame canvas exists for zero-allocation RLE decoding
+    {
+        let mut pipe = session
+            .pipe
+            .lock()
+            .map_err(|_| "Export pipe lock poisoned".to_string())?;
+        if pipe.frame_canvas.is_empty() && pipe.roi_byte_len > 0 {
+            if pipe.is_transparent {
+                pipe.frame_canvas = vec![0u8; pipe.roi_byte_len];
+            } else {
+                let mut buf = Vec::with_capacity(pipe.roi_byte_len);
+                for _ in 0..(pipe.roi_byte_len / 4) {
+                    buf.extend_from_slice(&[10, 13, 20, 255]);
+                }
+                pipe.frame_canvas = buf;
+            }
+        }
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|e| format!("Failed to bind export WebSocket listener: {}", e))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to get listener port: {}", e))?
+        .port();
+
+    let token = format!(
+        "{:x}_{:x}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    let token_clone = token.clone();
+
+    std::thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else {
+            return;
+        };
+        let _ = stream.set_nodelay(true);
+        if ws_pipe::perform_ws_handshake(&mut stream, &token_clone).is_err() {
+            return;
+        }
+
+        let mut scratch: Vec<u8> = Vec::with_capacity(512 * 1024);
+        let mut last_prog_emit = Instant::now();
+
+        loop {
+            if session.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+            let frame = match ws_pipe::read_ws_message(&mut stream, &mut scratch) {
+                Ok(f) => f,
+                Err(_) => break,
+            };
+
+            let payload = match frame {
+                ws_pipe::WsFrame::Binary(bytes) => bytes,
+                ws_pipe::WsFrame::Text(_) => continue,
+                ws_pipe::WsFrame::Close => break,
+            };
+
+            if payload.len() < 20 {
+                continue;
+            }
+
+            let flags = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+            let arg1 = u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]) as usize;
+            let arg2 = u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]) as usize;
+            let arg3 = u32::from_le_bytes([payload[12], payload[13], payload[14], payload[15]]) as usize;
+            let arg4 = u32::from_le_bytes([payload[16], payload[17], payload[18], payload[19]]) as usize;
+            let body = &payload[20..];
+
+            if flags == 4 {
+                // Flush & ACK
+                let (written, total, elapsed) = {
+                    let Ok(mut pipe) = session.pipe.lock() else {
+                        break;
+                    };
+                    if let Some(ref mut bw) = pipe.stdin {
+                        let _ = bw.flush();
+                    }
+                    (pipe.frames_written, pipe.total_frames, pipe.start_time.elapsed().as_secs_f32())
+                };
+                let fps_x100 = ((written as f32 / elapsed.max(0.001)) * 100.0).round() as u32;
+                let mut ack = [0u8; 16];
+                ack[0..4].copy_from_slice(&(written as u32).to_le_bytes());
+                ack[4..8].copy_from_slice(&(total as u32).to_le_bytes());
+                ack[8..12].copy_from_slice(&fps_x100.to_le_bytes());
+                ack[12..16].copy_from_slice(&1u32.to_le_bytes()); // is_ack = 1
+                let _ = ws_pipe::send_ws_frame(&mut stream, 0x2, &ack);
+                break;
+            }
+
+            let write_res: Result<(u64, u64, f32), String> = {
+                let Ok(mut pipe) = session.pipe.lock() else {
+                    break;
+                };
+                let state = &mut *pipe;
+                let blank_px = if state.is_transparent {
+                    [0u8, 0, 0, 0]
+                } else {
+                    [10u8, 13, 20, 255]
+                };
+                let frame_w = state.width as usize;
+
+                if flags == 2 {
+                    // Repeat blank frame
+                    if let Some((px, py, pw, ph)) = state.prev_dirty_rect.take() {
+                        ws_pipe::clear_rgba_rect(&mut state.frame_canvas, frame_w, px, py, pw, ph, blank_px);
+                    }
+                    let count = (arg1 as u64)
+                        .clamp(1, 240)
+                        .min(state.total_frames.saturating_sub(state.frames_written));
+                    let Some(ref mut stdin) = state.stdin else {
+                        break;
+                    };
+                    let mut ok = true;
+                    for _ in 0..count {
+                        if stdin.write_all(&state.frame_canvas).is_err() {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if !ok {
+                        Err("Pipe write error during blank repeat".to_string())
+                    } else {
+                        state.frames_written += count;
+                        Ok((
+                            state.frames_written,
+                            state.total_frames,
+                            state.start_time.elapsed().as_secs_f32(),
+                        ))
+                    }
+                } else if flags == 3 {
+                    // Repeat last frame
+                    let count = (arg1 as u64)
+                        .clamp(1, 240)
+                        .min(state.total_frames.saturating_sub(state.frames_written));
+                    let Some(ref mut stdin) = state.stdin else {
+                        break;
+                    };
+                    let mut ok = true;
+                    for _ in 0..count {
+                        if stdin.write_all(&state.frame_canvas).is_err() {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if !ok {
+                        Err("Pipe write error during last frame repeat".to_string())
+                    } else {
+                        state.frames_written += count;
+                        Ok((
+                            state.frames_written,
+                            state.total_frames,
+                            state.start_time.elapsed().as_secs_f32(),
+                        ))
+                    }
+                } else {
+                    // flags == 1 (Sparse RLE dirty rect) or flags == 0 (Raw dirty rect)
+                    if let Some((px, py, pw, ph)) = state.prev_dirty_rect.take() {
+                        ws_pipe::clear_rgba_rect(&mut state.frame_canvas, frame_w, px, py, pw, ph, blank_px);
+                    }
+                    let dst_x = arg1;
+                    let dst_y = if state.needs_roi_pad {
+                        (state.roi_y as usize) + arg2
+                    } else {
+                        arg2
+                    };
+                    let dw = arg3;
+                    let dh = arg4;
+                    if flags == 1 {
+                        ws_pipe::unpack_sparse_rgba_rect(
+                            &mut state.frame_canvas,
+                            frame_w,
+                            dst_x,
+                            dst_y,
+                            dw,
+                            dh,
+                            body,
+                        );
+                    } else {
+                        ws_pipe::blit_raw_rgba_rect(
+                            &mut state.frame_canvas,
+                            frame_w,
+                            dst_x,
+                            dst_y,
+                            dw,
+                            dh,
+                            body,
+                        );
+                    }
+                    state.prev_dirty_rect = Some((dst_x, dst_y, dw, dh));
+
+                    let Some(ref mut stdin) = state.stdin else {
+                        break;
+                    };
+                    if let Err(e) = stdin.write_all(&state.frame_canvas) {
+                        Err(format!("Pipe write error: {}", e))
+                    } else {
+                        state.frames_written += 1;
+                        Ok((
+                            state.frames_written,
+                            state.total_frames,
+                            state.start_time.elapsed().as_secs_f32(),
+                        ))
+                    }
+                }
+            };
+
+            match write_res {
+                Ok((written, total, elapsed)) => {
+                    if last_prog_emit.elapsed().as_millis() >= 40 || written >= total {
+                        last_prog_emit = Instant::now();
+                        let fps_x100 = ((written as f32 / elapsed.max(0.001)) * 100.0).round() as u32;
+                        let mut prog = [0u8; 16];
+                        prog[0..4].copy_from_slice(&(written as u32).to_le_bytes());
+                        prog[4..8].copy_from_slice(&(total as u32).to_le_bytes());
+                        prog[8..12].copy_from_slice(&fps_x100.to_le_bytes());
+                        prog[12..16].copy_from_slice(&0u32.to_le_bytes()); // is_ack = 0
+                        let _ = ws_pipe::send_ws_frame(&mut stream, 0x2, &prog);
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    Ok(WsStreamInfo { port, token })
 }
 
 #[tauri::command]
@@ -1048,10 +1305,14 @@ pub async fn ffmpeg_export_ass_burnin(
             child: Mutex::new(Some(child)),
             pipe: Mutex::new(PipeWriterState {
                 stdin: None,
+                width: 0,
+                roi_y: 0,
+                is_transparent: false,
                 needs_roi_pad: false,
                 roi_byte_offset: 0,
                 roi_byte_len: 0,
                 frame_canvas: Vec::new(),
+                prev_dirty_rect: None,
                 staging_frame: Vec::new(),
                 blank_frame: None,
                 last_frame: None,

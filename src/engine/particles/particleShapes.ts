@@ -295,7 +295,7 @@ export function createTintedParticleCanvas(
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return canvas;
 
   ctx.clearRect(0, 0, size, size);

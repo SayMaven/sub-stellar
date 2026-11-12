@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   FFmpegExportPipeline,
   computeSubtitleOverlayBand,
+  encodeSparseRgbaPacket,
 } from '../engine/export/FFmpegExportPipeline';
 import type { SubtitleLine } from '../types';
 
@@ -210,6 +211,34 @@ describe('FFmpegExportPipeline', () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it('encodes transparent RGBA dirty rect into compact sparse RLE packet', () => {
+    const w = 64;
+    const h = 32;
+    const rgba = new Uint8Array(w * h * 4);
+    // Paint two non-transparent pixels in the middle
+    const p1 = (10 * w + 5) * 4;
+    rgba[p1] = 255;
+    rgba[p1 + 1] = 100;
+    rgba[p1 + 2] = 50;
+    rgba[p1 + 3] = 255;
+    rgba[p1 + 4] = 10;
+    rgba[p1 + 5] = 20;
+    rgba[p1 + 6] = 30;
+    rgba[p1 + 7] = 255;
+
+    const scratch = { buf: new Uint32Array(4096) };
+    const packet = encodeSparseRgbaPacket(rgba, 12, 8, w, h, true, scratch);
+    const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+
+    expect(view.getUint32(0, true)).toBe(1); // Sparse RLE flag
+    expect(view.getUint32(4, true)).toBe(12); // dirtyX
+    expect(view.getUint32(8, true)).toBe(8); // dirtyRelY
+    expect(view.getUint32(12, true)).toBe(w);
+    expect(view.getUint32(16, true)).toBe(h);
+    // Should compress 8192 bytes of raw RGBA down to < 64 bytes
+    expect(packet.byteLength).toBeLessThan(64);
   });
 });
 

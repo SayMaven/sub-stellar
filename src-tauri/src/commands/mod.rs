@@ -5,6 +5,7 @@ pub mod lyrics_proxy;
 pub mod ffmpeg;
 pub mod project_io;
 pub mod fonts;
+pub mod ws_pipe;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {

@@ -62,6 +62,7 @@ export interface ExportJobOptions {
 interface SafeContext {
   ctx: CanvasRenderingContext2D | null;
   getRegionImageData: (y: number, height: number) => Uint8Array;
+  getRectImageData: (x: number, y: number, w: number, h: number) => Uint8Array;
 }
 
 interface OverlayBand {
@@ -149,14 +150,15 @@ export function computeSubtitleOverlayBand(options: ExportJobOptions): OverlayBa
     vPos === 'top'
       ? scaledYOffset + baseFontSize
       : vPos === 'center'
-      ? options.height / 2 + scaledYOffset
+      ? Math.round((options.height + baseFontSize) / 2 + scaledYOffset)
       : options.height - scaledYOffset;
 
   const hasTranslation = options.lines.some(
     (l) => typeof l.translation === 'string' && l.translation.trim().length > 0
   );
   const transSize = Math.max(14, Math.round(baseFontSize * 0.45));
-  const particlePad = options.style.particleEnabled ? Math.round(110 * scale) : 0;
+  const topParticlePad = options.style.particleEnabled ? Math.round(140 * scale) : 0;
+  const bottomParticlePad = options.style.particleEnabled ? Math.round(90 * scale) : 0;
   const topPad =
     baseFontSize * 1.45 +
     rubyFontSize * 1.6 +
@@ -164,14 +166,14 @@ export function computeSubtitleOverlayBand(options: ExportJobOptions): OverlayBa
     innerStroke +
     glowBlur * 2 +
     44 * scale +
-    particlePad;
+    topParticlePad;
   const bottomPad =
     (hasTranslation ? baseFontSize * 0.65 + transSize * 0.7 : baseFontSize * 0.35) +
     outerStroke +
     innerStroke +
     glowBlur * 2 +
     28 * scale +
-    particlePad;
+    bottomParticlePad;
 
   const minY = Math.max(0, Math.floor(baselineY - topPad));
   const maxY = Math.min(options.height, Math.ceil(baselineY + bottomPad));
@@ -242,6 +244,11 @@ function createSafeOffscreenContext(width: number, height: number): SafeContext 
         const img = ctx.getImageData(0, y, width, regionHeight);
         return new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
       },
+      getRectImageData: (x: number, y: number, w: number, h: number) => {
+        if (!ctx) return new Uint8Array(w * h * 4);
+        const img = ctx.getImageData(x, y, w, h);
+        return new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
+      },
     };
   }
 
@@ -272,7 +279,101 @@ function createSafeOffscreenContext(width: number, height: number): SafeContext 
     ctx: mockCtx,
     getRegionImageData: (_y: number, regionHeight: number) =>
       new Uint8Array(width * regionHeight * 4),
+    getRectImageData: (_x: number, _y: number, w: number, h: number) =>
+      new Uint8Array(w * h * 4),
   };
+}
+
+/**
+ * Encodes a tight dirty RGBA rectangle into a sparse 32-bit transparent-run RLE packet
+ * with a 20-byte header for WebSocket binary streaming.
+ */
+export function encodeSparseRgbaPacket(
+  rgbaBytes: Uint8Array,
+  dirtyX: number,
+  dirtyRelY: number,
+  dirtyW: number,
+  dirtyH: number,
+  isTransparent: boolean,
+  scratchU32: { buf: Uint32Array }
+): Uint8Array {
+  const totalPixels = dirtyW * dirtyH;
+  const neededWords = 6 + totalPixels * 2;
+  if (scratchU32.buf.length < neededWords) {
+    scratchU32.buf = new Uint32Array(Math.max(neededWords, scratchU32.buf.length * 2));
+  }
+  const out = scratchU32.buf;
+  const pixels =
+    rgbaBytes.byteOffset % 4 === 0
+      ? new Uint32Array(rgbaBytes.buffer, rgbaBytes.byteOffset, totalPixels)
+      : new Uint32Array(rgbaBytes.slice().buffer, 0, totalPixels);
+
+  let wordPos = 5;
+  let i = 0;
+  // Little-endian RGBA for opaque studio background #0a0d14ff
+  const opaqueBlankU32 = 0xff140d0a;
+
+  while (i < totalPixels) {
+    let skip = 0;
+    if (isTransparent) {
+      while (i + skip < totalPixels && (pixels[i + skip] & 0xff000000) === 0) {
+        skip++;
+      }
+    } else {
+      while (i + skip < totalPixels && pixels[i + skip] === opaqueBlankU32) {
+        skip++;
+      }
+    }
+    if (skip > 0) {
+      out[wordPos++] = skip;
+      i += skip;
+    }
+    if (i >= totalPixels) break;
+
+    const litStart = i;
+    let lit = 0;
+    if (isTransparent) {
+      while (i + lit < totalPixels && (pixels[i + lit] & 0xff000000) !== 0) {
+        lit++;
+      }
+    } else {
+      while (i + lit < totalPixels && pixels[i + lit] !== opaqueBlankU32) {
+        lit++;
+      }
+    }
+    if (lit > 0) {
+      out[wordPos++] = (0x80000000 | lit) >>> 0;
+      for (let k = 0; k < lit; k++) {
+        out[wordPos++] = pixels[litStart + k];
+      }
+      i += lit;
+    }
+  }
+
+  // Fallback to uncompressed raw dirty rect if sparse RLE did not shrink payload
+  if (wordPos - 5 >= totalPixels) {
+    out[0] = 0;
+    out[1] = dirtyX;
+    out[2] = dirtyRelY;
+    out[3] = dirtyW;
+    out[4] = dirtyH;
+    out.set(pixels.subarray(0, totalPixels), 5);
+    return new Uint8Array(out.buffer, 0, (5 + totalPixels) * 4);
+  }
+
+  out[0] = 1;
+  out[1] = dirtyX;
+  out[2] = dirtyRelY;
+  out[3] = dirtyW;
+  out[4] = dirtyH;
+  return new Uint8Array(out.buffer, 0, wordPos * 4);
+}
+
+function buildWsControlPacket(flags: number, arg1 = 0): Uint8Array {
+  const pkt = new Uint32Array(5);
+  pkt[0] = flags >>> 0;
+  pkt[1] = arg1 >>> 0;
+  return new Uint8Array(pkt.buffer);
 }
 
 export class FFmpegExportPipeline {
@@ -319,7 +420,10 @@ export class FFmpegExportPipeline {
       }
     }
 
-    const { ctx, getRegionImageData } = createSafeOffscreenContext(options.width, options.height);
+    const { ctx, getRegionImageData, getRectImageData } = createSafeOffscreenContext(
+      options.width,
+      options.height
+    );
     const layoutCache = new Map<SubtitleLine, CachedLineLayout>();
 
     const hasVideoBackground = Boolean(
@@ -332,7 +436,6 @@ export class FFmpegExportPipeline {
     let lastRenderedLine: SubtitleLine | null = null;
     let lastRenderedTime = -1;
     let lastRenderedWasBlank = false;
-    const maxBatch = Math.min(30, Math.max(1, Math.round(options.fps / 2)));
     const animStyle = options.style.wordAnimStyle ?? 'pop';
     let inFlightWrite: Promise<void> | null = null;
 
@@ -342,6 +445,76 @@ export class FFmpegExportPipeline {
         inFlightWrite = null;
       }
     };
+
+    // Open high-speed loopback WebSocket binary stream if running in native Tauri WebView
+    let ws: WebSocket | null = null;
+    let wsAckResolve: (() => void) | null = null;
+    let wsFailed = false;
+    if (isNative && typeof WebSocket !== 'undefined') {
+      try {
+        const wsInfo = await tauriBridge.ffmpegOpenWsStream(sessionId);
+        if (wsInfo) {
+          ws = await new Promise<WebSocket | null>((resolve) => {
+            const socket = new WebSocket(
+              `ws://127.0.0.1:${wsInfo.port}/?token=${encodeURIComponent(wsInfo.token)}`
+            );
+            socket.binaryType = 'arraybuffer';
+            const timer = setTimeout(() => {
+              try {
+                socket.close();
+              } catch {
+                // Ignore
+              }
+              resolve(null);
+            }, 3000);
+            socket.onopen = () => {
+              clearTimeout(timer);
+              resolve(socket);
+            };
+            socket.onerror = () => {
+              clearTimeout(timer);
+              wsFailed = true;
+              resolve(null);
+            };
+            socket.onclose = () => {
+              if (wsAckResolve) {
+                wsAckResolve();
+                wsAckResolve = null;
+              }
+            };
+            socket.onmessage = (ev) => {
+              if (ev.data instanceof ArrayBuffer && ev.data.byteLength >= 16) {
+                const view = new DataView(ev.data);
+                const written = view.getUint32(0, true);
+                const total = Math.max(1, view.getUint32(4, true));
+                const fpsX100 = view.getUint32(8, true);
+                const isAck = view.getUint32(12, true);
+                options.onProgress?.({
+                  session_id: sessionId,
+                  frames_written: written,
+                  total_frames: total,
+                  percentage: Math.min(99.9, (written / total) * 100),
+                  fps: fpsX100 / 100,
+                });
+                if (isAck === 1 && wsAckResolve) {
+                  wsAckResolve();
+                  wsAckResolve = null;
+                }
+              }
+            };
+          });
+        }
+      } catch {
+        ws = null;
+      }
+    }
+
+    const useWs = Boolean(ws && ws.readyState === WebSocket.OPEN && !wsFailed);
+    const maxBatch = useWs
+      ? Math.min(120, Math.max(1, Math.round(options.fps * 2)))
+      : Math.min(30, Math.max(1, Math.round(options.fps / 2)));
+    const rleScratch = { buf: new Uint32Array(262144) };
+    let prevDirtyRect: { x: number; y: number; w: number; h: number } | null = null;
 
     const particleEnabled = options.style.particleEnabled ?? false;
     const particlePreset = options.style.particlePreset ?? 'stardust';
@@ -365,6 +538,13 @@ export class FFmpegExportPipeline {
       for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
         if (this.isCancelled) {
           await flushInFlight();
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            try {
+              ws.close();
+            } catch {
+              // Ignore
+            }
+          }
           if (isNative) {
             await tauriBridge.ffmpegCancelExport(sessionId);
           }
@@ -383,7 +563,7 @@ export class FFmpegExportPipeline {
         );
         const hasParticles = particleEnabled && activeParticles.length > 0;
 
-        if (isNative && !activeLine && hasCachedBlank && !hasParticles) {
+        if (isNative && !activeLine && (hasCachedBlank || useWs) && !hasParticles) {
           let repeatCount = 1;
           while (repeatCount < maxBatch && frameIndex + repeatCount < totalFrames) {
             const nextTime = (frameIndex + repeatCount) * frameInterval;
@@ -394,13 +574,20 @@ export class FFmpegExportPipeline {
             repeatCount++;
           }
 
-          await flushInFlight();
-          inFlightWrite = tauriBridge
-            .ffmpegWriteFrameChunk(sessionId, EMPTY_CHUNK, {
-              useBlank: true,
-              repeatCount,
-            })
-            .then((prog) => options.onProgress?.(prog));
+          if (useWs && ws && ws.readyState === WebSocket.OPEN) {
+            if (ws.bufferedAmount > 4 * 1024 * 1024) {
+              await new Promise((r) => setTimeout(r, 1));
+            }
+            ws.send(buildWsControlPacket(2, repeatCount));
+          } else {
+            await flushInFlight();
+            inFlightWrite = tauriBridge
+              .ffmpegWriteFrameChunk(sessionId, EMPTY_CHUNK, {
+                useBlank: true,
+                repeatCount,
+              })
+              .then((prog) => options.onProgress?.(prog));
+          }
           lastRenderedLine = null;
           lastRenderedWasBlank = true;
           frameIndex += repeatCount - 1;
@@ -436,47 +623,84 @@ export class FFmpegExportPipeline {
               repeatCount++;
             }
 
-            await flushInFlight();
-            inFlightWrite = tauriBridge
-              .ffmpegWriteFrameChunk(sessionId, EMPTY_CHUNK, {
-                reuseLast: true,
-                repeatCount,
-              })
-              .then((prog) => options.onProgress?.(prog));
+            if (useWs && ws && ws.readyState === WebSocket.OPEN) {
+              if (ws.bufferedAmount > 4 * 1024 * 1024) {
+                await new Promise((r) => setTimeout(r, 1));
+              }
+              ws.send(buildWsControlPacket(3, repeatCount));
+            } else {
+              await flushInFlight();
+              inFlightWrite = tauriBridge
+                .ffmpegWriteFrameChunk(sessionId, EMPTY_CHUNK, {
+                  reuseLast: true,
+                  repeatCount,
+                })
+                .then((prog) => options.onProgress?.(prog));
+            }
             lastRenderedTime = prevStaticTime;
             frameIndex += repeatCount - 1;
             continue;
           }
         }
 
+        // Track tight per-frame dirty rect covering text + active particles
+        let dMinX = options.width;
+        let dMinY = roiBand.y + roiBand.height;
+        let dMaxX = 0;
+        let dMaxY = roiBand.y;
+
         if (ctx) {
-          if (isTransparent) {
-            ctx.clearRect(0, roiBand.y, options.width, roiBand.height);
+          // Clear previous dirty region (or full ROI band on first frame)
+          if (prevDirtyRect && prevDirtyRect.w > 0 && prevDirtyRect.h > 0) {
+            if (isTransparent) {
+              ctx.clearRect(prevDirtyRect.x, prevDirtyRect.y, prevDirtyRect.w, prevDirtyRect.h);
+            } else {
+              ctx.fillStyle = '#0a0d14';
+              ctx.fillRect(prevDirtyRect.x, prevDirtyRect.y, prevDirtyRect.w, prevDirtyRect.h);
+            }
           } else {
-            ctx.fillStyle = '#0a0d14';
-            ctx.fillRect(0, roiBand.y, options.width, roiBand.height);
+            if (isTransparent) {
+              ctx.clearRect(0, roiBand.y, options.width, roiBand.height);
+            } else {
+              ctx.fillStyle = '#0a0d14';
+              ctx.fillRect(0, roiBand.y, options.width, roiBand.height);
+            }
           }
 
+          let activeLayout: CachedLineLayout | null = null;
           if (activeLine) {
-            const layout = this.getOrBuildLineLayout(ctx, activeLine, options, layoutCache);
-            this.renderSubtitleFrame(ctx, activeLine, layout, currentTime, options);
+            activeLayout = this.getOrBuildLineLayout(ctx, activeLine, options, layoutCache);
 
-            // Particle burst trigger when active word switches
+            // 1. Trigger particle emission when active word switches (using Studio coordinate match)
             if (particleEnabled) {
-              const activeIdx = layout.measured.findIndex(
+              const activeIdx = activeLayout.measured.findIndex(
                 (m) => !m.disableAnim && currentTime >= m.startTime && currentTime < m.endTime
               );
               if (activeIdx !== -1) {
                 const tokenKey = `${activeLine.id}_${activeIdx}`;
                 if (tokenKey !== lastActiveTokenKey) {
                   lastActiveTokenKey = tokenKey;
-                  const targetToken = layout.measured[activeIdx];
-                  let originTokenX = (options.width - layout.totalWidth) / 2 + layout.scaledXOffset;
+                  const targetToken = activeLayout.measured[activeIdx];
+                  let originTokenX =
+                    (options.width - activeLayout.totalWidth) / 2 + activeLayout.scaledXOffset;
                   for (let i = 0; i < activeIdx; i++) {
-                    originTokenX += layout.measured[i].baseWidth + layout.measured[i].tokenGap;
+                    originTokenX +=
+                      activeLayout.measured[i].baseWidth + activeLayout.measured[i].tokenGap;
                   }
+                  const sinceStart = currentTime - activeLine.startTime;
+                  const lineSlideY =
+                    sinceStart < activeLayout.entryWindow
+                      ? Math.round(
+                          (1 - easeOutCubic(sinceStart / activeLayout.entryWindow)) *
+                            12 *
+                            activeLayout.scale
+                        )
+                      : 0;
+                  const lineTopY =
+                    activeLayout.baseBaselineY - activeLayout.baseFontSize + lineSlideY;
                   const emitX = originTokenX + targetToken.baseWidth / 2;
-                  const emitY = layout.baseBaselineY - layout.baseFontSize / 2;
+                  const emitY = lineTopY - 10 * activeLayout.scale;
+
                   const config = PRESET_CONFIGS[particlePreset] || PRESET_CONFIGS.stardust;
                   const speedMult = options.style.particleSpeed ?? 1.0;
                   const sizeMult = options.style.particleSize ?? 1.0;
@@ -542,7 +766,7 @@ export class FFmpegExportPipeline {
             }
           }
 
-          // Kinematics and blit of active particles
+          // 2. Update kinematics & render active particles FIRST (strictly UNDER subtitle text)
           if (particleEnabled && activeParticles.length > 0) {
             for (let pIdx = activeParticles.length - 1; pIdx >= 0; pIdx--) {
               const p = activeParticles[pIdx];
@@ -558,6 +782,12 @@ export class FFmpegExportPipeline {
               p.scale = Math.max(0.05, p.scale + p.scaleSpeed * frameInterval);
               p.rotation += p.rotationSpeed * frameInterval;
 
+              const pRad = Math.ceil(64 * p.scale) + 4;
+              if (p.x - pRad < dMinX) dMinX = p.x - pRad;
+              if (p.y - pRad < dMinY) dMinY = p.y - pRad;
+              if (p.x + pRad > dMaxX) dMaxX = p.x + pRad;
+              if (p.y + pRad > dMaxY) dMaxY = p.y + pRad;
+
               ctx.save();
               ctx.globalAlpha = Math.max(0, Math.min(1, p.alpha));
               ctx.translate(p.x, p.y);
@@ -568,17 +798,89 @@ export class FFmpegExportPipeline {
               ctx.restore();
             }
           }
+
+          // 3. Render subtitle text SECOND (on top of particle layer, matching Studio PixiViewport)
+          if (activeLine && activeLayout) {
+            this.renderSubtitleFrame(ctx, activeLine, activeLayout, currentTime, options);
+
+            const lineLeft =
+              (options.width - activeLayout.totalWidth) / 2 + activeLayout.scaledXOffset;
+            const pad = Math.ceil(
+              activeLayout.glowBlur * 2 +
+                activeLayout.outerStroke +
+                activeLayout.innerStroke +
+                36 * activeLayout.scale
+            );
+            const lMinX = lineLeft - pad;
+            const lMaxX = lineLeft + activeLayout.totalWidth + pad;
+            const lMinY =
+              activeLayout.baseBaselineY -
+              activeLayout.baseFontSize -
+              activeLayout.rubyFontSize -
+              pad;
+            let lMaxY = activeLayout.baseBaselineY + pad;
+
+            if (activeLayout.translationSprite) {
+              const tLeft =
+                (options.width - activeLayout.translationWidth) / 2 + activeLayout.scaledXOffset;
+              const tRight = tLeft + activeLayout.translationWidth;
+              const tBottom =
+                activeLayout.baseBaselineY +
+                activeLayout.baseFontSize * 0.65 +
+                activeLayout.translationHeight;
+              if (tLeft < dMinX) dMinX = tLeft;
+              if (tRight > dMaxX) dMaxX = tRight;
+              if (tBottom > lMaxY) lMaxY = tBottom;
+            }
+
+            if (lMinX < dMinX) dMinX = lMinX;
+            if (lMaxX > dMaxX) dMaxX = lMaxX;
+            if (lMinY < dMinY) dMinY = lMinY;
+            if (lMaxY > dMaxY) dMaxY = lMaxY;
+          }
         }
 
+        // Clamp tight dirty rect to ROI band
+        const dirtyX = Math.max(0, Math.floor(dMinX));
+        const dirtyY = Math.max(roiBand.y, Math.floor(dMinY));
+        const dirtyMaxX = Math.min(options.width, Math.ceil(dMaxX));
+        const dirtyMaxY = Math.min(roiBand.y + roiBand.height, Math.ceil(dMaxY));
+        const hasValidDirty = dirtyMaxX > dirtyX && dirtyMaxY > dirtyY;
+        const safeDirtyX = hasValidDirty ? dirtyX : 0;
+        const safeDirtyY = hasValidDirty ? dirtyY : roiBand.y;
+        const safeDirtyW = hasValidDirty ? dirtyMaxX - dirtyX : 2;
+        const safeDirtyH = hasValidDirty ? dirtyMaxY - dirtyY : 2;
+        prevDirtyRect = { x: safeDirtyX, y: safeDirtyY, w: safeDirtyW, h: safeDirtyH };
+
         if (isNative) {
-          const roiBytes = getRegionImageData(roiBand.y, roiBand.height);
-          const shouldCacheBlank = !activeLine && !hasCachedBlank && !hasParticles;
-          await flushInFlight();
-          inFlightWrite = this.writeRawFrameInChunks(sessionId, roiBytes, shouldCacheBlank).then(
-            (prog) => options.onProgress?.(prog)
-          );
-          if (shouldCacheBlank) {
-            hasCachedBlank = true;
+          if (useWs && ws && ws.readyState === WebSocket.OPEN) {
+            if (ws.bufferedAmount > 4 * 1024 * 1024) {
+              await new Promise((r) => setTimeout(r, 1));
+            }
+            const rectBytes = getRectImageData(safeDirtyX, safeDirtyY, safeDirtyW, safeDirtyH);
+            const packet = encodeSparseRgbaPacket(
+              rectBytes,
+              safeDirtyX,
+              safeDirtyY - roiBand.y,
+              safeDirtyW,
+              safeDirtyH,
+              isTransparent,
+              rleScratch
+            );
+            ws.send(packet);
+            if (frameIndex % 12 === 0) {
+              await new Promise((r) => setTimeout(r, 0));
+            }
+          } else {
+            const roiBytes = getRegionImageData(roiBand.y, roiBand.height);
+            const shouldCacheBlank = !activeLine && !hasCachedBlank && !hasParticles;
+            await flushInFlight();
+            inFlightWrite = this.writeRawFrameInChunks(sessionId, roiBytes, shouldCacheBlank).then(
+              (prog) => options.onProgress?.(prog)
+            );
+            if (shouldCacheBlank) {
+              hasCachedBlank = true;
+            }
           }
           lastRenderedLine = activeLine ?? null;
           lastRenderedTime = currentTime;
@@ -601,8 +903,31 @@ export class FFmpegExportPipeline {
         }
       }
 
-      await flushInFlight();
+      if (useWs && ws && ws.readyState === WebSocket.OPEN) {
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(resolve, 5000);
+          wsAckResolve = () => {
+            clearTimeout(timeout);
+            resolve();
+          };
+          ws!.send(buildWsControlPacket(4)); // Flush & ACK
+        });
+        try {
+          ws.close();
+        } catch {
+          // Ignore
+        }
+      } else {
+        await flushInFlight();
+      }
     } catch (err) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.close();
+        } catch {
+          // Ignore
+        }
+      }
       if (isNative) {
         await tauriBridge.ffmpegCancelExport(sessionId);
       }
@@ -751,7 +1076,7 @@ export class FFmpegExportPipeline {
           const sCanvas = document.createElement('canvas');
           sCanvas.width = spriteW;
           sCanvas.height = spriteH;
-          const sctx = sCanvas.getContext('2d');
+          const sctx = sCanvas.getContext('2d', { willReadFrequently: true });
           if (!sctx) return sCanvas;
 
           sctx.lineJoin = 'round';
@@ -862,7 +1187,7 @@ export class FFmpegExportPipeline {
       vPos === 'top'
         ? scaledYOffset + baseFontSize
         : vPos === 'center'
-        ? options.height / 2 + scaledYOffset
+        ? Math.round((options.height + baseFontSize) / 2 + scaledYOffset)
         : options.height - scaledYOffset;
 
     let translationSprite: HTMLCanvasElement | undefined;
@@ -877,7 +1202,7 @@ export class FFmpegExportPipeline {
       const tCanvas = document.createElement('canvas');
       tCanvas.width = Math.ceil(tw + tpad * 2);
       tCanvas.height = Math.ceil(transSize * 1.6 + tpad * 2);
-      const tctx = tCanvas.getContext('2d');
+      const tctx = tCanvas.getContext('2d', { willReadFrequently: true });
       if (tctx) {
         tctx.font = `600 ${transSize}px ${cssFontStack}`;
         tctx.textAlign = 'left';

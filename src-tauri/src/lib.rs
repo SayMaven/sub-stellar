@@ -9,6 +9,7 @@ pub fn run() {
             commands::ffmpeg::probe_hardware_capabilities,
             commands::ffmpeg::ffmpeg_check_binary,
             commands::ffmpeg::ffmpeg_start_export_pipe,
+            commands::ffmpeg::ffmpeg_open_ws_stream,
             commands::ffmpeg::ffmpeg_write_frame_chunk,
             commands::ffmpeg::ffmpeg_finish_export,
             commands::ffmpeg::ffmpeg_cancel_export,

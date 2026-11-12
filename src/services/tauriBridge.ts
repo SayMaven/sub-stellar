@@ -188,6 +188,17 @@ export const tauriBridge = {
     return invokeTauri<string>('ffmpeg_start_export_pipe', { config });
   },
 
+  async ffmpegOpenWsStream(sessionId: string): Promise<{ port: number; token: string } | null> {
+    if (!this.isAvailable()) return null;
+    try {
+      return await invokeTauri<{ port: number; token: string }>('ffmpeg_open_ws_stream', {
+        sessionId,
+      });
+    } catch {
+      return null;
+    }
+  },
+
   async ffmpegWriteFrameChunk(
     sessionId: string,
     chunk: Uint8Array,
