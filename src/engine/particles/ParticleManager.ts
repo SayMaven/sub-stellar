@@ -236,6 +236,18 @@ export class ParticleManager {
       // Color strategy
       if (colorMode === 'rainbow') {
         p.tint = RAINBOW_TINTS[Math.floor(Math.random() * RAINBOW_TINTS.length)];
+      } else if (colorMode === 'glow' && options?.glowColorHex) {
+        const cleaned = options.glowColorHex.trim().replace(/^#/, '');
+        if (/^[0-9a-fA-F]{6}$/.test(cleaned)) {
+          p.tint = parseInt(cleaned, 16);
+        } else if (/^[0-9a-fA-F]{3}$/.test(cleaned)) {
+          p.tint = parseInt(
+            `${cleaned[0]}${cleaned[0]}${cleaned[1]}${cleaned[1]}${cleaned[2]}${cleaned[2]}`,
+            16
+          );
+        } else {
+          p.tint = tint;
+        }
       } else {
         p.tint = tint;
       }

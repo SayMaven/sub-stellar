@@ -491,6 +491,7 @@ const PixiViewportInner: React.FC = () => {
             sizeMultiplier: curStyle.particleSize,
             lifetimeMultiplier: curStyle.particleLifetime,
             colorMode: curStyle.particleColorMode,
+            glowColorHex: curStyle.glowColor,
           }
         );
       }

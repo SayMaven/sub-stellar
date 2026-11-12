@@ -15,6 +15,23 @@ function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - c, 3);
 }
 
+function hexToRgbaString(hex: string, alpha: number): string {
+  const cleaned = (hex || '').trim().replace(/^#/, '');
+  if (/^[0-9a-fA-F]{6}$/.test(cleaned)) {
+    const r = parseInt(cleaned.slice(0, 2), 16);
+    const g = parseInt(cleaned.slice(2, 4), 16);
+    const b = parseInt(cleaned.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  if (/^[0-9a-fA-F]{3}$/.test(cleaned)) {
+    const r = parseInt(cleaned[0] + cleaned[0], 16);
+    const g = parseInt(cleaned[1] + cleaned[1], 16);
+    const b = parseInt(cleaned[2] + cleaned[2], 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return hex;
+}
+
 export interface ExportJobOptions {
   outputPath: string;
   mode: 'mp4_burnin' | 'webm_alpha' | 'prores_alpha';
@@ -1092,11 +1109,11 @@ export class FFmpegExportPipeline {
             ? options.style.rubyActiveColor || '#5affb5'
             : options.style.rubyFillColor || options.style.primaryColor;
 
-          // 1. Outer outline + glow
+          // 1. Outer outline + glow (alpha: 0.65 parity with PixiViewport dropShadow)
           if (outerStroke + innerStroke > 0 || glowBlur > 0) {
             sctx.save();
             if (glowBlur > 0 && options.style.glowColor) {
-              sctx.shadowColor = options.style.glowColor;
+              sctx.shadowColor = hexToRgbaString(options.style.glowColor, 0.65);
               sctx.shadowBlur = glowBlur;
             }
             if (outerStroke + innerStroke > 0) {
@@ -1109,12 +1126,18 @@ export class FFmpegExportPipeline {
             sctx.restore();
           }
 
-          // 2. Inner stroke
+          // 2. Inner stroke (or subtle outer fallback when innerStroke is 0, matching PixiViewport)
           if (innerStroke > 0) {
             sctx.font = baseFont;
             sctx.textBaseline = 'alphabetic';
             sctx.lineWidth = innerStroke;
             sctx.strokeStyle = strokeCol;
+            sctx.strokeText(t.base, originX, originBaselineY);
+          } else if (outerStroke > 0) {
+            sctx.font = baseFont;
+            sctx.textBaseline = 'alphabetic';
+            sctx.lineWidth = Math.max(1, Math.round(outerStroke * 0.4));
+            sctx.strokeStyle = options.style.secondaryOutlineColor;
             sctx.strokeText(t.base, originX, originBaselineY);
           }
 
@@ -1376,30 +1399,45 @@ export class FFmpegExportPipeline {
           } else if (isCurrent) {
             const span = Math.max(0.01, m.endTime - m.startTime);
             const progress = Math.min(1, Math.max(0, (currentTime - m.startTime) / span));
-            const wipeWidth = Math.min(
-              m.spriteWidth,
-              Math.round(m.originX + m.baseWidth * progress + 4)
-            );
-            if (wipeWidth > 0) {
-              ctx.drawImage(
-                m.activeSprite,
-                0,
-                0,
-                wipeWidth,
-                m.spriteHeight,
-                spriteDrawX,
-                spriteDrawY,
-                wipeWidth,
-                m.spriteHeight
+            if (progress > 0.001) {
+              const extra = progress >= 0.98 ? 4 : 0;
+              const wipeWidth = Math.min(
+                m.spriteWidth,
+                Math.round(m.originX + m.baseWidth * progress + extra)
               );
+              if (wipeWidth > 0) {
+                ctx.drawImage(
+                  m.activeSprite,
+                  0,
+                  0,
+                  wipeWidth,
+                  m.spriteHeight,
+                  spriteDrawX,
+                  spriteDrawY,
+                  wipeWidth,
+                  m.spriteHeight
+                );
+              }
             }
           }
         } else {
-          const isHighlighted = isTokenActive || (isTokenPassed && animStyle === 'sweep');
-          if (isHighlighted) {
+          const highlightAlpha = isTokenActive
+            ? Math.max(0.35, enterProgress)
+            : isTokenPassed && animStyle === 'sweep'
+            ? 1
+            : 0;
+
+          if (highlightAlpha <= 0) {
+            ctx.drawImage(m.inactiveSprite, spriteDrawX, spriteDrawY);
+          } else if (highlightAlpha >= 1) {
             ctx.drawImage(m.activeSprite, spriteDrawX, spriteDrawY);
           } else {
+            const baseAlpha = ctx.globalAlpha;
+            ctx.globalAlpha = baseAlpha * (1 - highlightAlpha * 0.92);
             ctx.drawImage(m.inactiveSprite, spriteDrawX, spriteDrawY);
+            ctx.globalAlpha = baseAlpha * highlightAlpha;
+            ctx.drawImage(m.activeSprite, spriteDrawX, spriteDrawY);
+            ctx.globalAlpha = baseAlpha;
           }
         }
         ctx.restore();
@@ -1423,7 +1461,7 @@ export class FFmpegExportPipeline {
         if (outerStroke + innerStroke > 0 || glowBlur > 0) {
           ctx.save();
           if (glowBlur > 0 && options.style.glowColor) {
-            ctx.shadowColor = options.style.glowColor;
+            ctx.shadowColor = hexToRgbaString(options.style.glowColor, 0.65);
             ctx.shadowBlur = glowBlur;
           }
           if (outerStroke + innerStroke > 0) {

@@ -488,7 +488,7 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
             // Default: mp4_burnin (Composites RGBA subtitle overlay [0:v] over source video [1:v] when present)
             if is_video_source {
                 let filter = format!(
-                    "[1:v]scale={w}:{h}:force_original_aspect_ratio=decrease:flags=fast_bilinear,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1[bg];[bg][0:v]overlay=0:{oy}:eof_action=pass[outv]",
+                    "[1:v]scale={w}:{h}:force_original_aspect_ratio=decrease:flags=fast_bilinear,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1[bg];[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuva444p[ov];[bg][ov]overlay=0:{oy}:eof_action=pass:format=yuv420[outv]",
                     w = config.width,
                     h = config.height,
                     oy = roi_y
@@ -564,6 +564,15 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
                     ]);
                 }
             }
+
+            cmd.args([
+                "-colorspace",
+                "bt709",
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+            ]);
 
             if has_audio {
                 let ab = config
