@@ -137,7 +137,7 @@ export const tauriBridge = {
       return await invokeTauri<SystemInfo>('get_system_info');
     } catch {
       return {
-        app_version: '1.0.0-alpha.3',
+        app_version: '0.9.0',
         os_name: typeof navigator !== 'undefined' ? navigator.platform : 'browser',
         arch: 'x64',
       };

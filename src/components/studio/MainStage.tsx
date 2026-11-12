@@ -70,7 +70,11 @@ export const MainStage: React.FC = () => {
   const addLine = useStudioStore((s) => s.addLine);
 
   const hasLoadedMedia = Boolean(
-    track.videoUrl || track.audioUrl || track.coverUrl || (track.id && track.duration > 0 && linesCount > 0)
+    track.videoUrl ||
+      track.audioUrl ||
+      track.mediaFilePath ||
+      track.coverUrl ||
+      (track.id && track.duration > 0 && linesCount > 0)
   );
   const isCompletelyEmpty = linesCount === 0 && !hasLoadedMedia;
 
@@ -399,10 +403,10 @@ export const MainStage: React.FC = () => {
           <button
             onClick={loadSampleTrack}
             className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-gatefold-text-3 hover:text-gatefold-text hover:bg-gatefold-hover border border-transparent hover:border-gatefold-line transition-colors"
-            title="Reset Project to Sample Track"
+            title={isCompletelyEmpty ? 'Load J-Pop Demo Showcase' : 'Reset Project to Sample Track'}
           >
             <RotateCcw className="w-3 h-3" />
-            <span className="hidden lg:inline">Reset Demo</span>
+            <span className="hidden lg:inline">{isCompletelyEmpty ? 'Load Demo' : 'Reset Demo'}</span>
           </button>
         </div>
       </div>

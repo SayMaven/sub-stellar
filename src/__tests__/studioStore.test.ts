@@ -29,6 +29,20 @@ describe('useStudioStore', () => {
     });
   });
 
+  it('starts as a fresh empty project with no media and no subtitles on initial launch', () => {
+    const initial = useStudioStore.getInitialState();
+    expect(initial.status).toBe('idle');
+    expect(initial.lines).toEqual([]);
+    expect(initial.duration).toBe(0);
+    expect(initial.currentTime).toBe(0);
+    expect(initial.selectedLineId).toBeNull();
+    expect(initial.track.id).toBe('');
+    expect(initial.track.title).toBe('Untitled Project');
+    expect(initial.track.videoUrl).toBeUndefined();
+    expect(initial.track.audioUrl).toBeUndefined();
+    expect(initial.track.mediaFilePath).toBeUndefined();
+  });
+
   it('initializes with sample track and furigana lines', () => {
     const state = useStudioStore.getState();
     expect(state.activeTab).toBe('studio');

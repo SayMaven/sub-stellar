@@ -313,6 +313,13 @@ interface StudioStoreState {
   setErrorMessage: (msg: string | null) => void;
 }
 
+const createEmptyTrack = (): TrackMetadata => ({
+  id: '',
+  title: 'Untitled Project',
+  artist: 'Unknown Artist',
+  duration: 0,
+});
+
 const getInitialSidebarCollapsed = (): boolean => {
   try {
     if (typeof localStorage !== 'undefined') {
@@ -351,25 +358,18 @@ export const useStudioStore = create<StudioStoreState>((rawSet, get) => {
     zoom: 100,
     sidebarCollapsed: getInitialSidebarCollapsed(),
     isPlaying: false,
-    currentTime: 13.2,
-    duration: 185.0,
+    currentTime: 0,
+    duration: 0,
     volume: 0.8,
     isMuted: false,
     isLooping: false,
-    status: 'ready',
+    status: 'idle',
     errorMessage: null,
     projectFilePath: null,
     hasUnsavedChanges: false,
-    track: {
-      id: 'sample-track-1',
-      title: 'Stellar Night Flight',
-      artist: 'Luna feat. Hatsune Miku',
-      duration: 185.0,
-      bpm: 134,
-      coverUrl: '',
-    },
-    lines: SAMPLE_SUBTITLES,
-    selectedLineId: 'line-1',
+    track: createEmptyTrack(),
+    lines: [],
+    selectedLineId: null,
     style: DEFAULT_SUBTITLE_STYLE,
 
     setActiveTab: (tab: StudioTab) => set({ activeTab: tab }),
@@ -1042,7 +1042,7 @@ export const useStudioStore = create<StudioStoreState>((rawSet, get) => {
   exportProjectJson: () => {
     const state = get();
     const payload: SubStellarProjectFile = {
-      version: '1.0.0-alpha.8',
+      version: '0.9.0',
       savedAt: new Date().toISOString(),
       aspectRatio: state.aspectRatio,
       canvasResolution: state.canvasResolution,
@@ -1407,13 +1407,9 @@ export const useStudioStore = create<StudioStoreState>((rawSet, get) => {
       status: 'idle',
       errorMessage: null,
       projectFilePath: null,
-      track: {
-        id: '',
-        title: 'Untitled Project',
-        artist: 'Unknown Artist',
-        duration: 0,
-      },
+      track: createEmptyTrack(),
       lines: [],
+      duration: 0,
       currentTime: 0,
       selectedLineId: null,
       isPlaying: false,
