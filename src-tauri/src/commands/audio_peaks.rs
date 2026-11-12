@@ -12,6 +12,14 @@ use symphonia::core::probe::Hint;
 
 const COARSE_BLOCK_SAMPLES: usize = 2048;
 
+#[derive(Debug, Clone, Copy)]
+pub struct CoarseAudioBlock {
+    pub min: f32,
+    pub max: f32,
+    pub rms: f32,
+    pub count: usize,
+}
+
 #[cfg(windows)]
 fn apply_no_window(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
@@ -22,8 +30,9 @@ fn apply_no_window(cmd: &mut Command) {
 #[cfg(not(windows))]
 fn apply_no_window(_cmd: &mut Command) {}
 
-/// Downsamples coarse `(min, max)` blocks into exact `target_bins * 2` interleaved `[min, max, ...]` f32 values.
-pub fn downsample_coarse_blocks(blocks: &[(f32, f32)], target_bins: usize) -> Vec<f32> {
+/// Downsamples coarse audio blocks using an RMS + average-peak dynamic envelope
+/// so mastered tracks show clear verse/chorus dynamics instead of flat ±1.0 brick walls.
+pub fn downsample_coarse_blocks(blocks: &[CoarseAudioBlock], target_bins: usize) -> Vec<f32> {
     let bins = target_bins.max(1);
     let mut peaks = vec![0.0f32; bins * 2];
     if blocks.is_empty() {
@@ -31,27 +40,55 @@ pub fn downsample_coarse_blocks(blocks: &[(f32, f32)], target_bins: usize) -> Ve
     }
 
     let total_blocks = blocks.len();
+    let mut raw_envelopes = vec![0.0f32; bins];
+    let mut max_envelope = 0.0f32;
+
     for b in 0..bins {
         let start = (b * total_blocks) / bins;
         let end = (((b + 1) * total_blocks) / bins).max(start + 1).min(total_blocks);
 
-        let mut min_v = 1.0f32;
-        let mut max_v = -1.0f32;
-        for &(b_min, b_max) in &blocks[start..end] {
-            if b_min < min_v {
-                min_v = b_min;
+        let mut weighted_sq_sum = 0.0f64;
+        let mut total_samples = 0usize;
+        let mut peak_sum = 0.0f64;
+        let mut block_count = 0usize;
+
+        for blk in &blocks[start..end] {
+            if blk.count == 0 {
+                continue;
             }
-            if b_max > max_v {
-                max_v = b_max;
+            let r = blk.rms as f64;
+            weighted_sq_sum += r * r * (blk.count as f64);
+            total_samples += blk.count;
+            let half_span = ((blk.max - blk.min) * 0.5).max(0.0) as f64;
+            peak_sum += half_span;
+            block_count += 1;
+        }
+
+        if total_samples > 0 && block_count > 0 {
+            let bin_rms = (weighted_sq_sum / total_samples as f64).sqrt() as f32;
+            let avg_peak = (peak_sum / block_count as f64) as f32;
+            // 72% RMS energy + 28% averaged transient peak preserves musical dynamics
+            let env = (0.72 * bin_rms + 0.28 * avg_peak).clamp(0.0, 1.0);
+            raw_envelopes[b] = env;
+            if env > max_envelope {
+                max_envelope = env;
             }
         }
-        if min_v > max_v {
-            min_v = 0.0;
-            max_v = 0.0;
-        }
-        peaks[b * 2] = min_v.clamp(-1.0, 1.0);
-        peaks[b * 2 + 1] = max_v.clamp(-1.0, 1.0);
     }
+
+    // Gentle auto-normalization: keeps quiet acoustic tracks readable without clipping loud tracks
+    let gain = if max_envelope > 0.05 {
+        (0.92 / max_envelope).min(2.5)
+    } else {
+        1.0
+    };
+
+    for (b, env) in raw_envelopes.into_iter().enumerate() {
+        let amp = (env * gain).clamp(0.0, 0.96);
+        peaks[b * 2] = -amp;
+        peaks[b * 2 + 1] = amp;
+    }
+
     peaks
 }
 
@@ -93,9 +130,10 @@ fn extract_via_symphonia(path: &Path, target_bins: usize) -> Result<Vec<f32>, St
         .map_err(|e| format!("Symphonia decoder init failed: {}", e))?;
 
     let mut sample_buf: Option<SampleBuffer<f32>> = None;
-    let mut coarse_blocks: Vec<(f32, f32)> = Vec::new();
+    let mut coarse_blocks: Vec<CoarseAudioBlock> = Vec::new();
     let mut cur_min = 1.0f32;
     let mut cur_max = -1.0f32;
+    let mut cur_sq_sum = 0.0f64;
     let mut cur_count = 0usize;
 
     loop {
@@ -145,19 +183,33 @@ fn extract_via_symphonia(path: &Path, target_bins: usize) -> Result<Vec<f32>, St
             if mono > cur_max {
                 cur_max = mono;
             }
+            cur_sq_sum += (mono as f64) * (mono as f64);
             cur_count += 1;
 
             if cur_count >= COARSE_BLOCK_SAMPLES {
-                coarse_blocks.push((cur_min, cur_max));
+                let rms = (cur_sq_sum / cur_count as f64).sqrt() as f32;
+                coarse_blocks.push(CoarseAudioBlock {
+                    min: cur_min,
+                    max: cur_max,
+                    rms,
+                    count: cur_count,
+                });
                 cur_min = 1.0;
                 cur_max = -1.0;
+                cur_sq_sum = 0.0;
                 cur_count = 0;
             }
         }
     }
 
     if cur_count > 0 && cur_min <= cur_max {
-        coarse_blocks.push((cur_min, cur_max));
+        let rms = (cur_sq_sum / cur_count as f64).sqrt() as f32;
+        coarse_blocks.push(CoarseAudioBlock {
+            min: cur_min,
+            max: cur_max,
+            rms,
+            count: cur_count,
+        });
     }
 
     if coarse_blocks.is_empty() {
@@ -201,9 +253,10 @@ fn extract_via_ffmpeg(path: &Path, target_bins: usize) -> Result<Vec<f32>, Strin
     let mut leftover = [0u8; 4];
     let mut leftover_len = 0usize;
 
-    let mut coarse_blocks: Vec<(f32, f32)> = Vec::new();
+    let mut coarse_blocks: Vec<CoarseAudioBlock> = Vec::new();
     let mut cur_min = 1.0f32;
     let mut cur_max = -1.0f32;
+    let mut cur_sq_sum = 0.0f64;
     let mut cur_count = 0usize;
     let block_samples = 256usize; // at 8kHz, 256 samples = 32ms per coarse block
 
@@ -224,6 +277,7 @@ fn extract_via_ffmpeg(path: &Path, target_bins: usize) -> Result<Vec<f32>, Strin
                 if val.is_finite() {
                     cur_min = cur_min.min(val);
                     cur_max = cur_max.max(val);
+                    cur_sq_sum += (val as f64) * (val as f64);
                 }
                 cur_count += 1;
                 offset = need;
@@ -246,12 +300,20 @@ fn extract_via_ffmpeg(path: &Path, target_bins: usize) -> Result<Vec<f32>, Strin
             if val.is_finite() {
                 cur_min = cur_min.min(val);
                 cur_max = cur_max.max(val);
+                cur_sq_sum += (val as f64) * (val as f64);
             }
             cur_count += 1;
             if cur_count >= block_samples {
-                coarse_blocks.push((cur_min, cur_max));
+                let rms = (cur_sq_sum / cur_count as f64).sqrt() as f32;
+                coarse_blocks.push(CoarseAudioBlock {
+                    min: cur_min,
+                    max: cur_max,
+                    rms,
+                    count: cur_count,
+                });
                 cur_min = 1.0;
                 cur_max = -1.0;
+                cur_sq_sum = 0.0;
                 cur_count = 0;
             }
         }
@@ -264,7 +326,13 @@ fn extract_via_ffmpeg(path: &Path, target_bins: usize) -> Result<Vec<f32>, Strin
     }
 
     if cur_count > 0 && cur_min <= cur_max {
-        coarse_blocks.push((cur_min, cur_max));
+        let rms = (cur_sq_sum / cur_count as f64).sqrt() as f32;
+        coarse_blocks.push(CoarseAudioBlock {
+            min: cur_min,
+            max: cur_max,
+            rms,
+            count: cur_count,
+        });
     }
 
     let _ = child.wait();
@@ -298,14 +366,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_downsample_coarse_blocks_exact_bins() {
-        let blocks = vec![(-0.2, 0.4), (-0.8, 0.9), (-0.1, 0.2), (-0.5, 0.6)];
-        let peaks = downsample_coarse_blocks(&blocks, 2);
+    fn test_downsample_coarse_blocks_preserves_dynamics() {
+        let quiet = CoarseAudioBlock {
+            min: -0.2,
+            max: 0.2,
+            rms: 0.08,
+            count: 2048,
+        };
+        let loud = CoarseAudioBlock {
+            min: -0.95,
+            max: 0.95,
+            rms: 0.45,
+            count: 2048,
+        };
+        let peaks = downsample_coarse_blocks(&[quiet, loud], 2);
         assert_eq!(peaks.len(), 4);
-        assert!((peaks[0] - (-0.8)).abs() < 1e-5);
-        assert!((peaks[1] - 0.9).abs() < 1e-5);
-        assert!((peaks[2] - (-0.5)).abs() < 1e-5);
-        assert!((peaks[3] - 0.6).abs() < 1e-5);
+        // Quiet bin should be noticeably smaller than loud bin
+        assert!(peaks[1] < peaks[3]);
+        assert!(peaks[3] <= 0.96);
+        assert!((peaks[0] + peaks[1]).abs() < 1e-5);
     }
 
     #[test]
