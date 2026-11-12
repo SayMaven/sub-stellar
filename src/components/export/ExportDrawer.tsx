@@ -13,7 +13,7 @@ import {
   Video,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
-import { generateAss, generateSrt } from '../../engine/text/SubtitleExporter';
+import { generateAss, generateSrt, generateStyledBurninAss } from '../../engine/text/SubtitleExporter';
 import { getCanvasPixelDimensions } from '../../engine/layout/layoutMath';
 import {
   tauriBridge,
@@ -62,6 +62,7 @@ export const ExportDrawer: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const pipelineRef = useRef<FFmpegExportPipeline | null>(null);
+  const burninSessionRef = useRef<string | null>(null);
   const projectFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -241,6 +242,10 @@ export const ExportDrawer: React.FC = () => {
     if (pipelineRef.current) {
       pipelineRef.current.cancel();
     }
+    if (burninSessionRef.current) {
+      void tauriBridge.ffmpegCancelExport(burninSessionRef.current);
+      burninSessionRef.current = null;
+    }
     setIsExporting(false);
     setProgress(null);
     setErrorMessage('Export cancelled by user.');
@@ -321,23 +326,48 @@ export const ExportDrawer: React.FC = () => {
           setIsExporting(false);
           return;
         }
-        const assContent = generateAss(lines, style, track, targetDims);
-        const tempAssPath = outputPath.replace(/\.mp4$/i, '.burnin.ass');
+        const burninSessionId = `burnin_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        burninSessionRef.current = burninSessionId;
+        setProgress({
+          session_id: burninSessionId,
+          frames_written: 0,
+          total_frames: Math.max(1, Math.round(Math.max(1, duration) * fps)),
+          percentage: 0,
+          fps: 0,
+        });
+        const assContent = generateStyledBurninAss(lines, style, track, targetDims);
+        const tempAssPath = `${outputPath}.burnin_${burninSessionId}.ass`;
         await tauriBridge.writeProjectFile(tempAssPath, assContent);
-        const burnResult = await tauriBridge.ffmpegExportAssBurnin(
-          track.mediaFilePath,
-          tempAssPath,
-          outputPath,
-          selectedEncoder
-        );
-        if (burnResult.success) {
-          const sizeMb = (burnResult.file_size_bytes / (1024 * 1024)).toFixed(2);
-          setLastSavedPath(burnResult.output_path);
-          setExportSuccess(
-            `Hardware ASS Burn-in completed in ${burnResult.elapsed_seconds.toFixed(1)}s (${sizeMb} MB) -> ${burnResult.output_path}`
+        const unlisten = await tauriBridge.onAssBurninProgress((prog) => {
+          if (prog.session_id === burninSessionId) {
+            setProgress(prog);
+          }
+        });
+        try {
+          const burnResult = await tauriBridge.ffmpegExportAssBurnin(
+            track.mediaFilePath,
+            tempAssPath,
+            outputPath,
+            selectedEncoder,
+            {
+              sessionId: burninSessionId,
+              durationSecs: Math.max(1, duration),
+              fps,
+              fontFamily: style.fontFamily,
+            }
           );
-        } else {
-          setErrorMessage(burnResult.error_message || 'Hardware ASS burn-in failed.');
+          if (burnResult.success) {
+            const sizeMb = (burnResult.file_size_bytes / (1024 * 1024)).toFixed(2);
+            setLastSavedPath(burnResult.output_path);
+            setExportSuccess(
+              `Hardware ASS Burn-in completed in ${burnResult.elapsed_seconds.toFixed(1)}s (${sizeMb} MB) -> ${burnResult.output_path}`
+            );
+          } else {
+            setErrorMessage(burnResult.error_message || 'Hardware ASS burn-in failed.');
+          }
+        } finally {
+          unlisten();
+          burninSessionRef.current = null;
         }
         setIsExporting(false);
         return;
@@ -381,6 +411,14 @@ export const ExportDrawer: React.FC = () => {
           verticalPosition: style.verticalPosition,
           xOffset: style.xOffset,
           yOffset: style.yOffset,
+          particleEnabled: style.particleEnabled,
+          particlePreset: style.particlePreset,
+          particleBurstCount: style.particleBurstCount,
+          particleSpeed: style.particleSpeed,
+          particleGravity: style.particleGravity,
+          particleSize: style.particleSize,
+          particleLifetime: style.particleLifetime,
+          particleColorMode: style.particleColorMode,
         },
         onProgress: (prog) => {
           setProgress(prog);
@@ -629,10 +667,10 @@ export const ExportDrawer: React.FC = () => {
                           }`}
                         >
                           <div className="text-xs font-semibold">
-                            Fast Hardware ASS Burn-in (Direct FFmpeg)
+                            Fast Hardware ASS Burn-in (Direct FFmpeg + GPU)
                           </div>
                           <div className="text-[10px] text-gatefold-text-3 mt-0.5">
-                            Ultra-fast native FFmpeg libass burn-in directly on your source video file.
+                            Ultra-fast GPU hardware encode with multi-layer SubStellar Furigana, glow, double-stroke & karaoke flow.
                           </div>
                         </button>
                       </div>
@@ -691,9 +729,9 @@ export const ExportDrawer: React.FC = () => {
                           className="w-full px-2.5 py-1.5 text-xs bg-gatefold-surface border border-gatefold-line rounded text-gatefold-text focus:border-gatefold-accent focus:outline-none disabled:opacity-50"
                         >
                           {format === 'webm' ? (
-                            <option value="libvpx-vp9">libvpx-vp9 (Alpha YUVA420p)</option>
+                            <option value="libvpx-vp9">libvpx-vp9 (CPU Alpha YUVA420p)</option>
                           ) : format === 'prores' ? (
-                            <option value="prores_ks">prores_ks (Apple 4444)</option>
+                            <option value="prores_ks">prores_ks (CPU Alpha 4444)</option>
                           ) : (
                             (hardwareCaps?.available_encoders || ['libx264']).map((enc) => (
                               <option key={enc} value={enc}>

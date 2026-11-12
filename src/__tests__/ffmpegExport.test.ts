@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { FFmpegExportPipeline } from '../engine/export/FFmpegExportPipeline';
+import {
+  FFmpegExportPipeline,
+  computeSubtitleOverlayBand,
+} from '../engine/export/FFmpegExportPipeline';
 import type { SubtitleLine } from '../types';
 
 describe('FFmpegExportPipeline', () => {
@@ -124,6 +127,85 @@ describe('FFmpegExportPipeline', () => {
         rubyActiveColor: '#5affb5',
         translationFillColor: '#bfc3ca',
         wordAnimStyle: 'sweep',
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('computes even-aligned ROI subtitle band significantly smaller than full 1080p frame', () => {
+    const band = computeSubtitleOverlayBand({
+      outputPath: 'roi.mp4',
+      mode: 'mp4_burnin',
+      width: 1920,
+      height: 1080,
+      fps: 60,
+      duration: 5,
+      lines: sampleLines,
+      style: {
+        ...sampleStyle,
+        glowBlur: 10,
+        yOffset: 70,
+        verticalPosition: 'bottom',
+      },
+    });
+
+    expect(band.y % 2).toBe(0);
+    expect(band.height % 2).toBe(0);
+    expect(band.y).toBeGreaterThan(500);
+    expect(band.height).toBeLessThan(480);
+    expect(band.y + band.height).toBeLessThanOrEqual(1080);
+  });
+
+  it('expands overlay band when particle engine is enabled', () => {
+    const baseBand = computeSubtitleOverlayBand({
+      outputPath: 'base.mp4',
+      mode: 'mp4_burnin',
+      width: 1920,
+      height: 1080,
+      fps: 60,
+      duration: 5,
+      lines: sampleLines,
+      style: {
+        ...sampleStyle,
+        particleEnabled: false,
+      },
+    });
+
+    const particleBand = computeSubtitleOverlayBand({
+      outputPath: 'particle.mp4',
+      mode: 'mp4_burnin',
+      width: 1920,
+      height: 1080,
+      fps: 60,
+      duration: 5,
+      lines: sampleLines,
+      style: {
+        ...sampleStyle,
+        particleEnabled: true,
+        particlePreset: 'sakura',
+      },
+    });
+
+    expect(particleBand.height).toBeGreaterThan(baseBand.height);
+  });
+
+  it('simulates export pipeline with procedural particle engine enabled', async () => {
+    const pipeline = new FFmpegExportPipeline();
+    const result = await pipeline.runExport({
+      outputPath: 'particle_test.mp4',
+      mode: 'mp4_burnin',
+      width: 640,
+      height: 360,
+      fps: 15,
+      duration: 1.0,
+      lines: sampleLines,
+      style: {
+        ...sampleStyle,
+        particleEnabled: true,
+        particlePreset: 'sparkle',
+        particleBurstCount: 10,
+        particleColorMode: 'rainbow',
       },
     });
 

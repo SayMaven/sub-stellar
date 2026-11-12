@@ -1,4 +1,8 @@
 import type { SubtitleLine, SubtitleStyle, TrackMetadata } from '../../types';
+import { formatCssFontStack, parseFontStack } from './fontLoader';
+import { tokenizeSubtitleText } from './RubyLayout';
+
+const CJK_CHAR_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
 function formatAssTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -58,7 +62,7 @@ export function generateAss(
 ): string {
   const title = track?.title || 'SubStellar Project';
   const artist = track?.artist || 'Unknown Artist';
-  const fontName = (style.fontFamily || 'Segoe UI').replace(/,/g, ' ');
+  const fontName = parseFontStack(style.fontFamily)[0] || 'Segoe UI';
   const transFontSize = Math.max(18, Math.round(style.fontSize * 0.55));
   const transMarginV = Math.max(16, style.yOffset - transFontSize - 10);
   const alignment =
@@ -113,6 +117,259 @@ ${lines
     return mainDialogue;
   })
   .join('\n')}
+`;
+}
+
+function escapeAssText(text: string): string {
+  return text.replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}');
+}
+
+function estimateTextWidth(text: string, fontSize: number): number {
+  let width = 0;
+  for (const ch of text) {
+    width += CJK_CHAR_REGEX.test(ch) ? fontSize * 1.0 : fontSize * 0.56;
+  }
+  return width;
+}
+
+function createAssTextMeasurer(fontFamily: string) {
+  const stack = formatCssFontStack(fontFamily, [
+    'Segoe UI',
+    'Yu Gothic UI',
+    'Meiryo',
+    'Noto Sans JP',
+    'sans-serif',
+  ]);
+  let ctx: CanvasRenderingContext2D | null = null;
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    ctx = canvas.getContext('2d');
+  }
+  return (text: string, fontSize: number, weight = 700): number => {
+    if (ctx) {
+      ctx.font = `${weight} ${fontSize}px ${stack}`;
+      return ctx.measureText(text).width;
+    }
+    return estimateTextWidth(text, fontSize);
+  };
+}
+
+/**
+ * Generates multi-layer Advanced SubStation Alpha (.ass) tailored for FFmpeg libass hardware burn-in
+ * matching SubStellar studio styling (clean font name, 720p->PlayRes scaling, Furigana \pos,
+ * double-stroke + glow blur, fixed karaoke color polarity, \kf flow, fade, & word motion).
+ */
+export function generateStyledBurninAss(
+  lines: SubtitleLine[],
+  style: SubtitleStyle,
+  track?: TrackMetadata,
+  dimensions: AssCanvasDimensions = { width: 1920, height: 1080 }
+): string {
+  const title = track?.title || 'SubStellar Project';
+  const artist = track?.artist || 'Unknown Artist';
+  const fontName = parseFontStack(style.fontFamily)[0] || 'Segoe UI';
+
+  const scale = dimensions.height / 720;
+  const baseFontSize = Math.round(style.fontSize * scale);
+  const rubyFontSize = Math.max(10, Math.round(baseFontSize * style.rubyScale));
+  const transFontSize = Math.max(14, Math.round(baseFontSize * 0.45));
+  const outerStroke = Math.max(0, Math.round(style.outerStrokeWidth * scale));
+  const innerStroke = Math.max(
+    0,
+    Math.round((style.innerStrokeWidth ?? style.outerStrokeWidth * 0.4) * scale)
+  );
+  const totalOuterBorder = outerStroke + innerStroke;
+  const rubyStroke = Math.max(2, Math.round(outerStroke * 0.55));
+  const transStroke = Math.max(2, Math.round(4 * scale));
+  const glowBlur = Math.max(0, Number(((style.glowBlur ?? 0) * scale * 0.45).toFixed(1)));
+  const scaledXOffset = Math.round((style.xOffset ?? 0) * scale);
+  const scaledYOffset = Math.round((style.yOffset ?? 60) * scale);
+  const vPos = style.verticalPosition ?? 'bottom';
+  const baselineY =
+    vPos === 'top'
+      ? scaledYOffset + baseFontSize
+      : vPos === 'center'
+      ? Math.round(dimensions.height / 2 + scaledYOffset)
+      : dimensions.height - scaledYOffset;
+  const transY = Math.round(baselineY + baseFontSize * 0.65);
+
+  const inactiveFill = hexToAssBgr(style.fillColor, '&H00FFFFFF');
+  const activeFill = hexToAssBgr(style.wordActiveColor || style.innerStrokeColor, '&H00FFB48F');
+  const innerStrokeCol = hexToAssBgr(style.innerStrokeColor, '&H00FFB48F');
+  const outerStrokeCol = hexToAssBgr(style.outerStrokeColor, '&H001B1614');
+  const glowCol = hexToAssBgr(style.glowColor, outerStrokeCol);
+  const rubyInactiveCol = hexToAssBgr(style.rubyFillColor || style.fillColor, '&H00FFB48F');
+  const rubyActiveCol = hexToAssBgr(style.rubyActiveColor, '&H00B5FF5A');
+  const transCol = hexToAssBgr(style.translationFillColor, '&H00CAC3BF');
+
+  const measureText = createAssTextMeasurer(style.fontFamily);
+  const animStyle = style.wordAnimStyle ?? 'pop';
+  const transitionMs = Math.max(20, Math.round(style.wordTransitionMs ?? 140));
+  const dialogueEvents: string[] = [];
+
+  for (const line of lines) {
+    const start = formatAssTime(line.startTime);
+    const end = formatAssTime(line.endTime);
+    const lineSpan = Math.max(0.2, line.endTime - line.startTime);
+    const fadeInMs = Math.round(Math.min(220, lineSpan * 250));
+    const fadeOutMs = Math.round(Math.min(180, lineSpan * 200));
+
+    const autoTokens = tokenizeSubtitleText(line.text);
+    const fallbackStep = Math.max(0.1, lineSpan) / Math.max(1, autoTokens.length);
+    const sourceTokens =
+      line.tokens && line.tokens.length > 0
+        ? line.tokens.map((t) => ({
+            base: t.text,
+            ruby: t.ruby,
+            isRuby: Boolean(t.ruby),
+            startTime: t.startTime,
+            endTime: t.endTime,
+            disableAnim: Boolean(t.disableAnim),
+          }))
+        : autoTokens.map((t, idx) => ({
+            ...t,
+            startTime: line.startTime + idx * fallbackStep,
+            endTime: line.startTime + (idx + 1) * fallbackStep,
+            disableAnim: false,
+          }));
+
+    const measured = sourceTokens.map((t, idx) => {
+      const baseWidth = measureText(t.base, baseFontSize, 700);
+      const rubyWidth = t.isRuby && t.ruby ? measureText(t.ruby, rubyFontSize, 700) : 0;
+      const next = sourceTokens[idx + 1];
+      const bothCjk = next && CJK_CHAR_REGEX.test(t.base) && CJK_CHAR_REGEX.test(next.base);
+      const tokenGap = next
+        ? bothCjk
+          ? Math.round(2 * scale)
+          : Math.round(11 * scale)
+        : 0;
+      return { ...t, baseWidth, rubyWidth, tokenGap };
+    });
+
+    const totalWidth = measured.reduce((sum, m) => sum + m.baseWidth + m.tokenGap, 0);
+    let currentX = (dimensions.width - totalWidth) / 2 + scaledXOffset;
+
+    for (const m of measured) {
+      const tokenCenterX = Math.round(currentX + m.baseWidth / 2);
+      const tokenBaseY = Math.round(baselineY);
+      const relStartMs = Math.max(0, Math.round((m.startTime - line.startTime) * 1000));
+      const relEndMs = Math.max(relStartMs + 20, Math.round((m.endTime - line.startTime) * 1000));
+      const relStartCs = Math.max(0, Math.round(relStartMs / 10));
+      const durCs = Math.max(1, Math.round((relEndMs - relStartMs) / 10));
+      const safeBase = escapeAssText(m.base);
+
+      let motionTag = '';
+      if (!m.disableAnim) {
+        if (animStyle === 'pop' || animStyle === 'glow-pulse') {
+          const midMs = Math.round((relStartMs + relEndMs) / 2);
+          motionTag = `\\t(${relStartMs},${midMs},\\fscx112\\fscy112)\\t(${midMs},${relEndMs},\\fscx100\\fscy100)`;
+        } else if (animStyle === 'zoom-strike') {
+          const settleMs = Math.min(relEndMs, relStartMs + transitionMs);
+          motionTag = `\\fscx132\\fscy132\\t(${relStartMs},${settleMs},\\fscx100\\fscy100)`;
+        } else if (animStyle === 'slide') {
+          const settleMs = Math.min(relEndMs, relStartMs + transitionMs);
+          const slideOffset = Math.round(14 * scale);
+          motionTag = `\\move(${tokenCenterX - slideOffset},${tokenBaseY},${tokenCenterX},${tokenBaseY},${relStartMs},${settleMs})`;
+        }
+      }
+
+      const posTag =
+        animStyle === 'slide' && !m.disableAnim
+          ? ''
+          : `\\pos(${tokenCenterX},${tokenBaseY})`;
+      const blurTag = glowBlur > 0 ? `\\blur${glowBlur}\\3c${glowCol}` : '';
+
+      // Layer 0: Outer stroke + glow blur (text fill hidden so Layer 1 renders crisp on top)
+      if (totalOuterBorder > 0 || glowBlur > 0) {
+        dialogueEvents.push(
+          `Dialogue: 0,${start},${end},SubOuterGlow,,0,0,0,,{\\an2${posTag}\\fad(${fadeInMs},${fadeOutMs})\\1a&HFF&${blurTag}${motionTag}}${safeBase}`
+        );
+      }
+
+      // Layer 1: Inner stroke + vocal fill / sweep
+      if (m.disableAnim) {
+        dialogueEvents.push(
+          `Dialogue: 1,${start},${end},SubMain,,0,0,0,,{\\an2${posTag}\\fad(${fadeInMs},${fadeOutMs})\\1c${inactiveFill}\\3c${innerStrokeCol}}${safeBase}`
+        );
+      } else if (animStyle === 'smooth-sweep' || animStyle === 'sweep') {
+        const sweepTag = animStyle === 'smooth-sweep' ? `\\kf${durCs}` : `\\k${durCs}`;
+        const leadTag = relStartCs > 0 ? `\\k${relStartCs}` : '';
+        dialogueEvents.push(
+          `Dialogue: 1,${start},${end},SubMain,,0,0,0,,{\\an2${posTag}\\fad(${fadeInMs},${fadeOutMs})${motionTag}${leadTag}${sweepTag}}${safeBase}`
+        );
+      } else {
+        const inEndMs = Math.min(relEndMs, relStartMs + Math.min(80, transitionMs));
+        const outStartMs = Math.max(inEndMs, relEndMs - 40);
+        const colorAnim =
+          `\\1c${inactiveFill}\\3c${innerStrokeCol}` +
+          `\\t(${relStartMs},${inEndMs},\\1c${activeFill}\\3c${activeFill})` +
+          `\\t(${outStartMs},${relEndMs},\\1c${inactiveFill}\\3c${innerStrokeCol})`;
+        dialogueEvents.push(
+          `Dialogue: 1,${start},${end},SubMain,,0,0,0,,{\\an2${posTag}\\fad(${fadeInMs},${fadeOutMs})${colorAnim}${motionTag}}${safeBase}`
+        );
+      }
+
+      // Layer 2: Positioned Furigana / Ruby above kanji cluster (\an2 bottom-center placed above kanji top)
+      if (m.isRuby && m.ruby) {
+        const kanjiAscent = Math.round(baseFontSize * 0.88);
+        const gap = Math.max(3, Math.round(4 * scale));
+        const rubyCenterX = Math.round(currentX + m.baseWidth / 2);
+        const rubyPosY = Math.round(baselineY - kanjiAscent - gap);
+        const safeRuby = escapeAssText(m.ruby);
+
+        let rubyTag = `\\1c${rubyInactiveCol}`;
+        if (!m.disableAnim) {
+          if (animStyle === 'smooth-sweep' || animStyle === 'sweep') {
+            const leadTag = relStartCs > 0 ? `\\k${relStartCs}` : '';
+            const sweepTag = animStyle === 'smooth-sweep' ? `\\kf${durCs}` : `\\k${durCs}`;
+            rubyTag = `\\1c${rubyActiveCol}\\2c${rubyInactiveCol}${leadTag}${sweepTag}`;
+          } else {
+            const inEndMs = Math.min(relEndMs, relStartMs + Math.min(80, transitionMs));
+            const outStartMs = Math.max(inEndMs, relEndMs - 40);
+            rubyTag =
+              `\\1c${rubyInactiveCol}` +
+              `\\t(${relStartMs},${inEndMs},\\1c${rubyActiveCol})` +
+              `\\t(${outStartMs},${relEndMs},\\1c${rubyInactiveCol})`;
+          }
+        }
+
+        dialogueEvents.push(
+          `Dialogue: 2,${start},${end},Furigana,,0,0,0,,{\\an2\\pos(${rubyCenterX},${rubyPosY})\\fad(${fadeInMs},${fadeOutMs})${rubyTag}}${safeRuby}`
+        );
+      }
+
+      currentX += m.baseWidth + m.tokenGap;
+    }
+
+    if (line.translation && line.translation.trim().length > 0) {
+      const transCenterX = Math.round(dimensions.width / 2 + scaledXOffset);
+      const safeTrans = escapeAssText(line.translation.trim());
+      dialogueEvents.push(
+        `Dialogue: 1,${start},${end},Translation,,0,0,0,,{\\an2\\pos(${transCenterX},${transY})\\fad(${fadeInMs},${fadeOutMs})}${safeTrans}`
+      );
+    }
+  }
+
+  return `[Script Info]
+; Script generated by SubStellar Studio Styled Burn-in (https://github.com/SayMaven/sub-stellar)
+; Title: ${title} - ${artist}
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+PlayResX: ${dimensions.width}
+PlayResY: ${dimensions.height}
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: SubOuterGlow,${fontName},${baseFontSize},${outerStrokeCol},${outerStrokeCol},${outerStrokeCol},&H00000000,-1,0,0,0,100,100,0,0,1,${totalOuterBorder},0,2,20,20,0,1
+Style: SubMain,${fontName},${baseFontSize},${activeFill},${inactiveFill},${innerStrokeCol},&H00000000,-1,0,0,0,100,100,0,0,1,${innerStroke},0,2,20,20,0,1
+Style: Furigana,${fontName},${rubyFontSize},${rubyActiveCol},${rubyInactiveCol},${outerStrokeCol},&H00000000,-1,0,0,0,100,100,0,0,1,${rubyStroke},0,2,20,20,0,1
+Style: Translation,${fontName},${transFontSize},${transCol},${transCol},${outerStrokeCol},&H00000000,-1,0,0,0,100,100,0,0,1,${transStroke},0,2,20,20,0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+${dialogueEvents.join('\n')}
 `;
 }
 

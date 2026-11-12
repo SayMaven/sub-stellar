@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { generateAss, generateSrt, hexToAssBgr } from '../engine/text/SubtitleExporter';
+import {
+  generateAss,
+  generateSrt,
+  generateStyledBurninAss,
+  hexToAssBgr,
+} from '../engine/text/SubtitleExporter';
 import type { SubtitleLine, SubtitleStyle, TrackMetadata } from '../types';
 
 describe('SubtitleExporter (.ass & .srt)', () => {
@@ -94,6 +99,50 @@ describe('SubtitleExporter (.ass & .srt)', () => {
 
     expect(customAss).toContain('Style: Default,Yu Gothic UI,52,&H006633FF,&H00FFB48F,&H001B1614');
     expect(customAss).toContain(',8,40,40,80,1');
+  });
+
+  it('extracts clean primary font name from quoted CSS font stack in generateAss', () => {
+    const stackedAss = generateAss(
+      mockLines,
+      {
+        ...mockStyle,
+        fontFamily: '"Dela Gothic One", "Noto Sans JP", sans-serif',
+      },
+      mockTrack
+    );
+    expect(stackedAss).toContain('Style: Default,Dela Gothic One,52');
+    expect(stackedAss).not.toContain('"Dela Gothic One"');
+  });
+
+  it('generates multi-layer styled burn-in ASS with 720p->1080p scaling, Furigana, glow, and smooth \\kf sweep', () => {
+    const styledAss = generateStyledBurninAss(
+      [
+        {
+          ...mockLines[0],
+          translation: 'I need nothing else anymore',
+        },
+      ],
+      {
+        ...mockStyle,
+        fontFamily: '"UD Digi Kyokasho N-B", sans-serif',
+        wordAnimStyle: 'smooth-sweep',
+      },
+      mockTrack,
+      { width: 1920, height: 1080 }
+    );
+
+    // 720p -> 1080p scale = 1.5x (fontSize 52 -> 78) and clean primary font name
+    expect(styledAss).toContain('Style: SubOuterGlow,UD Digi Kyokasho N-B,78,');
+    // Fixed ASS karaoke color polarity: PrimaryColour = active (&H00FFB48F), SecondaryColour = inactive (&H00FFFFFF)
+    expect(styledAss).toContain('Style: SubMain,UD Digi Kyokasho N-B,78,&H00FFB48F,&H00FFFFFF,');
+    // Furigana layer, outer glow layer, main stroke layer, and translation emitted
+    expect(styledAss).toContain('Dialogue: 0,0:00:12.50,0:00:16.80,SubOuterGlow,');
+    expect(styledAss).toContain('Dialogue: 1,0:00:12.50,0:00:16.80,SubMain,');
+    expect(styledAss).toContain('Dialogue: 2,0:00:12.50,0:00:16.80,Furigana,,0,0,0,,{\\an2\\pos(843,885)');
+    expect(styledAss).toContain('\\kf100}何');
+    expect(styledAss).toContain('\\kf100}なに');
+    expect(styledAss).toContain('\\blur');
+    expect(styledAss).toContain('Dialogue: 1,0:00:12.50,0:00:16.80,Translation,');
   });
 });
 

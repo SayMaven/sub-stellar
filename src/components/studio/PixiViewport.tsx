@@ -183,6 +183,22 @@ const PixiViewportInner: React.FC = () => {
   });
 
   const activeLine = lines.find((l) => l.id === activeLineId) || null;
+  const activeTab = useStudioStore((s) => s.activeTab);
+
+  // Throttle/pause background Pixi ticker when user switches to Export or Settings tab
+  useEffect(() => {
+    const app = appRef.current;
+    if (!app || !app.ticker) return;
+    if (activeTab === 'studio') {
+      if (!app.ticker.started) {
+        app.start();
+      }
+    } else {
+      if (app.ticker.started) {
+        app.stop();
+      }
+    }
+  }, [activeTab]);
 
   const canvasDims = getCanvasPixelDimensions(aspectRatio, canvasResolution);
   const canvasWidth = canvasDims.width;
@@ -550,6 +566,10 @@ const PixiViewportInner: React.FC = () => {
       app.stage.addChild(subtitleGroup);
       subtitleGroupRef.current = subtitleGroup;
       setPixiReady(true);
+
+      if (useStudioStore.getState().activeTab !== 'studio') {
+        app.stop();
+      }
 
       // Render Ticker — Zero GC / Zero Texture Allocations per frame
       let lastTime = performance.now();

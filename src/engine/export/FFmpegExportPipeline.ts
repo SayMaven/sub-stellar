@@ -1,7 +1,12 @@
 import { tauriBridge, type ExportProgress, type ExportResult } from '../../services/tauriBridge';
-import type { SubtitleLine, WordAnimationStyle } from '../../types';
-import { tokenizeSubtitleText, computeRubyPosition } from '../text/RubyLayout';
+import type { SubtitleLine, WordAnimationStyle, ParticlePresetType } from '../../types';
+import { tokenizeSubtitleText } from '../text/RubyLayout';
 import { formatCssFontStack } from '../text/fontLoader';
+import {
+  PRESET_CONFIGS,
+  RAINBOW_TINTS_HEX,
+  createTintedParticleCanvas,
+} from '../particles/particleShapes';
 
 const CJK_TOKEN_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
@@ -41,6 +46,14 @@ export interface ExportJobOptions {
     verticalPosition?: 'bottom' | 'center' | 'top';
     xOffset?: number;
     yOffset?: number;
+    particleEnabled?: boolean;
+    particlePreset?: ParticlePresetType;
+    particleBurstCount?: number;
+    particleSpeed?: number;
+    particleGravity?: 'up' | 'none' | 'down';
+    particleSize?: number;
+    particleLifetime?: number;
+    particleColorMode?: 'lyric' | 'glow' | 'rainbow';
   };
   audioSourcePath?: string;
   onProgress?: (progress: ExportProgress) => void;
@@ -48,11 +61,173 @@ export interface ExportJobOptions {
 
 interface SafeContext {
   ctx: CanvasRenderingContext2D | null;
-  getImageData: () => Uint8Array;
+  getRegionImageData: (y: number, height: number) => Uint8Array;
+}
+
+interface OverlayBand {
+  y: number;
+  height: number;
+}
+
+interface MeasuredToken {
+  base: string;
+  ruby?: string;
+  isRuby: boolean;
+  baseWidth: number;
+  rubyWidth: number;
+  clusterWidth: number;
+  tokenGap: number;
+  startTime: number;
+  endTime: number;
+  disableAnim: boolean;
+  inactiveSprite?: HTMLCanvasElement;
+  activeSprite?: HTMLCanvasElement;
+  originX: number;
+  originBaselineY: number;
+  spriteWidth: number;
+  spriteHeight: number;
+}
+
+interface CachedLineLayout {
+  measured: MeasuredToken[];
+  totalWidth: number;
+  scaledXOffset: number;
+  baseBaselineY: number;
+  scale: number;
+  baseFontSize: number;
+  rubyFontSize: number;
+  outerStroke: number;
+  innerStroke: number;
+  glowBlur: number;
+  baseFont: string;
+  rubyFont: string;
+  cssFontStack: string;
+  lineSpan: number;
+  entryWindow: number;
+  exitWindow: number;
+  transitionSec: number;
+  translationSprite?: HTMLCanvasElement;
+  translationWidth: number;
+  translationHeight: number;
+}
+
+interface ExportParticle {
+  type: ParticlePresetType;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  ay: number;
+  scale: number;
+  scaleSpeed: number;
+  rotation: number;
+  rotationSpeed: number;
+  alpha: number;
+  decay: number;
+  life: number;
+  maxLife: number;
+  alive: boolean;
+  tintHex: string;
 }
 
 const RAW_IPC_CHUNK_SIZE = 4 * 1024 * 1024;
 const EMPTY_CHUNK = new Uint8Array(0);
+
+export function computeSubtitleOverlayBand(options: ExportJobOptions): OverlayBand {
+  const scale = options.height / 720;
+  const baseFontSize = Math.round(options.style.fontSize * scale);
+  const rubyFontSize = Math.round(baseFontSize * options.style.rubySizeRatio);
+  const outerStroke = Math.max(0, Math.round(options.style.outlineThickness * scale));
+  const innerStroke = Math.max(
+    0,
+    Math.round((options.style.innerStrokeWidth ?? options.style.outlineThickness * 0.4) * scale)
+  );
+  const glowBlur = Math.max(0, (options.style.glowBlur ?? 0) * scale);
+  const scaledYOffset = Math.round((options.style.yOffset ?? 60) * scale);
+  const vPos = options.style.verticalPosition ?? 'bottom';
+  const baselineY =
+    vPos === 'top'
+      ? scaledYOffset + baseFontSize
+      : vPos === 'center'
+      ? options.height / 2 + scaledYOffset
+      : options.height - scaledYOffset;
+
+  const hasTranslation = options.lines.some(
+    (l) => typeof l.translation === 'string' && l.translation.trim().length > 0
+  );
+  const transSize = Math.max(14, Math.round(baseFontSize * 0.45));
+  const particlePad = options.style.particleEnabled ? Math.round(110 * scale) : 0;
+  const topPad =
+    baseFontSize * 1.45 +
+    rubyFontSize * 1.6 +
+    outerStroke +
+    innerStroke +
+    glowBlur * 2 +
+    44 * scale +
+    particlePad;
+  const bottomPad =
+    (hasTranslation ? baseFontSize * 0.65 + transSize * 0.7 : baseFontSize * 0.35) +
+    outerStroke +
+    innerStroke +
+    glowBlur * 2 +
+    28 * scale +
+    particlePad;
+
+  const minY = Math.max(0, Math.floor(baselineY - topPad));
+  const maxY = Math.min(options.height, Math.ceil(baselineY + bottomPad));
+  const alignedY = minY & ~1;
+  const rawHeight = Math.max(16, maxY - alignedY);
+  const alignedHeight = Math.min(options.height - alignedY, (rawHeight + 1) & ~1);
+
+  return {
+    y: alignedY,
+    height: Math.max(2, alignedHeight),
+  };
+}
+
+function isStaticAtTime(
+  layout: CachedLineLayout,
+  line: SubtitleLine,
+  t: number,
+  animStyle: WordAnimationStyle
+): boolean {
+  if (t - line.startTime < layout.entryWindow || line.endTime - t < layout.exitWindow) {
+    return false;
+  }
+  const continuousWhileActive =
+    animStyle === 'smooth-sweep' ||
+    animStyle === 'float' ||
+    animStyle === 'glow-pulse' ||
+    animStyle === 'staccato' ||
+    animStyle === 'wave';
+
+  for (const m of layout.measured) {
+    if (m.disableAnim) continue;
+    if (t >= m.startTime && t < m.endTime) {
+      if (continuousWhileActive) {
+        return false;
+      }
+      if (t < m.startTime + layout.transitionSec) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function sameTokenStateBoundary(
+  layout: CachedLineLayout,
+  tPrev: number,
+  tCurr: number
+): boolean {
+  for (const m of layout.measured) {
+    if ((tPrev < m.startTime) !== (tCurr < m.startTime)) return false;
+    if ((tPrev < m.endTime) !== (tCurr < m.endTime)) return false;
+    const settle = m.startTime + layout.transitionSec;
+    if ((tPrev < settle) !== (tCurr < settle)) return false;
+  }
+  return true;
+}
 
 function createSafeOffscreenContext(width: number, height: number): SafeContext {
   if (typeof document !== 'undefined') {
@@ -62,16 +237,15 @@ function createSafeOffscreenContext(width: number, height: number): SafeContext 
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     return {
       ctx,
-      getImageData: () => {
-        if (!ctx) return new Uint8Array(width * height * 4);
-        const img = ctx.getImageData(0, 0, width, height);
+      getRegionImageData: (y: number, regionHeight: number) => {
+        if (!ctx) return new Uint8Array(width * regionHeight * 4);
+        const img = ctx.getImageData(0, y, width, regionHeight);
         return new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
       },
     };
   }
 
   // Headless test environment fallback
-  const mockBuffer = new Uint8Array(width * height * 4);
   const mockCtx = {
     clearRect: () => {},
     fillRect: () => {},
@@ -81,6 +255,10 @@ function createSafeOffscreenContext(width: number, height: number): SafeContext 
     restore: () => {},
     translate: () => {},
     scale: () => {},
+    rotate: () => {},
+    drawImage: () => {},
+    clip: () => {},
+    rect: () => {},
     createLinearGradient: () => ({ addColorStop: () => {} }),
     measureText: (text: string) => ({ width: text.length * 10 }),
     beginPath: () => {},
@@ -92,7 +270,8 @@ function createSafeOffscreenContext(width: number, height: number): SafeContext 
 
   return {
     ctx: mockCtx,
-    getImageData: () => mockBuffer,
+    getRegionImageData: (_y: number, regionHeight: number) =>
+      new Uint8Array(width * regionHeight * 4),
   };
 }
 
@@ -116,6 +295,9 @@ export class FFmpegExportPipeline {
     const frameInterval = 1 / options.fps;
 
     const isNative = tauriBridge.isAvailable();
+    const roiBand = isNative
+      ? computeSubtitleOverlayBand(options)
+      : { y: 0, height: options.height };
 
     if (isNative) {
       try {
@@ -129,13 +311,16 @@ export class FFmpegExportPipeline {
           fps: options.fps,
           total_frames: totalFrames,
           audio_source_path: options.audioSourcePath,
+          overlay_y: roiBand.y,
+          overlay_height: roiBand.height,
         });
       } catch (err) {
         throw new Error(`Failed to initialize FFmpeg pipeline: ${String(err)}`);
       }
     }
 
-    const { ctx, getImageData } = createSafeOffscreenContext(options.width, options.height);
+    const { ctx, getRegionImageData } = createSafeOffscreenContext(options.width, options.height);
+    const layoutCache = new Map<SubtitleLine, CachedLineLayout>();
 
     const hasVideoBackground = Boolean(
       options.audioSourcePath && /\.(mp4|webm|mkv|mov)$/i.test(options.audioSourcePath)
@@ -144,84 +329,284 @@ export class FFmpegExportPipeline {
       options.mode === 'webm_alpha' || options.mode === 'prores_alpha' || hasVideoBackground;
     const startTime = performance.now();
     let hasCachedBlank = false;
-    const maxGapBatch = Math.min(30, Math.max(1, Math.round(options.fps / 2)));
+    let lastRenderedLine: SubtitleLine | null = null;
+    let lastRenderedTime = -1;
+    let lastRenderedWasBlank = false;
+    const maxBatch = Math.min(30, Math.max(1, Math.round(options.fps / 2)));
+    const animStyle = options.style.wordAnimStyle ?? 'pop';
+    let inFlightWrite: Promise<void> | null = null;
 
-    for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
-      if (this.isCancelled) {
+    const flushInFlight = async () => {
+      if (inFlightWrite) {
+        await inFlightWrite;
+        inFlightWrite = null;
+      }
+    };
+
+    const particleEnabled = options.style.particleEnabled ?? false;
+    const particlePreset = options.style.particlePreset ?? 'stardust';
+    const particleBurstCount = options.style.particleBurstCount ?? 15;
+    const activeWordColorHex = options.style.wordActiveColor || options.style.outlineColor || '#8fb4ff';
+    const activeParticles: ExportParticle[] = [];
+    let lastActiveTokenKey: string | null = null;
+    const particleCanvasCache = new Map<string, HTMLCanvasElement>();
+
+    const getTintedParticleCanvas = (type: ParticlePresetType, tint: string): HTMLCanvasElement => {
+      const key = `${type}_${tint.toLowerCase()}`;
+      let c = particleCanvasCache.get(key);
+      if (!c) {
+        c = createTintedParticleCanvas(type, tint, 128);
+        particleCanvasCache.set(key, c);
+      }
+      return c;
+    };
+
+    try {
+      for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
+        if (this.isCancelled) {
+          await flushInFlight();
+          if (isNative) {
+            await tauriBridge.ffmpegCancelExport(sessionId);
+          }
+          return {
+            success: false,
+            output_path: options.outputPath,
+            file_size_bytes: 0,
+            elapsed_seconds: (performance.now() - startTime) / 1000,
+            error_message: 'Export was cancelled by user',
+          };
+        }
+
+        const currentTime = frameIndex * frameInterval;
+        const activeLine = options.lines.find(
+          (l) => currentTime >= l.startTime && currentTime <= l.endTime
+        );
+        const hasParticles = particleEnabled && activeParticles.length > 0;
+
+        if (isNative && !activeLine && hasCachedBlank && !hasParticles) {
+          let repeatCount = 1;
+          while (repeatCount < maxBatch && frameIndex + repeatCount < totalFrames) {
+            const nextTime = (frameIndex + repeatCount) * frameInterval;
+            const nextLine = options.lines.find(
+              (l) => nextTime >= l.startTime && nextTime <= l.endTime
+            );
+            if (nextLine) break;
+            repeatCount++;
+          }
+
+          await flushInFlight();
+          inFlightWrite = tauriBridge
+            .ffmpegWriteFrameChunk(sessionId, EMPTY_CHUNK, {
+              useBlank: true,
+              repeatCount,
+            })
+            .then((prog) => options.onProgress?.(prog));
+          lastRenderedLine = null;
+          lastRenderedWasBlank = true;
+          frameIndex += repeatCount - 1;
+          continue;
+        }
+
+        if (
+          isNative &&
+          activeLine &&
+          ctx &&
+          !lastRenderedWasBlank &&
+          lastRenderedLine === activeLine &&
+          !hasParticles
+        ) {
+          const cachedLayout = this.getOrBuildLineLayout(ctx, activeLine, options, layoutCache);
+          if (
+            isStaticAtTime(cachedLayout, activeLine, lastRenderedTime, animStyle) &&
+            isStaticAtTime(cachedLayout, activeLine, currentTime, animStyle) &&
+            sameTokenStateBoundary(cachedLayout, lastRenderedTime, currentTime)
+          ) {
+            let repeatCount = 1;
+            let prevStaticTime = currentTime;
+            while (repeatCount < maxBatch && frameIndex + repeatCount < totalFrames) {
+              const nextTime = (frameIndex + repeatCount) * frameInterval;
+              if (nextTime > activeLine.endTime) break;
+              if (
+                !isStaticAtTime(cachedLayout, activeLine, nextTime, animStyle) ||
+                !sameTokenStateBoundary(cachedLayout, prevStaticTime, nextTime)
+              ) {
+                break;
+              }
+              prevStaticTime = nextTime;
+              repeatCount++;
+            }
+
+            await flushInFlight();
+            inFlightWrite = tauriBridge
+              .ffmpegWriteFrameChunk(sessionId, EMPTY_CHUNK, {
+                reuseLast: true,
+                repeatCount,
+              })
+              .then((prog) => options.onProgress?.(prog));
+            lastRenderedTime = prevStaticTime;
+            frameIndex += repeatCount - 1;
+            continue;
+          }
+        }
+
+        if (ctx) {
+          if (isTransparent) {
+            ctx.clearRect(0, roiBand.y, options.width, roiBand.height);
+          } else {
+            ctx.fillStyle = '#0a0d14';
+            ctx.fillRect(0, roiBand.y, options.width, roiBand.height);
+          }
+
+          if (activeLine) {
+            const layout = this.getOrBuildLineLayout(ctx, activeLine, options, layoutCache);
+            this.renderSubtitleFrame(ctx, activeLine, layout, currentTime, options);
+
+            // Particle burst trigger when active word switches
+            if (particleEnabled) {
+              const activeIdx = layout.measured.findIndex(
+                (m) => !m.disableAnim && currentTime >= m.startTime && currentTime < m.endTime
+              );
+              if (activeIdx !== -1) {
+                const tokenKey = `${activeLine.id}_${activeIdx}`;
+                if (tokenKey !== lastActiveTokenKey) {
+                  lastActiveTokenKey = tokenKey;
+                  const targetToken = layout.measured[activeIdx];
+                  let originTokenX = (options.width - layout.totalWidth) / 2 + layout.scaledXOffset;
+                  for (let i = 0; i < activeIdx; i++) {
+                    originTokenX += layout.measured[i].baseWidth + layout.measured[i].tokenGap;
+                  }
+                  const emitX = originTokenX + targetToken.baseWidth / 2;
+                  const emitY = layout.baseBaselineY - layout.baseFontSize / 2;
+                  const config = PRESET_CONFIGS[particlePreset] || PRESET_CONFIGS.stardust;
+                  const speedMult = options.style.particleSpeed ?? 1.0;
+                  const sizeMult = options.style.particleSize ?? 1.0;
+                  const lifetimeMult = options.style.particleLifetime ?? 1.0;
+                  const gravityDir = options.style.particleGravity ?? 'none';
+                  const colorMode = options.style.particleColorMode ?? 'lyric';
+
+                  for (let pIdx = 0; pIdx < particleBurstCount; pIdx++) {
+                    const tint =
+                      colorMode === 'rainbow'
+                        ? RAINBOW_TINTS_HEX[Math.floor(Math.random() * RAINBOW_TINTS_HEX.length)]
+                        : colorMode === 'glow'
+                        ? options.style.glowColor || activeWordColorHex
+                        : activeWordColorHex;
+
+                    const baseSpeed =
+                      config.speedMin + Math.random() * (config.speedMax - config.speedMin);
+                    const speed = baseSpeed * speedMult * (options.height / 720);
+
+                    const angle =
+                      particlePreset === 'sakura'
+                        ? Math.PI / 4 + (Math.random() - 0.5) * 0.8
+                        : particlePreset === 'notes' ||
+                          particlePreset === 'firefly' ||
+                          particlePreset === 'heart'
+                        ? -Math.PI / 2 + (Math.random() - 0.5) * 1.4
+                        : Math.random() * Math.PI * 2;
+
+                    const ay =
+                      gravityDir === 'up'
+                        ? -Math.abs(config.gravityY || 20) * (options.height / 720)
+                        : gravityDir === 'down'
+                        ? Math.abs(config.gravityY || 20) * (options.height / 720)
+                        : 0;
+
+                    const baseScale =
+                      config.scaleMin + Math.random() * (config.scaleMax - config.scaleMin);
+                    const baseDecay =
+                      config.decayMin + Math.random() * (config.decayMax - config.decayMin);
+                    const decay = baseDecay / Math.max(0.1, lifetimeMult);
+
+                    activeParticles.push({
+                      type: particlePreset,
+                      x: emitX + (Math.random() - 0.5) * 20 * (options.height / 720),
+                      y: emitY + (Math.random() - 0.5) * 16 * (options.height / 720),
+                      vx: Math.cos(angle) * speed,
+                      vy: Math.sin(angle) * speed,
+                      ay,
+                      scale: baseScale * sizeMult * (options.height / 720),
+                      scaleSpeed: (Math.random() - 0.5) * 0.2,
+                      rotation: Math.random() * Math.PI * 2,
+                      rotationSpeed: (Math.random() - 0.5) * 4,
+                      alpha: 1,
+                      decay,
+                      life: 0,
+                      maxLife: 1 / decay,
+                      alive: true,
+                      tintHex: tint,
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          // Kinematics and blit of active particles
+          if (particleEnabled && activeParticles.length > 0) {
+            for (let pIdx = activeParticles.length - 1; pIdx >= 0; pIdx--) {
+              const p = activeParticles[pIdx];
+              p.life += frameInterval;
+              p.alpha -= p.decay * frameInterval;
+              if (p.alpha <= 0.01 || p.life >= p.maxLife) {
+                activeParticles.splice(pIdx, 1);
+                continue;
+              }
+              p.vy += p.ay * frameInterval;
+              p.x += p.vx * frameInterval;
+              p.y += p.vy * frameInterval;
+              p.scale = Math.max(0.05, p.scale + p.scaleSpeed * frameInterval);
+              p.rotation += p.rotationSpeed * frameInterval;
+
+              ctx.save();
+              ctx.globalAlpha = Math.max(0, Math.min(1, p.alpha));
+              ctx.translate(p.x, p.y);
+              ctx.rotate(p.rotation);
+              ctx.scale(p.scale, p.scale);
+              const pCanvas = getTintedParticleCanvas(p.type, p.tintHex);
+              ctx.drawImage(pCanvas, -pCanvas.width / 2, -pCanvas.height / 2);
+              ctx.restore();
+            }
+          }
+        }
+
         if (isNative) {
-          await tauriBridge.ffmpegCancelExport(sessionId);
-        }
-        return {
-          success: false,
-          output_path: options.outputPath,
-          file_size_bytes: 0,
-          elapsed_seconds: (performance.now() - startTime) / 1000,
-          error_message: 'Export was cancelled by user',
-        };
-      }
-
-      const currentTime = frameIndex * frameInterval;
-      const activeLine = options.lines.find(
-        (l) => currentTime >= l.startTime && currentTime <= l.endTime
-      );
-
-      if (isNative && !activeLine && hasCachedBlank) {
-        let repeatCount = 1;
-        while (repeatCount < maxGapBatch && frameIndex + repeatCount < totalFrames) {
-          const nextTime = (frameIndex + repeatCount) * frameInterval;
-          const nextLine = options.lines.find(
-            (l) => nextTime >= l.startTime && nextTime <= l.endTime
+          const roiBytes = getRegionImageData(roiBand.y, roiBand.height);
+          const shouldCacheBlank = !activeLine && !hasCachedBlank && !hasParticles;
+          await flushInFlight();
+          inFlightWrite = this.writeRawFrameInChunks(sessionId, roiBytes, shouldCacheBlank).then(
+            (prog) => options.onProgress?.(prog)
           );
-          if (nextLine) break;
-          repeatCount++;
-        }
-
-        const progress = await tauriBridge.ffmpegWriteFrameChunk(sessionId, EMPTY_CHUNK, {
-          useBlank: true,
-          repeatCount,
-        });
-        options.onProgress?.(progress);
-        frameIndex += repeatCount - 1;
-        continue;
-      }
-
-      if (ctx) {
-        if (isTransparent) {
-          ctx.clearRect(0, 0, options.width, options.height);
+          if (shouldCacheBlank) {
+            hasCachedBlank = true;
+          }
+          lastRenderedLine = activeLine ?? null;
+          lastRenderedTime = currentTime;
+          lastRenderedWasBlank = !activeLine && !hasParticles;
         } else {
-          ctx.fillStyle = '#0a0d14';
-          ctx.fillRect(0, 0, options.width, options.height);
-        }
+          const percentage = ((frameIndex + 1) / totalFrames) * 100;
+          const elapsed = (performance.now() - startTime) / 1000;
+          const fps = (frameIndex + 1) / Math.max(0.001, elapsed);
+          options.onProgress?.({
+            session_id: sessionId,
+            frames_written: frameIndex + 1,
+            total_frames: totalFrames,
+            percentage,
+            fps,
+          });
 
-        if (activeLine) {
-          this.renderSubtitleFrame(ctx, activeLine, currentTime, options);
+          if (frameIndex % 10 === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
         }
       }
 
+      await flushInFlight();
+    } catch (err) {
       if (isNative) {
-        const rawBytes = getImageData();
-        const shouldCacheBlank = !activeLine && !hasCachedBlank;
-        const progress = await this.writeRawFrameInChunks(sessionId, rawBytes, shouldCacheBlank);
-        if (shouldCacheBlank) {
-          hasCachedBlank = true;
-        }
-        options.onProgress?.(progress);
-      } else {
-        const percentage = ((frameIndex + 1) / totalFrames) * 100;
-        const elapsed = (performance.now() - startTime) / 1000;
-        const fps = (frameIndex + 1) / Math.max(0.001, elapsed);
-        options.onProgress?.({
-          session_id: sessionId,
-          frames_written: frameIndex + 1,
-          total_frames: totalFrames,
-          percentage,
-          fps,
-        });
-
-        if (frameIndex % 10 === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        }
+        await tauriBridge.ffmpegCancelExport(sessionId);
       }
+      throw err;
     }
 
     if (isNative) {
@@ -276,12 +661,17 @@ export class FFmpegExportPipeline {
     );
   }
 
-  private renderSubtitleFrame(
+  private getOrBuildLineLayout(
     ctx: CanvasRenderingContext2D,
     line: SubtitleLine,
-    currentTime: number,
-    options: ExportJobOptions
-  ): void {
+    options: ExportJobOptions,
+    cache: Map<SubtitleLine, CachedLineLayout>
+  ): CachedLineLayout {
+    const cached = cache.get(line);
+    if (cached) {
+      return cached;
+    }
+
     const scale = options.height / 720;
     const baseFontSize = Math.round(options.style.fontSize * scale);
     const rubyFontSize = Math.round(baseFontSize * options.style.rubySizeRatio);
@@ -303,48 +693,9 @@ export class FFmpegExportPipeline {
 
     const autoTokens = tokenizeSubtitleText(line.text);
     const lineSpan = Math.max(0.2, line.endTime - line.startTime);
-    const fallbackStep = Math.max(0.1, line.endTime - line.startTime) / Math.max(1, autoTokens.length);
+    const fallbackStep =
+      Math.max(0.1, line.endTime - line.startTime) / Math.max(1, autoTokens.length);
     const transitionSec = Math.max(0.01, (options.style.wordTransitionMs ?? 140) / 1000);
-    const animStyle = options.style.wordAnimStyle ?? 'pop';
-    const activeHighlightColor = options.style.wordActiveColor || options.style.outlineColor;
-    const rubyFillColor = options.style.rubyFillColor || options.style.primaryColor;
-    const rubyActiveColor = options.style.rubyActiveColor || '#5affb5';
-    const translationFillColor = options.style.translationFillColor || '#bfc3ca';
-
-    // Line-level entry & exit fade/slide parity with PixiViewport
-    const entryWindow = Math.min(0.22, lineSpan * 0.25);
-    const exitWindow = Math.min(0.18, lineSpan * 0.2);
-    let lineAlpha = 1;
-    let lineSlideY = 0;
-
-    if (currentTime >= line.startTime && currentTime <= line.endTime) {
-      const sinceStart = currentTime - line.startTime;
-      const untilEnd = line.endTime - currentTime;
-      if (sinceStart < entryWindow) {
-        const p = easeOutCubic(sinceStart / entryWindow);
-        lineAlpha = p;
-        lineSlideY = Math.round((1 - p) * 12 * scale);
-      } else if (untilEnd < exitWindow) {
-        lineAlpha = Math.max(0, Math.min(1, untilEnd / exitWindow));
-      }
-    }
-
-    ctx.save();
-    ctx.globalAlpha = lineAlpha;
-    ctx.font = baseFont;
-
-    interface MeasuredToken {
-      base: string;
-      ruby?: string;
-      isRuby: boolean;
-      baseWidth: number;
-      rubyWidth: number;
-      clusterWidth: number;
-      tokenGap: number;
-      startTime: number;
-      endTime: number;
-      disableAnim: boolean;
-    }
 
     const sourceTokens =
       line.tokens && line.tokens.length > 0
@@ -380,12 +731,126 @@ export class FFmpegExportPipeline {
           : Math.round(11 * scale)
         : 0;
 
+      const clusterWidth = Math.max(bw, rw);
+      const spritePad = Math.ceil(glowBlur * 2 + outerStroke + innerStroke + 16 * scale);
+      const spriteW = Math.max(1, Math.ceil(clusterWidth + spritePad * 2));
+      const kanjiAscent = Math.round(baseFontSize * 0.88);
+      const rubyGap = Math.max(3, Math.round(4 * scale));
+      const spriteH = Math.max(
+        1,
+        Math.ceil(baseFontSize + rubyFontSize + rubyGap + spritePad * 2 + 10 * scale)
+      );
+      const originX = Math.round(spritePad + (clusterWidth - bw) / 2);
+      const originBaselineY = Math.round(spritePad + rubyFontSize + rubyGap + kanjiAscent);
+
+      let inactiveSprite: HTMLCanvasElement | undefined;
+      let activeSprite: HTMLCanvasElement | undefined;
+
+      if (typeof document !== 'undefined') {
+        const buildSprite = (isActive: boolean) => {
+          const sCanvas = document.createElement('canvas');
+          sCanvas.width = spriteW;
+          sCanvas.height = spriteH;
+          const sctx = sCanvas.getContext('2d');
+          if (!sctx) return sCanvas;
+
+          sctx.lineJoin = 'round';
+          sctx.textAlign = 'left';
+
+          const strokeCol = isActive
+            ? options.style.wordActiveColor || options.style.outlineColor
+            : options.style.outlineColor;
+          const fillCol = isActive
+            ? options.style.wordActiveColor || options.style.primaryColor
+            : options.style.primaryColor;
+          const rubyFillCol = isActive
+            ? options.style.rubyActiveColor || '#5affb5'
+            : options.style.rubyFillColor || options.style.primaryColor;
+
+          // 1. Outer outline + glow
+          if (outerStroke + innerStroke > 0 || glowBlur > 0) {
+            sctx.save();
+            if (glowBlur > 0 && options.style.glowColor) {
+              sctx.shadowColor = options.style.glowColor;
+              sctx.shadowBlur = glowBlur;
+            }
+            if (outerStroke + innerStroke > 0) {
+              sctx.font = baseFont;
+              sctx.textBaseline = 'alphabetic';
+              sctx.lineWidth = outerStroke + innerStroke;
+              sctx.strokeStyle = options.style.secondaryOutlineColor;
+              sctx.strokeText(t.base, originX, originBaselineY);
+            }
+            sctx.restore();
+          }
+
+          // 2. Inner stroke
+          if (innerStroke > 0) {
+            sctx.font = baseFont;
+            sctx.textBaseline = 'alphabetic';
+            sctx.lineWidth = innerStroke;
+            sctx.strokeStyle = strokeCol;
+            sctx.strokeText(t.base, originX, originBaselineY);
+          }
+
+          // 3. Fill
+          sctx.font = baseFont;
+          sctx.textBaseline = 'alphabetic';
+          if (options.style.fillGradientEnabled && typeof sctx.createLinearGradient === 'function') {
+            const grad = sctx.createLinearGradient(
+              originX,
+              originBaselineY - baseFontSize,
+              originX,
+              originBaselineY
+            );
+            if (isActive) {
+              grad.addColorStop(0, fillCol);
+              grad.addColorStop(1, strokeCol);
+            } else {
+              grad.addColorStop(0, fillCol);
+              grad.addColorStop(1, options.style.fillGradientEndColor || '#b8d0ff');
+            }
+            sctx.fillStyle = grad;
+          } else {
+            sctx.fillStyle = fillCol;
+          }
+          sctx.fillText(t.base, originX, originBaselineY);
+
+          // 4. Positioned Furigana above kanji
+          if (t.isRuby && t.ruby) {
+            const rubyBottomY = originBaselineY - kanjiAscent - rubyGap;
+            const rubyX = Math.round(originX + (bw - rw) / 2);
+            sctx.font = rubyFont;
+            sctx.textBaseline = 'bottom';
+            const rStroke = Math.max(2, Math.round(outerStroke * 0.55));
+            if (rStroke > 0) {
+              sctx.lineWidth = rStroke;
+              sctx.strokeStyle = options.style.secondaryOutlineColor;
+              sctx.strokeText(t.ruby, rubyX, rubyBottomY);
+            }
+            sctx.fillStyle = rubyFillCol;
+            sctx.fillText(t.ruby, rubyX, rubyBottomY);
+          }
+
+          return sCanvas;
+        };
+
+        inactiveSprite = buildSprite(false);
+        activeSprite = buildSprite(true);
+      }
+
       return {
         ...t,
         baseWidth: bw,
         rubyWidth: rw,
-        clusterWidth: Math.max(bw, rw),
+        clusterWidth,
         tokenGap,
+        inactiveSprite,
+        activeSprite,
+        originX,
+        originBaselineY,
+        spriteWidth: spriteW,
+        spriteHeight: spriteH,
       };
     });
 
@@ -393,14 +858,122 @@ export class FFmpegExportPipeline {
     const scaledXOffset = Math.round((options.style.xOffset ?? 0) * scale);
     const scaledYOffset = Math.round((options.style.yOffset ?? 60) * scale);
     const vPos = options.style.verticalPosition ?? 'bottom';
-
-    const baselineY =
-      (vPos === 'top'
+    const baseBaselineY =
+      vPos === 'top'
         ? scaledYOffset + baseFontSize
         : vPos === 'center'
         ? options.height / 2 + scaledYOffset
-        : options.height - scaledYOffset) + lineSlideY;
+        : options.height - scaledYOffset;
 
+    let translationSprite: HTMLCanvasElement | undefined;
+    let translationWidth = 0;
+    let translationHeight = 0;
+    if (line.translation && line.translation.trim().length > 0 && typeof document !== 'undefined') {
+      const transText = line.translation.trim();
+      const transSize = Math.max(14, Math.round(baseFontSize * 0.45));
+      ctx.font = `600 ${transSize}px ${cssFontStack}`;
+      const tw = ctx.measureText(transText).width;
+      const tpad = Math.ceil(outerStroke + 16 * scale);
+      const tCanvas = document.createElement('canvas');
+      tCanvas.width = Math.ceil(tw + tpad * 2);
+      tCanvas.height = Math.ceil(transSize * 1.6 + tpad * 2);
+      const tctx = tCanvas.getContext('2d');
+      if (tctx) {
+        tctx.font = `600 ${transSize}px ${cssFontStack}`;
+        tctx.textAlign = 'left';
+        tctx.textBaseline = 'alphabetic';
+        tctx.lineJoin = 'round';
+        tctx.lineWidth = Math.max(2, Math.round(4 * scale));
+        tctx.strokeStyle = options.style.secondaryOutlineColor;
+        const tx = tpad;
+        const ty = Math.round(tpad + transSize * 1.0);
+        tctx.strokeText(transText, tx, ty);
+        tctx.fillStyle = options.style.translationFillColor || '#bfc3ca';
+        tctx.fillText(transText, tx, ty);
+        translationSprite = tCanvas;
+        translationWidth = tCanvas.width;
+        translationHeight = tCanvas.height;
+      }
+    }
+
+    const layout: CachedLineLayout = {
+      measured,
+      totalWidth,
+      scaledXOffset,
+      baseBaselineY,
+      scale,
+      baseFontSize,
+      rubyFontSize,
+      outerStroke,
+      innerStroke,
+      glowBlur,
+      baseFont,
+      rubyFont,
+      cssFontStack,
+      lineSpan,
+      entryWindow: Math.min(0.22, lineSpan * 0.25),
+      exitWindow: Math.min(0.18, lineSpan * 0.2),
+      transitionSec,
+      translationSprite,
+      translationWidth,
+      translationHeight,
+    };
+    cache.set(line, layout);
+    return layout;
+  }
+
+  private renderSubtitleFrame(
+    ctx: CanvasRenderingContext2D,
+    line: SubtitleLine,
+    layout: CachedLineLayout,
+    currentTime: number,
+    options: ExportJobOptions
+  ): void {
+    const {
+      measured,
+      totalWidth,
+      scaledXOffset,
+      baseBaselineY,
+      scale,
+      baseFontSize,
+      outerStroke,
+      innerStroke,
+      glowBlur,
+      baseFont,
+      rubyFont,
+      cssFontStack,
+      entryWindow,
+      exitWindow,
+      transitionSec,
+    } = layout;
+
+    const animStyle = options.style.wordAnimStyle ?? 'pop';
+    const activeHighlightColor = options.style.wordActiveColor || options.style.outlineColor;
+    const rubyFillColor = options.style.rubyFillColor || options.style.primaryColor;
+    const rubyActiveColor = options.style.rubyActiveColor || '#5affb5';
+    const translationFillColor = options.style.translationFillColor || '#bfc3ca';
+
+    // Line-level entry & exit fade/slide parity with PixiViewport
+    let lineAlpha = 1;
+    let lineSlideY = 0;
+
+    if (currentTime >= line.startTime && currentTime <= line.endTime) {
+      const sinceStart = currentTime - line.startTime;
+      const untilEnd = line.endTime - currentTime;
+      if (sinceStart < entryWindow) {
+        const p = easeOutCubic(sinceStart / entryWindow);
+        lineAlpha = p;
+        lineSlideY = Math.round((1 - p) * 12 * scale);
+      } else if (untilEnd < exitWindow) {
+        lineAlpha = Math.max(0, Math.min(1, untilEnd / exitWindow));
+      }
+    }
+
+    ctx.save();
+    ctx.globalAlpha = lineAlpha;
+    ctx.font = baseFont;
+
+    const baselineY = baseBaselineY + lineSlideY;
     let currentX = (options.width - totalWidth) / 2 + scaledXOffset;
 
     for (const m of measured) {
@@ -453,136 +1026,104 @@ export class FFmpegExportPipeline {
       const tokenBaselineX = currentX + motionX;
       const tokenBaselineY = baselineY + motionY;
 
-      const metrics = computeRubyPosition(
-        tokenBaselineX,
-        tokenBaselineY,
-        m.baseWidth,
-        baseFontSize,
-        m.rubyWidth,
-        rubyFontSize,
-        Math.round(2 * scale)
-      );
+      // Ultra-fast path: Blit pre-baked token offscreen sprites (zero Gaussian blur / CPU re-rasterization)
+      if (m.inactiveSprite && m.activeSprite) {
+        const spriteDrawX = tokenBaselineX - m.originX;
+        const spriteDrawY = tokenBaselineY - m.originBaselineY;
 
-      ctx.save();
-      if (scaleBoost !== 1) {
-        const pivotX = metrics.baseX + m.baseWidth / 2;
-        const pivotY = tokenBaselineY - baseFontSize / 2;
-        ctx.translate(pivotX, pivotY);
-        ctx.scale(scaleBoost, scaleBoost);
-        ctx.translate(-pivotX, -pivotY);
-      }
-
-      ctx.font = baseFont;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
-      ctx.lineJoin = 'round';
-
-      // Layer 1: Outer outline + soft glow shadow
-      if (outerStroke + innerStroke > 0 || glowBlur > 0) {
         ctx.save();
-        if (glowBlur > 0 && options.style.glowColor) {
-          ctx.shadowColor = options.style.glowColor;
-          ctx.shadowBlur = glowBlur;
+        if (scaleBoost !== 1) {
+          const pivotX = tokenBaselineX + m.baseWidth / 2;
+          const pivotY = tokenBaselineY - baseFontSize / 2;
+          ctx.translate(pivotX, pivotY);
+          ctx.scale(scaleBoost, scaleBoost);
+          ctx.translate(-pivotX, -pivotY);
         }
-        if (outerStroke + innerStroke > 0) {
-          ctx.lineWidth = outerStroke + innerStroke;
-          ctx.strokeStyle = options.style.secondaryOutlineColor;
-          ctx.strokeText(m.base, metrics.baseX, tokenBaselineY);
+
+        if (animStyle === 'smooth-sweep') {
+          const isPassed = currentTime >= m.endTime;
+          const isCurrent = currentTime >= m.startTime && currentTime < m.endTime;
+
+          ctx.drawImage(m.inactiveSprite, spriteDrawX, spriteDrawY);
+
+          if (isPassed) {
+            ctx.drawImage(m.activeSprite, spriteDrawX, spriteDrawY);
+          } else if (isCurrent) {
+            const span = Math.max(0.01, m.endTime - m.startTime);
+            const progress = Math.min(1, Math.max(0, (currentTime - m.startTime) / span));
+            const wipeWidth = Math.min(
+              m.spriteWidth,
+              Math.round(m.originX + m.baseWidth * progress + 4)
+            );
+            if (wipeWidth > 0) {
+              ctx.drawImage(
+                m.activeSprite,
+                0,
+                0,
+                wipeWidth,
+                m.spriteHeight,
+                spriteDrawX,
+                spriteDrawY,
+                wipeWidth,
+                m.spriteHeight
+              );
+            }
+          }
+        } else {
+          const isHighlighted = isTokenActive || (isTokenPassed && animStyle === 'sweep');
+          if (isHighlighted) {
+            ctx.drawImage(m.activeSprite, spriteDrawX, spriteDrawY);
+          } else {
+            ctx.drawImage(m.inactiveSprite, spriteDrawX, spriteDrawY);
+          }
         }
         ctx.restore();
-      }
-
-      if (animStyle === 'smooth-sweep') {
-        const isPassed = currentTime >= m.endTime;
-        const isCurrent = currentTime >= m.startTime && currentTime < m.endTime;
-
-        // 1. Draw base text (inactive, solid color)
-        if (innerStroke > 0) {
-          ctx.lineWidth = innerStroke;
-          ctx.strokeStyle = options.style.outlineColor;
-          ctx.strokeText(m.base, metrics.baseX, tokenBaselineY);
-        }
-        if (options.style.fillGradientEnabled && typeof ctx.createLinearGradient === 'function') {
-          const grad = ctx.createLinearGradient(
-            metrics.baseX,
-            tokenBaselineY - baseFontSize,
-            metrics.baseX,
-            tokenBaselineY
-          );
-          grad.addColorStop(0, options.style.primaryColor);
-          grad.addColorStop(1, options.style.fillGradientEndColor || '#b8d0ff');
-          ctx.fillStyle = grad;
-        } else {
-          ctx.fillStyle = options.style.primaryColor;
-        }
-        ctx.fillText(m.base, metrics.baseX, tokenBaselineY);
-
-        if (m.isRuby && m.ruby) {
-          ctx.font = rubyFont;
-          ctx.lineWidth = Math.max(2, Math.round(outerStroke * 0.55));
-          ctx.strokeStyle = options.style.secondaryOutlineColor;
-          ctx.strokeText(m.ruby, metrics.rubyX, metrics.rubyY);
-          ctx.fillStyle = rubyFillColor;
-          ctx.fillText(m.ruby, metrics.rubyX, metrics.rubyY);
-          ctx.font = baseFont;
+      } else {
+        // Fallback vector drawing (headless tests with mock canvas)
+        ctx.save();
+        if (scaleBoost !== 1) {
+          const pivotX = tokenBaselineX + m.baseWidth / 2;
+          const pivotY = tokenBaselineY - baseFontSize / 2;
+          ctx.translate(pivotX, pivotY);
+          ctx.scale(scaleBoost, scaleBoost);
+          ctx.translate(-pivotX, -pivotY);
         }
 
-        // 2. Draw active highlighted text clipped horizontally (crisp geometric wipe)
-        if (isCurrent || isPassed) {
-          const span = Math.max(0.01, m.endTime - m.startTime);
-          const progress = isPassed ? 1 : Math.min(1, Math.max(0, (currentTime - m.startTime) / span));
+        ctx.font = baseFont;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.lineJoin = 'round';
 
+        // Outer outline + glow
+        if (outerStroke + innerStroke > 0 || glowBlur > 0) {
           ctx.save();
-          ctx.beginPath();
-          ctx.rect(metrics.baseX - 2, 0, m.baseWidth * progress + 2, options.height);
-          ctx.clip();
-
-          if (innerStroke > 0) {
-            ctx.lineWidth = innerStroke;
-            ctx.strokeStyle = activeHighlightColor;
-            ctx.strokeText(m.base, metrics.baseX, tokenBaselineY);
+          if (glowBlur > 0 && options.style.glowColor) {
+            ctx.shadowColor = options.style.glowColor;
+            ctx.shadowBlur = glowBlur;
           }
-          if (options.style.fillGradientEnabled && typeof ctx.createLinearGradient === 'function') {
-            const grad = ctx.createLinearGradient(
-              metrics.baseX,
-              tokenBaselineY - baseFontSize,
-              metrics.baseX,
-              tokenBaselineY
-            );
-            grad.addColorStop(0, activeHighlightColor);
-            grad.addColorStop(1, options.style.outlineColor);
-            ctx.fillStyle = grad;
-          } else {
-            ctx.fillStyle = activeHighlightColor;
-          }
-          ctx.fillText(m.base, metrics.baseX, tokenBaselineY);
-
-          if (m.isRuby && m.ruby) {
-            ctx.font = rubyFont;
-            ctx.lineWidth = Math.max(2, Math.round(outerStroke * 0.55));
+          if (outerStroke + innerStroke > 0) {
+            ctx.lineWidth = outerStroke + innerStroke;
             ctx.strokeStyle = options.style.secondaryOutlineColor;
-            ctx.strokeText(m.ruby, metrics.rubyX, metrics.rubyY);
-            ctx.fillStyle = rubyActiveColor;
-            ctx.fillText(m.ruby, metrics.rubyX, metrics.rubyY);
+            ctx.strokeText(m.base, tokenBaselineX, tokenBaselineY);
           }
           ctx.restore();
         }
-      } else {
+
         const isHighlighted = isTokenActive || (isTokenPassed && animStyle === 'sweep');
 
-        // Layer 2: Inner outline
+        // Inner outline
         if (innerStroke > 0) {
           ctx.lineWidth = innerStroke;
           ctx.strokeStyle = isHighlighted ? activeHighlightColor : options.style.outlineColor;
-          ctx.strokeText(m.base, metrics.baseX, tokenBaselineY);
+          ctx.strokeText(m.base, tokenBaselineX, tokenBaselineY);
         }
 
-        // Layer 3: Fill (supports vertical gradient when fillGradientEnabled is true)
+        // Fill
         if (options.style.fillGradientEnabled && typeof ctx.createLinearGradient === 'function') {
           const grad = ctx.createLinearGradient(
-            metrics.baseX,
+            tokenBaselineX,
             tokenBaselineY - baseFontSize,
-            metrics.baseX,
+            tokenBaselineX,
             tokenBaselineY
           );
           if (isHighlighted) {
@@ -596,28 +1137,41 @@ export class FFmpegExportPipeline {
         } else {
           ctx.fillStyle = isHighlighted ? activeHighlightColor : options.style.primaryColor;
         }
-        ctx.fillText(m.base, metrics.baseX, tokenBaselineY);
+        ctx.fillText(m.base, tokenBaselineX, tokenBaselineY);
 
+        // Positioned Furigana cleanly above kanji
         if (m.isRuby && m.ruby) {
+          const kanjiAscent = Math.round(baseFontSize * 0.88);
+          const rubyGap = Math.max(3, Math.round(4 * scale));
+          const rubyX = Math.round(tokenBaselineX + (m.baseWidth - m.rubyWidth) / 2);
+          const rubyBottomY = tokenBaselineY - kanjiAscent - rubyGap;
+
           ctx.font = rubyFont;
+          ctx.textBaseline = 'bottom';
           ctx.lineWidth = Math.max(2, Math.round(outerStroke * 0.55));
           ctx.strokeStyle = options.style.secondaryOutlineColor;
-          ctx.strokeText(m.ruby, metrics.rubyX, metrics.rubyY);
+          ctx.strokeText(m.ruby, rubyX, rubyBottomY);
 
           ctx.fillStyle = isHighlighted ? rubyActiveColor : rubyFillColor;
-          ctx.fillText(m.ruby, metrics.rubyX, metrics.rubyY);
+          ctx.fillText(m.ruby, rubyX, rubyBottomY);
         }
+
+        ctx.restore();
       }
 
-      ctx.restore();
       currentX += m.baseWidth + m.tokenGap;
     }
 
     // Secondary translation rendering
-    if (line.translation && line.translation.trim().length > 0) {
+    if (layout.translationSprite) {
+      const transX = Math.round((options.width - layout.translationWidth) / 2 + scaledXOffset);
+      const transY = Math.round(baselineY + baseFontSize * 0.65 - 16 * scale);
+      ctx.drawImage(layout.translationSprite, transX, transY);
+    } else if (line.translation && line.translation.trim().length > 0) {
       const transSize = Math.max(14, Math.round(baseFontSize * 0.45));
       ctx.font = `600 ${transSize}px ${cssFontStack}`;
       ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
       ctx.lineJoin = 'round';
       ctx.lineWidth = Math.max(2, Math.round(4 * scale));
       ctx.strokeStyle = options.style.secondaryOutlineColor;

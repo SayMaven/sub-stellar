@@ -274,6 +274,26 @@ pub fn extract_font_families_from_file(path: &Path) -> Vec<String> {
     families
 }
 
+fn collect_font_files_in_dir(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_font_files_in_dir(&path, out);
+            continue;
+        }
+        let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+            continue;
+        };
+        let ext_lower = ext.to_lowercase();
+        if matches!(ext_lower.as_str(), "ttf" | "otf" | "ttc" | "otc") {
+            out.push(path);
+        }
+    }
+}
+
 fn scan_font_dir(dir: &Path, seen_lower: &mut HashSet<String>, out: &mut Vec<String>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -424,6 +444,157 @@ pub fn get_system_fonts() -> Result<Vec<SystemFontEntry>, String> {
         .collect())
 }
 
+/// Searches system and user font paths for a font file matching `font_family`.
+/// When found, creates an isolated temporary directory containing the font file
+/// so that FFmpeg `libass` can load it via `:fontsdir`.
+/// Returns `Some((staging_dir_path, primary_family_name))` or `None` if not found.
+pub fn stage_font_dir_for_burnin(font_family: &str, session_id: &str) -> Option<(PathBuf, String)> {
+    let generic_names = ["sans-serif", "serif", "monospace", "cursive", "fantasy", "system-ui"];
+    let mut targets = Vec::new();
+    for part in font_family.split(',') {
+        let trimmed = part.trim().trim_matches(|c| c == '\'' || c == '"').trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let lower = trimmed.to_lowercase();
+        if !generic_names.contains(&lower.as_str()) {
+            targets.push(trimmed.to_string());
+        }
+    }
+
+    if targets.is_empty() {
+        return None;
+    }
+
+    let mut candidate_files: Vec<PathBuf> = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        // 1. Search per-user font directory first (installed custom fonts)
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            let user_fonts = PathBuf::from(local_app_data)
+                .join("Microsoft")
+                .join("Windows")
+                .join("Fonts");
+            collect_font_files_in_dir(&user_fonts, &mut candidate_files);
+        }
+
+        // 2. Query Windows Registry for user and system font entries
+        let mut reg_files = Vec::new();
+        let mut dummy_seen = HashSet::new();
+        let mut dummy_out = Vec::new();
+        query_windows_registry_fonts(
+            r"HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts",
+            &mut dummy_seen,
+            &mut dummy_out,
+            &mut reg_files,
+        );
+        query_windows_registry_fonts(
+            r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts",
+            &mut dummy_seen,
+            &mut dummy_out,
+            &mut reg_files,
+        );
+        for rf in reg_files {
+            if rf.exists() && !candidate_files.contains(&rf) {
+                candidate_files.push(rf);
+            }
+        }
+
+        // 3. System Windows Fonts
+        if let Ok(windir) = std::env::var("WINDIR") {
+            let sys_fonts = PathBuf::from(windir).join("Fonts");
+            collect_font_files_in_dir(&sys_fonts, &mut candidate_files);
+        } else {
+            collect_font_files_in_dir(Path::new(r"C:\Windows\Fonts"), &mut candidate_files);
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        #[cfg(target_os = "macos")]
+        {
+            let mut dirs = vec![
+                PathBuf::from("/Library/Fonts"),
+                PathBuf::from("/System/Library/Fonts"),
+            ];
+            if let Ok(home) = std::env::var("HOME") {
+                dirs.push(PathBuf::from(home).join("Library").join("Fonts"));
+            }
+            for d in dirs {
+                collect_font_files_in_dir(&d, &mut candidate_files);
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let mut dirs = vec![
+                PathBuf::from("/usr/share/fonts"),
+                PathBuf::from("/usr/local/share/fonts"),
+            ];
+            if let Ok(home) = std::env::var("HOME") {
+                dirs.push(PathBuf::from(home).join(".local").join("share").join("fonts"));
+                dirs.push(PathBuf::from(home).join(".fonts"));
+            }
+            for d in dirs {
+                collect_font_files_in_dir(&d, &mut candidate_files);
+            }
+        }
+    }
+
+    let mut matched: Option<(PathBuf, String)> = None;
+
+    for target in &targets {
+        let target_lower = target.to_lowercase();
+        for file_path in &candidate_files {
+            let stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            let stem_lower = stem.to_lowercase();
+
+            let families = extract_font_families_from_file(file_path);
+            let family_match = families.iter().any(|f| {
+                let fl = f.to_lowercase();
+                fl == target_lower || fl.contains(&target_lower) || target_lower.contains(&fl)
+            });
+
+            let stem_match = stem_lower == target_lower
+                || stem_lower.starts_with(&target_lower)
+                || target_lower.starts_with(&stem_lower);
+
+            if family_match || stem_match {
+                let chosen_name = families.first().cloned().unwrap_or_else(|| target.clone());
+                matched = Some((file_path.clone(), chosen_name));
+                break;
+            }
+        }
+        if matched.is_some() {
+            break;
+        }
+    }
+
+    let (src_file, chosen_family) = matched?;
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "substellar_font_stage_{}_{}",
+        session_id.replace(|c: char| !c.is_alphanumeric(), "_"),
+        std::process::id()
+    ));
+
+    if fs::create_dir_all(&temp_dir).is_err() {
+        return None;
+    }
+
+    let Some(file_name) = src_file.file_name() else {
+        let _ = fs::remove_dir_all(&temp_dir);
+        return None;
+    };
+    let dest_file = temp_dir.join(file_name);
+    if fs::copy(&src_file, &dest_file).is_err() {
+        let _ = fs::remove_dir_all(&temp_dir);
+        return None;
+    }
+
+    Some((temp_dir, chosen_family))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,6 +635,25 @@ mod tests {
             !fonts.is_empty(),
             "Windows host should discover installed fonts"
         );
+    }
+
+    #[test]
+    fn test_stage_font_dir_for_burnin() {
+        // Generic fallback with no match returns None
+        assert!(stage_font_dir_for_burnin("sans-serif", "test_session").is_none());
+
+        // Standard Windows/system font should be staged cleanly
+        #[cfg(target_os = "windows")]
+        {
+            if let Some((dir, family)) = stage_font_dir_for_burnin("Arial, sans-serif", "test_arial") {
+                assert!(dir.exists());
+                assert!(dir.is_dir());
+                assert!(!family.is_empty());
+                let entries: Vec<_> = fs::read_dir(&dir).unwrap().collect();
+                assert!(!entries.is_empty());
+                let _ = fs::remove_dir_all(&dir);
+            }
+        }
     }
 }
 

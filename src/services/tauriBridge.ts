@@ -36,6 +36,8 @@ export interface ExportPipeConfig {
   total_frames: number;
   audio_source_path?: string;
   audio_bitrate?: string;
+  overlay_y?: number;
+  overlay_height?: number;
 }
 
 export interface ExportProgress {
@@ -191,6 +193,7 @@ export const tauriBridge = {
     chunk: Uint8Array,
     options?: {
       useBlank?: boolean;
+      reuseLast?: boolean;
       cacheBlank?: boolean;
       commitFrame?: boolean;
       repeatCount?: number;
@@ -200,6 +203,7 @@ export const tauriBridge = {
       headers: {
         'x-session-id': sessionId,
         'x-use-blank': options?.useBlank ? '1' : '0',
+        'x-reuse-last': options?.reuseLast ? '1' : '0',
         'x-cache-blank': options?.cacheBlank ? '1' : '0',
         'x-commit-frame': options?.commitFrame === false ? '0' : '1',
         'x-repeat-count': String(options?.repeatCount ?? 1),
@@ -223,14 +227,41 @@ export const tauriBridge = {
     videoInput: string,
     assPath: string,
     outputPath: string,
-    encoder?: string
+    encoder?: string,
+    options?: {
+      sessionId?: string;
+      durationSecs?: number;
+      fps?: number;
+      fontsDir?: string;
+      fontFamily?: string;
+    }
   ): Promise<ExportResult> {
     return invokeTauri<ExportResult>('ffmpeg_export_ass_burnin', {
+      sessionId: options?.sessionId,
       videoInput,
       assPath,
       outputPath,
       encoder,
+      durationSecs: options?.durationSecs,
+      fps: options?.fps,
+      fontsDir: options?.fontsDir,
+      fontFamily: options?.fontFamily,
     });
+  },
+
+  async onAssBurninProgress(
+    callback: (progress: ExportProgress) => void
+  ): Promise<() => void> {
+    if (!isTauriEnvironment()) {
+      return () => {};
+    }
+    const { listen } = await import('@tauri-apps/api/event');
+    const unlisten = await listen<ExportProgress>('ffmpeg-burnin-progress', (event) => {
+      if (event.payload) {
+        callback(event.payload);
+      }
+    });
+    return unlisten;
   },
 
   getCachedYtDlpStatus(): YtDlpStatus | null {
