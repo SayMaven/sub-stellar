@@ -1042,7 +1042,7 @@ export const useStudioStore = create<StudioStoreState>((rawSet, get) => {
   exportProjectJson: () => {
     const state = get();
     const payload: SubStellarProjectFile = {
-      version: '0.9.0',
+      version: '0.9.1',
       savedAt: new Date().toISOString(),
       aspectRatio: state.aspectRatio,
       canvasResolution: state.canvasResolution,

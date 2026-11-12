@@ -1,5 +1,6 @@
 import type { LyricsCandidate, LyricsSearchParams } from './types';
 import { computeSimilarity } from './similarity';
+import { tauriBridge } from '../tauriBridge';
 
 interface LrclibResponseItem {
   id: number;
@@ -25,17 +26,11 @@ export async function searchLrclib(params: LyricsSearchParams): Promise<LyricsCa
       return [];
     }
 
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'SubStellar Studio (https://github.com/SayMaven/sub-stellar)',
-      },
+    const raw = await tauriBridge.lyricsHttpGet(url, {
+      'User-Agent': 'SubStellar Studio (https://github.com/SayMaven/sub-stellar)',
     });
 
-    if (!response.ok) {
-      return [];
-    }
-
-    const items: LrclibResponseItem[] = await response.json();
+    const items: LrclibResponseItem[] = JSON.parse(raw);
     if (!Array.isArray(items)) return [];
 
     return items
