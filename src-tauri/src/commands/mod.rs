@@ -6,6 +6,9 @@ pub mod ffmpeg;
 pub mod project_io;
 pub mod fonts;
 pub mod ws_pipe;
+pub mod subtitle;
+pub mod audio_peaks;
+pub mod furigana;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {

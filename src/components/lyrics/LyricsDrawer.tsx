@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { aggregateLyricsSearch } from '../../services/lyrics/lyricsAggregator';
-import { parseLrc } from '../../services/lyrics/lrcParser';
+import { parseLrcNative } from '../../services/lyrics/lrcParser';
 import type { LyricsCandidate } from '../../services/lyrics/types';
 
 export const LyricsDrawer: React.FC = () => {
@@ -66,11 +66,11 @@ export const LyricsDrawer: React.FC = () => {
     }
   };
 
-  const handleApplyCandidate = (candidate: LyricsCandidate) => {
+  const handleApplyCandidate = async (candidate: LyricsCandidate) => {
     const raw = candidate.syncedLyrics || candidate.plainLyrics;
     if (!raw) return;
 
-    const parsedLines = parseLrc(raw, candidate.translationLyrics);
+    const parsedLines = await parseLrcNative(raw, candidate.translationLyrics);
     if (parsedLines.length > 0) {
       importLyrics(parsedLines, {
         title: candidate.title,
@@ -81,10 +81,10 @@ export const LyricsDrawer: React.FC = () => {
     }
   };
 
-  const handleApplyManual = () => {
+  const handleApplyManual = async () => {
     if (!manualText.trim()) return;
 
-    const parsedLines = parseLrc(manualText);
+    const parsedLines = await parseLrcNative(manualText);
     if (parsedLines.length > 0) {
       importLyrics(parsedLines);
       setActiveTab('studio');
@@ -95,10 +95,10 @@ export const LyricsDrawer: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const content = String(reader.result || '');
       setManualText(content);
-      const parsedLines = parseLrc(content);
+      const parsedLines = await parseLrcNative(content);
       if (parsedLines.length > 0) {
         importLyrics(parsedLines);
         setActiveTab('studio');

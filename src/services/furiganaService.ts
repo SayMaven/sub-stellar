@@ -7,6 +7,7 @@ import type {
   FuriganaWorkerRequest,
   FuriganaWorkerResponse,
 } from '../workers/furigana.worker';
+import { tauriBridge } from './tauriBridge';
 
 export const FURIGANA_IDLE_TIMEOUT_MS = 30_000;
 const BATCH_SIZE = 50;
@@ -65,12 +66,21 @@ export class FuriganaService {
     }, FURIGANA_IDLE_TIMEOUT_MS);
   }
 
-  /** Analyzes up to a few dozen lines in one worker round trip. */
-  public analyze(lines: string[]): Promise<MorphToken[][]> {
+  /** Analyzes up to a few dozen lines in one Rust IPC or worker round trip. */
+  public async analyze(lines: string[]): Promise<MorphToken[][]> {
     if (this.idleTimer) {
       clearTimeout(this.idleTimer);
       this.idleTimer = null;
     }
+
+    if (tauriBridge.isTauri()) {
+      const nativeTokens = await tauriBridge.analyzeFuriganaLines(lines);
+      if (nativeTokens) {
+        this.scheduleIdleStop();
+        return nativeTokens;
+      }
+    }
+
     return new Promise((resolve, reject) => {
       let worker: Worker;
       try {
@@ -121,6 +131,9 @@ export class FuriganaService {
     }
     this.worker?.terminate();
     this.worker = null;
+    if (tauriBridge.isTauri()) {
+      tauriBridge.releaseFuriganaDictionary().catch(() => {});
+    }
   }
 }
 

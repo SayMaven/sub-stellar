@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { UploadCloud, Play, Video, FileText, HardDrive } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
-import { parseLrc } from '../../services/lyrics/lrcParser';
+import { parseLrcNative } from '../../services/lyrics/lrcParser';
 import { tauriBridge } from '../../services/tauriBridge';
 
 export const EmptyStudioState: React.FC = () => {
@@ -55,8 +55,8 @@ export const EmptyStudioState: React.FC = () => {
       ext.endsWith('.txt')
     ) {
       const reader = new FileReader();
-      reader.onload = () => {
-        const parsed = parseLrc(String(reader.result || ''));
+      reader.onload = async () => {
+        const parsed = await parseLrcNative(String(reader.result || ''));
         if (parsed.length > 0) {
           importLyrics(parsed);
         }

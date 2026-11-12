@@ -1,5 +1,6 @@
 import type { SubtitleLine, RubyToken } from '../../types';
 import { tokenizeSubtitleText } from '../../engine/text/RubyLayout';
+import { tauriBridge } from '../tauriBridge';
 
 /**
  * Parses timestamp string "[mm:ss.xx]" or "<mm:ss.xx>" into seconds (float).
@@ -420,5 +421,24 @@ export function parseLrc(raw: string, translationRaw?: string): SubtitleLine[] {
   }
 
   return result;
+}
+
+/**
+ * Offloads subtitle parsing (LRC, Enhanced LRC, YRC, SRT, VTT) to Rust Core when running in Tauri,
+ * with graceful fallback to the TypeScript parser in browser/test environments.
+ */
+export async function parseLrcNative(
+  raw: string,
+  translationRaw?: string
+): Promise<SubtitleLine[]> {
+  if (tauriBridge.isTauri()) {
+    try {
+      const nativeLines = await tauriBridge.parseSubtitleText(raw, translationRaw);
+      if (nativeLines) return nativeLines;
+    } catch {
+      // Fall back to TypeScript parser on unexpected IPC failure
+    }
+  }
+  return parseLrc(raw, translationRaw);
 }
 

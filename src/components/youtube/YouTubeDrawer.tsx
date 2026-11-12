@@ -30,7 +30,7 @@ import {
   type CachedMediaItem,
 } from '../../services/tauriBridge';
 import { aggregateLyricsSearch } from '../../services/lyrics/lyricsAggregator';
-import { parseLrc } from '../../services/lyrics/lrcParser';
+import { parseLrcNative } from '../../services/lyrics/lrcParser';
 
 const YT_URL_REGEX =
   /^https?:\/\/(?:(?:www|m|music)\.)?(?:youtube\.com\/(?:watch\?(?:[^#\s]*&)?v=|shorts\/|embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
@@ -459,7 +459,7 @@ export const YouTubeDrawer: React.FC = () => {
           }
         }
 
-        const parsedLines = parseLrc(primaryRaw, transRaw);
+        const parsedLines = await parseLrcNative(primaryRaw, transRaw);
         if (parsedLines.length > 0) {
           importLyrics(parsedLines);
           if (autoFurigana) {
@@ -492,7 +492,7 @@ export const YouTubeDrawer: React.FC = () => {
       if (best) {
         const raw = best.syncedLyrics || best.plainLyrics;
         if (raw) {
-          const parsedLines = parseLrc(raw, best.translationLyrics);
+          const parsedLines = await parseLrcNative(raw, best.translationLyrics);
           if (parsedLines.length > 0) {
             importLyrics(parsedLines);
             if (autoFurigana) {

@@ -25,9 +25,9 @@ import {
 } from 'lucide-react';
 import { usePerfStore } from '../../stores/usePerfStore';
 import { useStudioStore } from '../../stores/useStudioStore';
-import { generateAss, generateSrt } from '../../engine/text/SubtitleExporter';
+import { generateAssNative, generateSrtNative } from '../../engine/text/SubtitleExporter';
 import { getCanvasPixelDimensions } from '../../engine/layout/layoutMath';
-import { parseLrc } from '../../services/lyrics/lrcParser';
+import { parseLrcNative } from '../../services/lyrics/lrcParser';
 import {
   saveProjectToDisk,
   saveExportTextToDisk,
@@ -249,10 +249,10 @@ export const Header: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const raw = String(reader.result || '');
-        const parsed = parseLrc(raw);
+        const parsed = await parseLrcNative(raw);
         if (parsed.length > 0) {
           importLyrics(parsed);
           saveToLocalStorage();
@@ -276,7 +276,7 @@ export const Header: React.FC = () => {
       (track.title || 'substellar_project').toLowerCase().replace(/[^a-z0-9_-]/g, '_') ||
       'substellar_project';
     const dims = getCanvasPixelDimensions(aspectRatio, canvasResolution);
-    const ass = generateAss(lines, style, track, dims);
+    const ass = await generateAssNative(lines, style, track, dims);
     try {
       const res = await saveExportTextToDisk({
         content: ass,
@@ -298,7 +298,7 @@ export const Header: React.FC = () => {
     const slug =
       (track.title || 'substellar_project').toLowerCase().replace(/[^a-z0-9_-]/g, '_') ||
       'substellar_project';
-    const srt = generateSrt(lines);
+    const srt = await generateSrtNative(lines);
     try {
       const res = await saveExportTextToDisk({
         content: srt,

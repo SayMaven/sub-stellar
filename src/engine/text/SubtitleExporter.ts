@@ -1,6 +1,7 @@
 import type { SubtitleLine, SubtitleStyle, TrackMetadata } from '../../types';
 import { formatCssFontStack, parseFontStack } from './fontLoader';
 import { tokenizeSubtitleText } from './RubyLayout';
+import { tauriBridge } from '../../services/tauriBridge';
 
 const CJK_CHAR_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
@@ -407,4 +408,47 @@ export function downloadFile(filename: string, content: string, mimeType: string
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Offloads ASS v4.00+ generation to Rust Core when running in Tauri,
+ * with graceful fallback to the TypeScript generator in browser/test environments.
+ */
+export async function generateAssNative(
+  lines: SubtitleLine[],
+  style: SubtitleStyle,
+  track?: TrackMetadata,
+  dimensions: AssCanvasDimensions = { width: 1920, height: 1080 }
+): Promise<string> {
+  if (tauriBridge.isTauri()) {
+    try {
+      const nativeAss = await tauriBridge.generateAssText(
+        lines,
+        style,
+        track,
+        dimensions.width,
+        dimensions.height
+      );
+      if (nativeAss !== null) return nativeAss;
+    } catch {
+      // Fall back to TypeScript generator
+    }
+  }
+  return generateAss(lines, style, track, dimensions);
+}
+
+/**
+ * Offloads SRT generation to Rust Core when running in Tauri,
+ * with graceful fallback to the TypeScript generator in browser/test environments.
+ */
+export async function generateSrtNative(lines: SubtitleLine[]): Promise<string> {
+  if (tauriBridge.isTauri()) {
+    try {
+      const nativeSrt = await tauriBridge.generateSrtText(lines);
+      if (nativeSrt !== null) return nativeSrt;
+    } catch {
+      // Fall back to TypeScript generator
+    }
+  }
+  return generateSrt(lines);
 }

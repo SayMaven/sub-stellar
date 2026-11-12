@@ -3,6 +3,7 @@ import {
   generateSyntheticPeaks,
   type WaveformWorkerResponse,
 } from '../../workers/waveform.worker';
+import { tauriBridge } from '../../services/tauriBridge';
 
 export class WaveformManager {
   private cache = new Map<string, Float32Array>();
@@ -26,16 +27,31 @@ export class WaveformManager {
   }
 
   /**
-   * Retrieves downsampled ~2000 peak points for a track, utilizing worker or fallback.
+   * Retrieves downsampled ~2000 peak points for a track, utilizing native Rust Symphonia/FFmpeg,
+   * Web Worker, or synthetic fallback.
    */
   public async getPeaks(
     trackId: string,
     durationSeconds: number,
-    channelData?: Float32Array
+    channelData?: Float32Array,
+    sourceFilePath?: string
   ): Promise<Float32Array> {
-    const cacheKey = `${trackId}-${Math.round(durationSeconds)}`;
+    const cacheKey = `${trackId}-${Math.round(durationSeconds)}-${sourceFilePath ?? ''}`;
     if (this.cache.has(cacheKey)) {
       return this.cache.get(cacheKey)!;
+    }
+
+    if (!channelData && sourceFilePath && tauriBridge.isTauri()) {
+      try {
+        const nativePeaks = await tauriBridge.extractAudioPeaks(sourceFilePath, 1000);
+        if (nativePeaks && nativePeaks.length > 0) {
+          const typed = new Float32Array(nativePeaks);
+          this.cache.set(cacheKey, typed);
+          return typed;
+        }
+      } catch {
+        // Fall through to worker/synthetic fallback if native audio decode fails
+      }
     }
 
     if (this.worker) {

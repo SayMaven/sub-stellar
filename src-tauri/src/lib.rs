@@ -30,6 +30,12 @@ pub fn run() {
             commands::project_io::export_save_dialog,
             commands::project_io::reveal_in_explorer,
             commands::fonts::get_system_fonts,
+            commands::subtitle::parse_subtitle_text,
+            commands::subtitle::generate_ass_text,
+            commands::subtitle::generate_srt_text,
+            commands::audio_peaks::extract_audio_peaks,
+            commands::furigana::analyze_furigana_lines,
+            commands::furigana::release_furigana_dictionary,
         ])
         .run(tauri::generate_context!())
         .expect("error while running substellar application");

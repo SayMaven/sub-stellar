@@ -1,6 +1,6 @@
 [package]
 name = "sub-stellar"
-version = "1.0.0-alpha.7"
+version = "1.0.0"
 description = "SubStellar Next-Gen Animated Subtitle & Lyrics Studio"
 authors = ["SayMaven"]
 license = "MIT OR Apache-2.0"
@@ -20,4 +20,6 @@ serde_json = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 regex = "1"
 tauri-plugin-window-state = "2"
+lindera = { version = "6.2.0", features = ["embed-ipadic"] }
+symphonia = { version = "0.5", features = ["aac", "alac", "flac", "isomp4", "mkv", "mp3", "ogg", "pcm", "vorbis", "wav"] }
 

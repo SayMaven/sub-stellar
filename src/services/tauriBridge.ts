@@ -471,6 +471,77 @@ export const tauriBridge = {
     }
     return await res.text();
   },
+
+  isTauri(): boolean {
+    return isTauriEnvironment();
+  },
+
+  async parseSubtitleText(
+    raw: string,
+    translationRaw?: string
+  ): Promise<import('../types').SubtitleLine[] | null> {
+    if (isTauriEnvironment()) {
+      return invokeTauri<import('../types').SubtitleLine[]>('parse_subtitle_text', {
+        raw,
+        translationRaw: translationRaw ?? null,
+      });
+    }
+    return null;
+  },
+
+  async generateAssText(
+    lines: import('../types').SubtitleLine[],
+    style: import('../types').SubtitleStyle,
+    track: import('../types').TrackMetadata | undefined,
+    width: number,
+    height: number
+  ): Promise<string | null> {
+    if (isTauriEnvironment()) {
+      return invokeTauri<string>('generate_ass_text', {
+        lines,
+        style,
+        track: track ?? null,
+        width,
+        height,
+      });
+    }
+    return null;
+  },
+
+  async generateSrtText(lines: import('../types').SubtitleLine[]): Promise<string | null> {
+    if (isTauriEnvironment()) {
+      return invokeTauri<string>('generate_srt_text', { lines });
+    }
+    return null;
+  },
+
+  async extractAudioPeaks(filePath: string, targetBins = 1000): Promise<number[] | null> {
+    if (isTauriEnvironment()) {
+      return invokeTauri<number[]>('extract_audio_peaks', {
+        filePath,
+        targetBins,
+      });
+    }
+    return null;
+  },
+
+  async analyzeFuriganaLines(
+    lines: string[]
+  ): Promise<import('../engine/text/furiganaAlign').MorphToken[][] | null> {
+    if (isTauriEnvironment()) {
+      return invokeTauri<import('../engine/text/furiganaAlign').MorphToken[][]>(
+        'analyze_furigana_lines',
+        { lines }
+      );
+    }
+    return null;
+  },
+
+  async releaseFuriganaDictionary(): Promise<void> {
+    if (isTauriEnvironment()) {
+      await invokeTauri<void>('release_furigana_dictionary');
+    }
+  },
 };
 
 // Eagerly probe hardware capabilities in background so ExportDrawer has NVENC/encoders cached immediately without delay or UI flicker

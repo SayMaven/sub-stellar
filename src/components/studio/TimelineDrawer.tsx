@@ -95,7 +95,12 @@ const TimelineDrawerInner: React.FC = () => {
 
     async function loadWaveform() {
       if (duration <= 0) return;
-      const data = await waveformManager.getPeaks(track.id || 'default', duration);
+      const data = await waveformManager.getPeaks(
+        track.id || 'default',
+        duration,
+        undefined,
+        track.mediaFilePath
+      );
       if (isCurrent) {
         setPeaks(data);
       }
@@ -106,7 +111,7 @@ const TimelineDrawerInner: React.FC = () => {
     return () => {
       isCurrent = false;
     };
-  }, [track.id, duration]);
+  }, [track.id, track.mediaFilePath, duration]);
 
   // Render Canvas Waveform
   useEffect(() => {

@@ -13,7 +13,7 @@ import {
   Video,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
-import { generateAss, generateSrt, generateStyledBurninAss } from '../../engine/text/SubtitleExporter';
+import { generateAssNative, generateSrtNative, generateStyledBurninAss } from '../../engine/text/SubtitleExporter';
 import { getCanvasPixelDimensions } from '../../engine/layout/layoutMath';
 import {
   tauriBridge,
@@ -264,8 +264,8 @@ export const ExportDrawer: React.FC = () => {
       if (format === 'ass' || format === 'srt') {
         const textContent =
           format === 'ass'
-            ? generateAss(lines, style, track, targetDims)
-            : generateSrt(lines);
+            ? await generateAssNative(lines, style, track, targetDims)
+            : await generateSrtNative(lines);
 
         // Always confirm or use the selected path via saveExportTextToDisk
         let finalTargetPath: string | null = null;
