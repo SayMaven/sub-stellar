@@ -1,277 +1,248 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
-    <!-- Background: Deep Velvet Cosmic Midnight -->
-    <radialGradient id="bgGrad" cx="50%" cy="45%" r="58%" fx="50%" fy="45%">
-      <stop offset="0%"   stop-color="#131a3a"/>
-      <stop offset="55%"  stop-color="#080c20"/>
-      <stop offset="100%" stop-color="#03050a"/>
+    <!-- 1. Rich Cosmic Midnight Background (Deep Indigo -> Abyssal Navy -> Void) -->
+    <radialGradient id="cosmicBg" cx="46%" cy="42%" r="68%" fx="42%" fy="38%">
+      <stop offset="0%" stop-color="#1a2456" />
+      <stop offset="48%" stop-color="#0d1230" />
+      <stop offset="100%" stop-color="#050714" />
     </radialGradient>
 
-    <!-- Violet nebula haze overlay -->
-    <radialGradient id="nebulaHaze" cx="38%" cy="30%" r="55%">
-      <stop offset="0%"   stop-color="#3d1f8c" stop-opacity="0.28"/>
-      <stop offset="60%"  stop-color="#1a0f4a" stop-opacity="0.12"/>
-      <stop offset="100%" stop-color="#030510" stop-opacity="0"/>
+    <!-- Dual-Tone Nebula Wash: Cyan-Teal Top-Left & Magenta-Violet Bottom-Right -->
+    <radialGradient id="nebulaCyan" cx="24%" cy="22%" r="54%">
+      <stop offset="0%" stop-color="#00e5ff" stop-opacity="0.24" />
+      <stop offset="45%" stop-color="#2563eb" stop-opacity="0.10" />
+      <stop offset="100%" stop-color="#050714" stop-opacity="0" />
     </radialGradient>
 
-    <!-- Secondary nebula (bottom-right, cyan tint) -->
-    <radialGradient id="nebulaHaze2" cx="72%" cy="74%" r="45%">
-      <stop offset="0%"   stop-color="#0d2a4a" stop-opacity="0.22"/>
-      <stop offset="100%" stop-color="#030510" stop-opacity="0"/>
+    <radialGradient id="nebulaPink" cx="78%" cy="78%" r="54%">
+      <stop offset="0%" stop-color="#ff2a85" stop-opacity="0.24" />
+      <stop offset="45%" stop-color="#7b2cbf" stop-opacity="0.11" />
+      <stop offset="100%" stop-color="#050714" stop-opacity="0" />
     </radialGradient>
 
-    <!-- S ribbon: top-left face (lit face, slightly blue-indigo) -->
-    <linearGradient id="sFaceLit" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%"   stop-color="#6b7fd4"/>
-      <stop offset="45%"  stop-color="#3d4fa8"/>
-      <stop offset="100%" stop-color="#1e2a6a"/>
-    </linearGradient>
-
-    <!-- S ribbon: dark side face -->
-    <linearGradient id="sFaceDark" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%"   stop-color="#1a2050"/>
-      <stop offset="100%" stop-color="#0d1130"/>
-    </linearGradient>
-
-    <!-- S ribbon: edge/bevel highlight (slim bright strip) -->
-    <linearGradient id="sBevel" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%"   stop-color="#b0c4ff" stop-opacity="0.9"/>
-      <stop offset="100%" stop-color="#5070d0" stop-opacity="0.3"/>
-    </linearGradient>
-
-    <!-- Glass specular — white flair sweep across top-left of S -->
-    <linearGradient id="specular" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.65"/>
-      <stop offset="35%"  stop-color="#c8d8ff" stop-opacity="0.30"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-
-    <!-- Supernova Core: radial glow -->
-    <radialGradient id="novaCore" cx="50%" cy="50%" r="50%">
-      <stop offset="0%"   stop-color="#ffffff"/>
-      <stop offset="22%"  stop-color="#e8f0ff"/>
-      <stop offset="55%"  stop-color="#8ab4ff" stop-opacity="0.6"/>
-      <stop offset="100%" stop-color="#4466ff" stop-opacity="0"/>
+    <!-- Ambient Center Backlight -->
+    <radialGradient id="ambientCenter" cx="50%" cy="50%" r="44%">
+      <stop offset="0%" stop-color="#a5c4ff" stop-opacity="0.22" />
+      <stop offset="55%" stop-color="#6d28d9" stop-opacity="0.09" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
     </radialGradient>
 
-    <!-- Supernova ray gradient (horizontal/vertical rays) -->
-    <linearGradient id="rayH" x1="0%" y1="50%" x2="100%" y2="50%">
-      <stop offset="0%"   stop-color="#c060ff" stop-opacity="0"/>
-      <stop offset="38%"  stop-color="#a070ff" stop-opacity="0.85"/>
-      <stop offset="50%"  stop-color="#ffffff"/>
-      <stop offset="62%"  stop-color="#60c8ff" stop-opacity="0.85"/>
-      <stop offset="100%" stop-color="#60c8ff" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="rayV" x1="50%" y1="0%" x2="50%" y2="100%">
-      <stop offset="0%"   stop-color="#c060ff" stop-opacity="0"/>
-      <stop offset="38%"  stop-color="#a070ff" stop-opacity="0.85"/>
-      <stop offset="50%"  stop-color="#ffffff"/>
-      <stop offset="62%"  stop-color="#60c8ff" stop-opacity="0.85"/>
-      <stop offset="100%" stop-color="#60c8ff" stop-opacity="0"/>
-    </linearGradient>
-
-    <!-- Bezel border gradient -->
+    <!-- Bezel Rim Border: Subtle Cyan -> White -> Pink -->
     <linearGradient id="bezelBorder" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%"   stop-color="#6070b0" stop-opacity="0.5"/>
-      <stop offset="50%"  stop-color="#2030a0" stop-opacity="0.1"/>
-      <stop offset="100%" stop-color="#8090d0" stop-opacity="0.4"/>
+      <stop offset="0%" stop-color="#5eead4" stop-opacity="0.45" />
+      <stop offset="35%" stop-color="#ffffff" stop-opacity="0.16" />
+      <stop offset="70%" stop-color="#c084fc" stop-opacity="0.12" />
+      <stop offset="100%" stop-color="#ff2a85" stop-opacity="0.38" />
     </linearGradient>
 
-    <!-- Clip path: squircle shape -->
+    <!-- Top Constellation Ribbon: Electric Cyan -> Azure -> Violet -->
+    <linearGradient id="topArcGrad" x1="15%" y1="10%" x2="90%" y2="90%">
+      <stop offset="0%" stop-color="#22f7dc" />
+      <stop offset="52%" stop-color="#4d8bff" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+
+    <!-- Top Ribbon Specular Rim -->
+    <linearGradient id="topRimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.85" />
+      <stop offset="55%" stop-color="#93c5fd" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- Bottom Constellation Ribbon: Violet -> Berry -> Neon Rose -->
+    <linearGradient id="botArcGrad" x1="10%" y1="10%" x2="88%" y2="92%">
+      <stop offset="0%" stop-color="#7c3aed" />
+      <stop offset="48%" stop-color="#d91b86" />
+      <stop offset="100%" stop-color="#ff4d94" />
+    </linearGradient>
+
+    <!-- Bottom Ribbon Specular Rim -->
+    <linearGradient id="botRimGrad" x1="100%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#ffd6e8" stop-opacity="0.80" />
+      <stop offset="55%" stop-color="#f472b6" stop-opacity="0.32" />
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- Subtle Constellation Hairline Gradients -->
+    <linearGradient id="constellationLineTop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5eead4" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="#818cf8" stop-opacity="0.15" />
+    </linearGradient>
+    <linearGradient id="constellationLineBot" x1="100%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#ff5ca8" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.15" />
+    </linearGradient>
+
+    <!-- Celestial Core Star Glow -->
+    <radialGradient id="starCoreGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="28%" stop-color="#d8e6ff" stop-opacity="0.85" />
+      <stop offset="62%" stop-color="#7c9eff" stop-opacity="0.38" />
+      <stop offset="100%" stop-color="#7c9eff" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Clip Path for Squircle -->
     <clipPath id="squircleClip">
-      <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224"/>
+      <rect x="40" y="40" width="944" height="944" rx="224" ry="224" />
     </clipPath>
 
-    <!-- Filter: outer glow for supernova -->
-    <filter id="novaGlow" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
+    <!-- Clean Crisp Drop Shadow for Foreground Glyphs -->
+    <filter id="glyphShadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#02030a" flood-opacity="0.82" />
+      <feDropShadow dx="0" dy="2" stdDeviation="6" flood-color="#02030a" flood-opacity="0.55" />
     </filter>
 
-    <!-- Filter: subtle glow on S ribbon edges -->
-    <filter id="ribbonGlow" x="-5%" y="-5%" width="110%" height="110%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur"/>
-      <feFlood flood-color="#6080ff" flood-opacity="0.35" result="color"/>
-      <feComposite in="color" in2="blur" operator="in" result="glow"/>
-      <feMerge>
-        <feMergeNode in="glow"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
+    <!-- Star Bloom -->
+    <filter id="starBloom" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="0" stdDeviation="16" flood-color="#93c5fd" flood-opacity="0.90" />
+      <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#ffffff" flood-opacity="0.95" />
     </filter>
   </defs>
 
-  <!-- ═══ LAYER 0: Background ═══ -->
+  <!-- 1. Master Squircle Housing with Cosmic Nebula Background -->
   <g clip-path="url(#squircleClip)">
-    <rect x="0" y="0" width="1024" height="1024" fill="url(#bgGrad)"/>
-    <!-- Nebula hazes -->
-    <rect x="0" y="0" width="1024" height="1024" fill="url(#nebulaHaze)"/>
-    <rect x="0" y="0" width="1024" height="1024" fill="url(#nebulaHaze2)"/>
+    <rect x="40" y="40" width="944" height="944" fill="url(#cosmicBg)" />
+    <rect x="40" y="40" width="944" height="944" fill="url(#nebulaCyan)" />
+    <rect x="40" y="40" width="944" height="944" fill="url(#nebulaPink)" />
+    <circle cx="512" cy="512" r="390" fill="url(#ambientCenter)" />
 
-    <!-- Subtle star field: a few tiny dots -->
-    <circle cx="180" cy="130" r="1.5" fill="#8899cc" opacity="0.6"/>
-    <circle cx="310" cy="88"  r="1"   fill="#aabbdd" opacity="0.5"/>
-    <circle cx="790" cy="145" r="1.5" fill="#9999cc" opacity="0.4"/>
-    <circle cx="880" cy="220" r="1"   fill="#aabbdd" opacity="0.5"/>
-    <circle cx="130" cy="780" r="1.5" fill="#8899cc" opacity="0.4"/>
-    <circle cx="860" cy="830" r="1"   fill="#aabbdd" opacity="0.5"/>
-    <circle cx="940" cy="400" r="1.2" fill="#9999cc" opacity="0.4"/>
-    <circle cx="90"  cy="460" r="1"   fill="#8899cc" opacity="0.35"/>
+    <!-- Subtle Depth Starfield -->
+    <circle cx="176" cy="186" r="2.2" fill="#99f6e4" opacity="0.55" />
+    <circle cx="248" cy="126" r="1.4" fill="#e0f2fe" opacity="0.45" />
+    <circle cx="812" cy="168" r="1.8" fill="#c7d2fe" opacity="0.45" />
+    <circle cx="876" cy="272" r="1.3" fill="#e0e7ff" opacity="0.35" />
+    <circle cx="144" cy="720" r="1.5" fill="#ddd6fe" opacity="0.38" />
+    <circle cx="212" cy="868" r="2.0" fill="#fbcfe8" opacity="0.42" />
+    <circle cx="848" cy="812" r="2.2" fill="#f9a8d4" opacity="0.55" />
+    <circle cx="776" cy="884" r="1.3" fill="#f5d0fe" opacity="0.40" />
 
-    <!-- ═══ LAYER 1: "S" Ribbon — 3D Chamfered Isometric Letterform ═══
-         The S is built from filled polygon segments representing a thick
-         extruded ribbon. Each segment has a "top face" (lit, blue-indigo),
-         a "front face" (medium), and a thin bright bevel edge.
+    <!-- Subtle Orbital Constellation Guide Rings -->
+    <circle cx="512" cy="512" r="332" fill="none" stroke="#ffffff" stroke-opacity="0.045" stroke-width="2" stroke-dasharray="10 14" />
+  </g>
 
-         Layout: 1024x1024, S centered around ~512,512
-         S stroke width: ~190px, chamfer: ~28px
-         The S follows: top arc (upper half) + bottom arc (lower half)
-         broken by the diagonal negative-space gap in the middle.
+  <!-- Outer Crisp Glass Bezel -->
+  <rect x="40" y="40" width="944" height="944" rx="224" ry="224" fill="none" stroke="url(#bezelBorder)" stroke-width="3.5" />
 
-         We use 6 main polygon segments for the thick S body:
-         1. Top cap (horizontal bar, top of S)
-         2. Upper-left outer sweep
-         3. Upper-right inner corner (meeting the gap)
-         4. Lower-left inner corner (below the gap)
-         5. Lower-right outer sweep
-         6. Bottom cap (horizontal bar, bottom of S)
+  <!-- 2. HORIZONTAL 'S' CONSTELLATION (Rotated 90deg -> Pink/Magenta, Left & Right) -->
+  <g transform="rotate(90 512 512)" opacity="0.90">
+    <g stroke-linecap="round" fill="none">
+      <path d="M 332 456 Q 272 326 350 220" stroke="url(#constellationLineBot)" stroke-width="2.5" stroke-dasharray="6 10" />
+      <path d="M 692 568 Q 752 698 674 804" stroke="url(#constellationLineBot)" stroke-width="2.5" stroke-dasharray="6 10" />
+    </g>
+    <g filter="url(#glyphShadow)">
+      <path d="M 454 456
+               C 374 428, 304 374, 304 292
+               C 304 186, 408 124, 534 124
+               C 648 124, 728 178, 742 252
+               C 748 286, 722 316, 686 312
+               C 656 308, 636 284, 620 256
+               C 602 222, 572 204, 530 204
+               C 454 204, 392 240, 392 296
+               C 392 348, 444 382, 504 402
+               C 488 424, 470 442, 454 456 Z"
+            fill="url(#botArcGrad)" />
+      <path d="M 314 292
+               C 314 192, 412 134, 534 134
+               C 636 134, 708 180, 728 242"
+            fill="none" stroke="url(#botRimGrad)" stroke-width="3.5" stroke-linecap="round" />
 
-         Each segment has: top-lit face + right/bottom dark face + bright left bevel
-    -->
+      <path d="M 570 568
+               C 650 596, 720 650, 720 732
+               C 720 838, 616 900, 490 900
+               C 376 900, 296 846, 282 772
+               C 276 738, 302 708, 338 712
+               C 368 716, 388 740, 404 768
+               C 422 802, 452 820, 494 820
+               C 570 820, 632 784, 632 728
+               C 632 676, 580 642, 520 622
+               C 536 600, 554 582, 570 568 Z"
+            fill="url(#botArcGrad)" />
+      <path d="M 710 732
+               C 710 832, 612 890, 490 890
+               C 388 890, 316 844, 296 782"
+            fill="none" stroke="url(#botRimGrad)" stroke-width="3.5" stroke-linecap="round" />
+    </g>
+    <circle cx="332" cy="456" r="9" fill="#ff2a85" opacity="0.28" />
+    <circle cx="332" cy="456" r="4.5" fill="#fbcfe8" />
+    <circle cx="690" cy="272" r="7.5" fill="#f472b6" opacity="0.35" />
+    <circle cx="690" cy="272" r="3.8" fill="#fce7f3" />
+    <circle cx="692" cy="568" r="9" fill="#ff2a85" opacity="0.28" />
+    <circle cx="692" cy="568" r="4.5" fill="#fbcfe8" />
+    <circle cx="334" cy="752" r="7.5" fill="#f472b6" opacity="0.35" />
+    <circle cx="334" cy="752" r="3.8" fill="#fce7f3" />
+  </g>
 
-    <!-- === SEGMENT GROUP: Thick S ribbon === -->
-    <g filter="url(#ribbonGlow)">
-
-      <!-- ── TOP CAP: horizontal bar at top of S ── -->
-      <!-- Top face (lit, indigo) -->
-      <polygon points="310,172  714,172  742,200  714,228  310,228  282,200"
-               fill="url(#sFaceLit)"/>
-      <!-- Left chamfer bevel (bright edge) -->
-      <polygon points="282,200  310,172  310,228"
-               fill="url(#sBevel)" opacity="0.9"/>
-      <!-- Right chamfer bevel -->
-      <polygon points="742,200  714,172  714,228"
-               fill="#8090d0" opacity="0.4"/>
-      <!-- Bottom dark face (depth) -->
-      <polygon points="310,228  714,228  714,258  310,258"
-               fill="url(#sFaceDark)" opacity="0.85"/>
-
-      <!-- ── UPPER-LEFT OUTER SWEEP: left side going down ── -->
-      <!-- This is the outer-left curve of the upper bowl of S -->
-      <!-- Approximated as trapezoid segments for chamfered feel -->
-      <!-- Outer-left vertical segment -->
-      <polygon points="282,200  310,228  310,400  258,428  230,400  230,172"
-               fill="url(#sFaceLit)"/>
-      <polygon points="230,172  282,200  230,200"
-               fill="url(#sBevel)" opacity="0.85"/>
-      <!-- Bottom dark face -->
-      <polygon points="258,428  310,400  340,400  288,428"
-               fill="url(#sFaceDark)" opacity="0.7"/>
-
-      <!-- ── UPPER-RIGHT INNER SWEEP: right side curving inward ── -->
-      <!-- Inner-right of upper bowl -->
-      <polygon points="714,228  742,200  772,200  772,350  744,378  686,378  686,340  714,310  714,228"
-               fill="url(#sFaceLit)"/>
-      <polygon points="742,200  772,200  772,220  742,220"
-               fill="#b0c0ff" opacity="0.5"/>
-      <polygon points="744,378  772,350  802,350  772,378"
-               fill="url(#sFaceDark)" opacity="0.65"/>
-
-      <!-- ── MIDDLE CONNECTOR: left-to-right horizontal band through center ── -->
-      <!-- This forms the central spine that creates the S diagonal flow -->
-      <polygon points="286,420  686,340  742,368  742,440  342,520  286,492"
-               fill="url(#sFaceLit)"/>
-      <!-- Top bevel of connector -->
-      <polygon points="286,420  686,340  686,310  286,390"
-               fill="#c0d0ff" opacity="0.18"/>
-      <!-- Bottom dark face -->
-      <polygon points="286,492  742,440  742,470  286,522"
-               fill="url(#sFaceDark)" opacity="0.8"/>
-
-      <!-- ── LOWER-LEFT INNER SWEEP: left side of lower bowl ── -->
-      <polygon points="230,628  258,600  316,600  316,636  288,664  230,664"
-               fill="url(#sFaceLit)"/>
-      <polygon points="230,628  258,600  230,600"
-               fill="url(#sBevel)" opacity="0.6"/>
-      <polygon points="316,636  316,600  346,600  346,636"
-               fill="url(#sFaceDark)" opacity="0.6"/>
-
-      <!-- ── LOWER-RIGHT OUTER SWEEP: right side going down ── -->
-      <polygon points="742,460  770,432  794,460  794,828  742,828  742,460"
-               fill="url(#sFaceLit)"/>
-      <polygon points="770,432  794,460  794,440  770,412"
-               fill="url(#sBevel)" opacity="0.5"/>
-      <polygon points="742,828  794,828  794,858  742,858"
-               fill="url(#sFaceDark)" opacity="0.7"/>
-
-      <!-- ── BOTTOM CAP: horizontal bar at bottom of S ── -->
-      <polygon points="308,796  742,796  770,824  742,852  308,852  280,824"
-               fill="url(#sFaceLit)"/>
-      <polygon points="280,824  308,796  308,852"
-               fill="url(#sBevel)" opacity="0.9"/>
-      <polygon points="770,824  742,796  742,852"
-               fill="#8090d0" opacity="0.4"/>
-      <polygon points="308,852  742,852  742,882  308,882"
-               fill="url(#sFaceDark)" opacity="0.85"/>
-
-      <!-- ── LEFT SIDE DOWN (outer left column of lower half of S) ── -->
-      <polygon points="230,664  288,664  288,852  280,860  230,852  230,664"
-               fill="url(#sFaceLit)"/>
-      <polygon points="230,664  230,852  200,852  200,664"
-               fill="url(#sFaceDark)" opacity="0.5"/>
-
+  <!-- 3. VERTICAL 'S' CONSTELLATION (Foreground -> Cyan/Blue, Top & Bottom) -->
+  <g>
+    <g stroke-linecap="round" fill="none">
+      <path d="M 332 456 Q 272 326 350 220" stroke="url(#constellationLineTop)" stroke-width="3" stroke-dasharray="6 10" />
+      <path d="M 692 568 Q 752 698 674 804" stroke="url(#constellationLineTop)" stroke-width="3" stroke-dasharray="6 10" />
     </g>
 
-    <!-- ═══ LAYER 2: Glass Specular Highlight ═══
-         White flair sweep across upper-left of S — creates premium glass look -->
-    <polygon points="230,172  450,172  430,230  310,340  230,320"
-             fill="url(#specular)" opacity="0.75"/>
+    <g filter="url(#glyphShadow)">
+      <!-- Top Arc (Sweeping Blue-Cyan Constellation Crescent) -->
+      <path d="M 454 456
+               C 374 428, 304 374, 304 292
+               C 304 186, 408 124, 534 124
+               C 648 124, 728 178, 742 252
+               C 748 286, 722 316, 686 312
+               C 656 308, 636 284, 620 256
+               C 602 222, 572 204, 530 204
+               C 454 204, 392 240, 392 296
+               C 392 348, 444 382, 504 402
+               C 488 424, 470 442, 454 456 Z"
+            fill="url(#topArcGrad)" />
+      <path d="M 314 292
+               C 314 192, 412 134, 534 134
+               C 636 134, 708 180, 728 242"
+            fill="none" stroke="url(#topRimGrad)" stroke-width="4" stroke-linecap="round" />
 
-    <!-- Secondary soft sheen on the top cap edge -->
-    <ellipse cx="460" cy="190" rx="180" ry="22"
-             fill="#ffffff" opacity="0.12"/>
+      <!-- Bottom Arc (Mirrored Sweeping Blue-Cyan Constellation Crescent) -->
+      <path d="M 570 568
+               C 650 596, 720 650, 720 732
+               C 720 838, 616 900, 490 900
+               C 376 900, 296 846, 282 772
+               C 276 738, 302 708, 338 712
+               C 368 716, 388 740, 404 768
+               C 422 802, 452 820, 494 820
+               C 570 820, 632 784, 632 728
+               C 632 676, 580 642, 520 622
+               C 536 600, 554 582, 570 568 Z"
+            fill="url(#topArcGrad)" />
+      <path d="M 710 732
+               C 710 832, 612 890, 490 890
+               C 388 890, 316 844, 296 782"
+            fill="none" stroke="url(#topRimGrad)" stroke-width="4" stroke-linecap="round" />
+    </g>
 
-    <!-- ═══ LAYER 3: Supernova Core — 4-ray diamond burst ═══
-         Positioned in the diagonal gap of the S ~(512, 512) -->
+    <!-- Constellation Star Nodes -->
+    <circle cx="332" cy="456" r="10" fill="#22f7dc" opacity="0.28" />
+    <circle cx="332" cy="456" r="5" fill="#99f6e4" />
+    <circle cx="690" cy="272" r="8" fill="#a78bfa" opacity="0.35" />
+    <circle cx="690" cy="272" r="4" fill="#e0e7ff" />
 
-    <!-- Outer soft glow halo -->
-    <circle cx="512" cy="488" r="90"
-            fill="url(#novaCore)" opacity="0.35" filter="url(#novaGlow)"/>
-
-    <!-- Ray cross — horizontal -->
-    <ellipse cx="512" cy="488" rx="130" ry="11"
-             fill="url(#rayH)" opacity="0.9" filter="url(#novaGlow)"/>
-    <!-- Ray cross — vertical -->
-    <ellipse cx="512" cy="488" rx="11" ry="110"
-             fill="url(#rayV)" opacity="0.9" filter="url(#novaGlow)"/>
-
-    <!-- 4-point diamond star: top/bottom/left/right spikes -->
-    <!-- Top spike -->
-    <path d="M 512,488  Q 505,460 512,390  Q 519,460 512,488 Z"
-          fill="#c8deff" opacity="0.95"/>
-    <!-- Bottom spike -->
-    <path d="M 512,488  Q 505,516 512,586  Q 519,516 512,488 Z"
-          fill="#80ccff" opacity="0.90"/>
-    <!-- Left spike -->
-    <path d="M 512,488  Q 484,481 414,488  Q 484,495 512,488 Z"
-          fill="#c060ff" opacity="0.90"/>
-    <!-- Right spike -->
-    <path d="M 512,488  Q 540,481 610,488  Q 540,495 512,488 Z"
-          fill="#60c0ff" opacity="0.90"/>
-
-    <!-- Inner core circle — pure white hot center -->
-    <circle cx="512" cy="488" r="20"
-            fill="white" opacity="0.98"/>
-    <circle cx="512" cy="488" r="10"
-            fill="white"/>
-
-    <!-- ═══ LAYER 4: Bezel border ═══ -->
+    <circle cx="692" cy="568" r="10" fill="#22f7dc" opacity="0.28" />
+    <circle cx="692" cy="568" r="5" fill="#99f6e4" />
+    <circle cx="334" cy="752" r="8" fill="#a78bfa" opacity="0.35" />
+    <circle cx="334" cy="752" r="4" fill="#e0e7ff" />
   </g>
-  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224"
-        fill="none"
-        stroke="url(#bezelBorder)"
-        stroke-width="2.5"
-        opacity="0.7"/>
+
+  <!-- 4. THE NORTH STAR (Focal Sync Playhead at the Exact Center) -->
+  <g filter="url(#starBloom)">
+    <circle cx="512" cy="512" r="82" fill="url(#starCoreGlow)" />
+    <path d="M 512 398
+             Q 512 512 552 512
+             Q 512 512 512 626
+             Q 512 512 472 512
+             Q 512 512 512 398 Z"
+          fill="#ffffff" />
+    <path d="M 398 512
+             Q 512 512 512 472
+             Q 512 512 626 512
+             Q 512 512 512 552
+             Q 512 512 398 512 Z"
+          fill="#ffffff" />
+    <polygon points="512,468 532,512 512,556 492,512" fill="#ffffff" />
+    <circle cx="512" cy="512" r="8" fill="#ffffff" />
+  </g>
 </svg>

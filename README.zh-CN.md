@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="src-tauri/icons/icon.png" alt="SubStellar" width="128" height="128" />
+
 # SubStellar
 
 ### 下一代动态粒子与卡拉OK字幕制作工作室
@@ -17,7 +19,16 @@
 
 *一款专业级桌面字幕与歌词视频制作软件，集成了星尘粒子特效、双层描边发光字体、原生 Rust 日语振假名（Ruby）自动分词排版、逐词/逐字人声同步以及一键 YouTube 视频下载，采用 Rust Core 与优雅的 Gatefold 曜石黑动态视觉设计。*
 
-[核心功能](#核心功能) • [Rust Core 架构](#rust-core-引擎) • [技术栈](#技术栈) • [快速开始](#快速开始) • [键盘快捷键](#键盘快捷键) • [开源许可](#开源许可与致谢)
+[核心功能](#核心功能) • [Rust Core 架构](#rust-core-引擎) • [技术栈](#技术栈) • [快速开始](#快速开始从源码构建) • [键盘快捷键](#键盘快捷键) • [开源许可](#开源许可与致谢)
+
+<br />
+
+<p align="center">
+  <img src=".github/assets/substellar-demo.png" alt="SubStellar Studio 演示截图" width="100%" />
+</p>
+<p align="center">
+  <sub><i>Gatefold OKLCH 工作台 — 原生日语振假名、逐词人声同步、PixiJS v8 60 FPS 渲染视口与 RMS 波形时间轴</i></sub>
+</p>
 
 </div>
 
@@ -61,20 +72,23 @@
 
 SubStellar 将重度计算任务从前端 TypeScript 卸载至 **Rust Core** (`src-tauri/`) 模块：
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                          SUBSTELLAR STUDIO                             │
-├───────────────────────────────────┬────────────────────────────────────┤
-│       前端界面 (React 19 / TS)    │        Rust Core (Tauri v2 IPC)    │
-├───────────────────────────────────┼────────────────────────────────────┤
-│ • Gatefold OKLCH 工作台界面       │ • Lindera 日语形态素分析器         │
-│ • PixiJS v8 60 FPS 渲染视口       │   (内置 IPADIC 词典)               │
-│ • 交互式多轨波形时间轴            │ • Symphonia 原生音频解码器         │
-│ • 振假名 / Ruby 可视化编辑器      │ • RMS 音频波形峰值下采样器         │
-│ • Zero-GC 粒子对象池系统          │ • 零拷贝 ASS / SRT / LRC 解析器    │
-│ • Zustand 超高频状态同步          │ • WebSocket Sparse RLE 视频传输管道│
-│                                   │ • 硬件探测与 FFmpeg 渲染管道       │
-└───────────────────────────────────┴────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph FE["前端界面 — React 19 & TypeScript"]
+    UI["Gatefold OKLCH 工作台界面"]
+    PIXI["PixiJS v8 60 FPS 视口与 Zero-GC 粒子"]
+    TIMELINE["交互式波形时间轴与 Ruby 编辑器"]
+    STORE["Zustand 超高频状态同步"]
+  end
+
+  subgraph CORE["Rust Core — Tauri v2 (src-tauri)"]
+    LINDERA["Lindera 日语形态素分析器 (内置 IPADIC)"]
+    SYMPHONIA["Symphonia 原生音频解码与 RMS 波形"]
+    PARSER["零拷贝 ASS / SRT / LRC 解析器"]
+    PIPE["WebSocket Sparse RLE 管道与 FFmpeg 探测"]
+  end
+
+  FE -- "Tauri v2 IPC & Loopback WS" --> CORE
 ```
 
 ---
@@ -95,14 +109,60 @@ SubStellar 将重度计算任务从前端 TypeScript 卸载至 **Rust Core** (`s
 
 ---
 
-## 快速开始
+## 快速开始（从源码构建）
 
-### 系统前置要求
+> [!NOTE]
+> 目前尚未发布预编译的发行版安装包，请按照下方对应操作系统的步骤从源码构建并运行 **SubStellar**。
+
+### 1. 通用前置要求
 * [Node.js](https://nodejs.org/) v20+ 或 v24+
 * [Rust & Cargo](https://rustup.rs/) v1.80+（推荐 v1.94+）
 * 系统环境变量 `PATH` 中已配置 [FFmpeg](https://ffmpeg.org/) 与 [yt-dlp](https://github.com/yt-dlp/yt-dlp)（用于视频渲染导出与 YouTube 下载）
 
-### 安装与开发模式运行
+### 2. 分系统环境准备
+
+<details open>
+<summary><strong>Windows (10 / 11)</strong></summary>
+
+1. 安装 **[Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)** 并勾选 **"使用 C++ 的桌面开发"** 工作负载。
+2. 确保已安装 **[Microsoft Edge WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)**（Windows 11 及最新版 Windows 10 已内置）。
+3. 安装 `FFmpeg` 与 `yt-dlp`（例如使用 `winget`）：
+   ```powershell
+   winget install Gyan.FFmpeg yt-dlp.yt-dlp
+   ```
+
+</details>
+
+<details>
+<summary><strong>macOS (Apple Silicon / Intel)</strong></summary>
+
+1. 安装 Xcode 命令行工具：
+   ```bash
+   xcode-select --install
+   ```
+2. 通过 Homebrew 安装 `FFmpeg` 与 `yt-dlp`：
+   ```bash
+   brew install ffmpeg yt-dlp
+   ```
+
+</details>
+
+<details>
+<summary><strong>Linux (Ubuntu / Debian / Fedora / Arch)</strong></summary>
+
+1. 安装 Tauri v2 所需的 WebKitGTK 依赖、编译工具链、`FFmpeg` 和 `yt-dlp`：
+   ```bash
+   # Ubuntu / Debian
+   sudo apt update && sudo apt install -y \
+     libwebkit2gtk-4.1-dev build-essential curl wget file \
+     libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+     ffmpeg yt-dlp
+   ```
+   *（**Fedora** 请使用 `webkit2gtk4.1-devel` + `@development-tools`；**Arch** 请使用 `webkit2gtk-4.1` + `base-devel`。）*
+
+</details>
+
+### 3. 克隆、运行与构建
 
 ```bash
 # 1. 克隆代码仓库
@@ -114,14 +174,15 @@ npm install
 
 # 3. 启动 Tauri v2 桌面端开发模式
 npm run tauri dev
-```
 
-### 构建生产环境安装包
-
-```bash
-# 构建桌面端原生安装包 (.msi / .exe / .dmg / .AppImage)
+# 4. 或构建桌面端原生生产安装包
 npm run tauri build
 ```
+
+生成的安装包将输出至 `src-tauri/target/release/bundle/` 目录：
+* **Windows:** `msi/` (`.msi`) 与 `nsis/` (`.exe`)
+* **macOS:** `dmg/` (`.dmg`) 与 `macos/` (`.app`)
+* **Linux:** `deb/` (`.deb`) 与 `appimage/` (`.AppImage`)
 
 ---
 

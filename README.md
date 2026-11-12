@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="src-tauri/icons/icon.png" alt="SubStellar" width="128" height="128" />
+
 # SubStellar
 
 ### Next-Generation Animated & Particle Subtitle Studio
@@ -17,7 +19,16 @@
 
 *A high-performance desktop studio for crafting animated lyric & subtitle videos with cosmic particle effects, double-stroke glow typography, native Japanese Furigana tokenization, per-word vocal synchronization, and 1-click YouTube integration — engineered with a Rust Core and wrapped in an obsidian Gatefold interface.*
 
-[Key Features](#key-features) • [Rust Core Architecture](#rust-core-engine) • [Tech Stack](#tech-stack) • [Quick Start](#quick-start) • [Keyboard Shortcuts](#keyboard-shortcuts) • [License](#license--acknowledgments)
+[Key Features](#key-features) • [Rust Core Architecture](#rust-core-engine) • [Tech Stack](#tech-stack) • [Quick Start](#quick-start-build-from-source) • [Keyboard Shortcuts](#keyboard-shortcuts) • [License](#license--acknowledgments)
+
+<br />
+
+<p align="center">
+  <img src=".github/assets/substellar-demo.png" alt="SubStellar Studio Demo" width="100%" />
+</p>
+<p align="center">
+  <sub><i>Gatefold OKLCH Studio — Native Japanese Furigana, Per-Word Vocal Timing, PixiJS v8 60 FPS Viewport & RMS Waveform Timeline</i></sub>
+</p>
 
 </div>
 
@@ -61,20 +72,23 @@ Creating expressive animated lyric and subtitle videos today usually forces crea
 
 SubStellar features a dedicated **Rust Core** (`src-tauri/`) that offloads compute-heavy workloads from the TypeScript frontend:
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                          SUBSTELLAR STUDIO                             │
-├───────────────────────────────────┬────────────────────────────────────┤
-│      Frontend (React 19 / TS)     │       Rust Core (Tauri v2 IPC)     │
-├───────────────────────────────────┼────────────────────────────────────┤
-│ • Gatefold OKLCH Studio UI        │ • Lindera Japanese Morphological   │
-│ • PixiJS v8 60 FPS Viewport       │   Analyzer (Embedded IPADIC)       │
-│ • Interactive Timeline Scrubber   │ • Symphonia Native Audio Decoder   │
-│ • Ruby / Furigana Visual Editor   │ • RMS Waveform Peak Downsampler    │
-│ • Zero-GC Particle Pool System    │ • Zero-Copy ASS / SRT / LRC Parser │
-│ • Zustand High-Frequency Store    │ • WebSocket Sparse RLE Frame Pipe  │
-│                                   │ • Hardware Probing & FFmpeg Pipe   │
-└───────────────────────────────────┴────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph FE["Frontend — React 19 & TypeScript"]
+    UI["Gatefold OKLCH Studio UI"]
+    PIXI["PixiJS v8 60 FPS Viewport & Zero-GC Particles"]
+    TIMELINE["Interactive Waveform & Ruby Editor"]
+    STORE["Zustand High-Frequency Store"]
+  end
+
+  subgraph CORE["Rust Core — Tauri v2 (src-tauri)"]
+    LINDERA["Lindera Morphological Analyzer (IPADIC)"]
+    SYMPHONIA["Symphonia Audio Decoder & RMS Peaks"]
+    PARSER["Zero-Copy ASS / SRT / LRC Parser"]
+    PIPE["WebSocket Sparse RLE Pipe & FFmpeg Prober"]
+  end
+
+  FE -- "Tauri v2 IPC & Loopback WS" --> CORE
 ```
 
 ---
@@ -95,14 +109,60 @@ SubStellar features a dedicated **Rust Core** (`src-tauri/`) that offloads compu
 
 ---
 
-## Quick Start
+## Quick Start (Build from Source)
 
-### Prerequisites
+> [!NOTE]
+> Pre-built release binaries are not published yet. Follow the OS-specific instructions below to build and run **SubStellar** directly from source.
+
+### 1. Common Prerequisites
 * [Node.js](https://nodejs.org/) v20+ or v24+
 * [Rust & Cargo](https://rustup.rs/) v1.80+ (v1.94+ recommended)
 * [FFmpeg](https://ffmpeg.org/) & [yt-dlp](https://github.com/yt-dlp/yt-dlp) available in system `PATH` (for video rendering and YouTube downloading)
 
-### Installation & Development
+### 2. OS-Specific Setup
+
+<details open>
+<summary><strong>Windows (10 / 11)</strong></summary>
+
+1. Install **[Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)** and select the **"Desktop development with C++"** workload.
+2. Ensure **[Microsoft Edge WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)** is installed (already included in Windows 11 and updated Windows 10).
+3. Install `FFmpeg` and `yt-dlp` (for example via `winget`):
+   ```powershell
+   winget install Gyan.FFmpeg yt-dlp.yt-dlp
+   ```
+
+</details>
+
+<details>
+<summary><strong>macOS (Apple Silicon / Intel)</strong></summary>
+
+1. Install Xcode Command Line Tools:
+   ```bash
+   xcode-select --install
+   ```
+2. Install `FFmpeg` and `yt-dlp` via Homebrew:
+   ```bash
+   brew install ffmpeg yt-dlp
+   ```
+
+</details>
+
+<details>
+<summary><strong>Linux (Ubuntu / Debian / Fedora / Arch)</strong></summary>
+
+1. Install Tauri v2 WebKitGTK dependencies, build tools, `FFmpeg`, and `yt-dlp`:
+   ```bash
+   # Ubuntu / Debian
+   sudo apt update && sudo apt install -y \
+     libwebkit2gtk-4.1-dev build-essential curl wget file \
+     libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+     ffmpeg yt-dlp
+   ```
+   *(For **Fedora**, use `webkit2gtk4.1-devel` + `@development-tools`; for **Arch**, use `webkit2gtk-4.1` + `base-devel`.)*
+
+</details>
+
+### 3. Clone, Run & Build
 
 ```bash
 # 1. Clone the repository
@@ -112,16 +172,17 @@ cd sub-stellar
 # 2. Install frontend dependencies
 npm install
 
-# 3. Launch the Tauri v2 desktop development app
+# 3. Launch the Tauri v2 desktop app in development mode
 npm run tauri dev
-```
 
-### Production Build
-
-```bash
-# Build native desktop installer (.msi / .exe / .dmg / .AppImage)
+# 4. Or compile a native production installer
 npm run tauri build
 ```
+
+Generated installers will be placed under `src-tauri/target/release/bundle/`:
+* **Windows:** `msi/` (`.msi`) & `nsis/` (`.exe`)
+* **macOS:** `dmg/` (`.dmg`) & `macos/` (`.app`)
+* **Linux:** `deb/` (`.deb`) & `appimage/` (`.AppImage`)
 
 ---
 

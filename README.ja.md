@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="src-tauri/icons/icon.png" alt="SubStellar" width="128" height="128" />
+
 # SubStellar
 
 ### 次世代アニメーション＆パーティクル字幕スタジオ
@@ -17,7 +19,16 @@
 
 *宇宙のようなパーティクル演出、二重縁取りグロー文字、ネイティブRustによる自動ルビ（ふりがな）形態素解析、単語・文字単位のボーカル同期、そして1クリックYouTube連携を備えた、Gatefoldデザインのプロフェッショナル歌詞・字幕制作デスクトップスタジオ。*
 
-[主な機能](#主な機能) • [Rust Core アーキテクチャ](#rust-core-エンジン) • [技術スタック](#技術スタック) • [クイックスタート](#クイックスタート) • [キーボードショートカット](#キーボードショートカット) • [ライセンス](#ライセンスと謝辞)
+[主な機能](#主な機能) • [Rust Core アーキテクチャ](#rust-core-エンジン) • [技術スタック](#技術スタック) • [クイックスタート](#クイックスタートソースからのビルド) • [キーボードショートカット](#キーボードショートカット) • [ライセンス](#ライセンスと謝辞)
+
+<br />
+
+<p align="center">
+  <img src=".github/assets/substellar-demo.png" alt="SubStellar Studio デモ" width="100%" />
+</p>
+<p align="center">
+  <sub><i>Gatefold OKLCH スタジオ — ネイティブ日本語ふりがな、単語別ボーカル同期、PixiJS v8 60 FPS ビューポート＆RMS 波形タイムライン</i></sub>
+</p>
 
 </div>
 
@@ -61,20 +72,23 @@
 
 SubStellar は重い処理を TypeScript フロントエンドから **Rust Core** (`src-tauri/`) へオフロードしています：
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                          SUBSTELLAR STUDIO                             │
-├───────────────────────────────────┬────────────────────────────────────┤
-│      フロントエンド (React 19 / TS) │        Rust Core (Tauri v2 IPC)    │
-├───────────────────────────────────┼────────────────────────────────────┤
-│ • Gatefold OKLCH スタジオ UI       │ • Lindera 日本語形態素解析器       │
-│ • PixiJS v8 60 FPS ビューポート    │   (IPADIC 辞書内蔵)                │
-│ • インタラクティブ波形タイムライン │ • Symphonia ネイティブ音声デコーダ │
-│ • ふりがな・ルビ ビジュアル編集    │ • RMS 波形ピークダウンサンプラー   │
-│ • Zero-GC パーティクルプール       │ • ゼロコピー ASS / SRT / LRC パーサ│
-│ • Zustand 超高頻度ステート管理     │ • WebSocket Sparse RLE パイプ      │
-│                                   │ • ハードウェア検出＆FFmpegパイプ   │
-└───────────────────────────────────┴────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph FE["フロントエンド — React 19 & TypeScript"]
+    UI["Gatefold OKLCH スタジオ UI"]
+    PIXI["PixiJS v8 60 FPS ビューポート & Zero-GC パーティクル"]
+    TIMELINE["波形タイムライン & ふりがな・ルビ編集"]
+    STORE["Zustand 超高頻度ステート管理"]
+  end
+
+  subgraph CORE["Rust Core — Tauri v2 (src-tauri)"]
+    LINDERA["Lindera 日本語形態素解析器 (IPADIC内蔵)"]
+    SYMPHONIA["Symphonia 音声デコーダ & RMS 波形解析"]
+    PARSER["ゼロコピー ASS / SRT / LRC パーサ"]
+    PIPE["WebSocket Sparse RLE パイプ & FFmpeg 検出"]
+  end
+
+  FE -- "Tauri v2 IPC & Loopback WS" --> CORE
 ```
 
 ---
@@ -95,14 +109,60 @@ SubStellar は重い処理を TypeScript フロントエンドから **Rust Core
 
 ---
 
-## クイックスタート
+## クイックスタート（ソースからのビルド）
 
-### 動作要件
+> [!NOTE]
+> 現在、ビルド済みのリリースバイナリはまだ公開されていません。以下のOS別手順に従って、ソースコードから直接 **SubStellar** をビルド・実行してください。
+
+### 1. 共通の動作要件
 * [Node.js](https://nodejs.org/) v20+ または v24+
 * [Rust & Cargo](https://rustup.rs/) v1.80+（v1.94以上推奨）
 * システムの `PATH` に [FFmpeg](https://ffmpeg.org/) および [yt-dlp](https://github.com/yt-dlp/yt-dlp) が設定されていること（動画出力およびYouTubeダウンロード用）
 
-### インストールと開発モード起動
+### 2. OS別の環境構築
+
+<details open>
+<summary><strong>Windows (10 / 11)</strong></summary>
+
+1. **[Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)** をインストールし、**「C++ によるデスクトップ開発」** ワークロードを選択します。
+2. **[Microsoft Edge WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)** がインストールされていることを確認します（Windows 11 および最新の Windows 10 には標準搭載されています）。
+3. `FFmpeg` と `yt-dlp` をインストールします（例：`winget` を使用）：
+   ```powershell
+   winget install Gyan.FFmpeg yt-dlp.yt-dlp
+   ```
+
+</details>
+
+<details>
+<summary><strong>macOS (Apple Silicon / Intel)</strong></summary>
+
+1. Xcode Command Line Tools をインストールします：
+   ```bash
+   xcode-select --install
+   ```
+2. Homebrew で `FFmpeg` と `yt-dlp` をインストールします：
+   ```bash
+   brew install ffmpeg yt-dlp
+   ```
+
+</details>
+
+<details>
+<summary><strong>Linux (Ubuntu / Debian / Fedora / Arch)</strong></summary>
+
+1. Tauri v2 に必要な WebKitGTK ライブラリ、ビルドツール、`FFmpeg`、`yt-dlp` をインストールします：
+   ```bash
+   # Ubuntu / Debian
+   sudo apt update && sudo apt install -y \
+     libwebkit2gtk-4.1-dev build-essential curl wget file \
+     libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+     ffmpeg yt-dlp
+   ```
+   *（**Fedora** の場合は `webkit2gtk4.1-devel` + `@development-tools`、**Arch** の場合は `webkit2gtk-4.1` + `base-devel` を使用してください。）*
+
+</details>
+
+### 3. クローン・起動・ビルド
 
 ```bash
 # 1. リポジトリのクローン
@@ -114,14 +174,15 @@ npm install
 
 # 3. Tauri v2 デスクトップ開発モードで起動
 npm run tauri dev
-```
 
-### 本番用インストーラーのビルド
-
-```bash
-# デスクトップ用インストーラー (.msi / .exe / .dmg / .AppImage) をビルド
+# 4. 本番用ネイティブインストーラーをビルド
 npm run tauri build
 ```
+
+生成されたインストーラーは `src-tauri/target/release/bundle/` に出力されます：
+* **Windows:** `msi/` (`.msi`) および `nsis/` (`.exe`)
+* **macOS:** `dmg/` (`.dmg`) および `macos/` (`.app`)
+* **Linux:** `deb/` (`.deb`) および `appimage/` (`.AppImage`)
 
 ---
 

@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="src-tauri/icons/icon.png" alt="SubStellar" width="128" height="128" />
+
 # SubStellar
 
 ### Studio Subtitle Animasi & Partikel Generasi Berikutnya
@@ -17,7 +19,16 @@
 
 *Software desktop profesional untuk pembuatan subtitle & video lirik tingkat lanjut dengan efek partikel kosmik, pendaran glow berlapis, Furigana otomatis native, sinkronisasi vokal per-kata/per-huruf, dan integrasi YouTube 1-klik, ditenagai oleh Rust Core dan dibalut desain visual Gatefold yang elegan.*
 
-[Fitur Utama](#fitur-utama) • [Arsitektur Rust Core](#arsitektur-rust-core) • [Tech Stack](#tech-stack) • [Memulai Cepat](#memulai-quick-start) • [Shortcut Keyboard](#shortcut-keyboard) • [Lisensi](#lisensi--penghargaan)
+[Fitur Utama](#fitur-utama) • [Arsitektur Rust Core](#arsitektur-rust-core) • [Tech Stack](#tech-stack) • [Memulai Cepat](#memulai-build-dari-source) • [Shortcut Keyboard](#shortcut-keyboard) • [Lisensi](#lisensi--penghargaan)
+
+<br />
+
+<p align="center">
+  <img src=".github/assets/substellar-demo.png" alt="Demo SubStellar Studio" width="100%" />
+</p>
+<p align="center">
+  <sub><i>Gatefold OKLCH Studio — Furigana Jepang Native, Timing Vokal Per-Kata, Viewport PixiJS v8 60 FPS & Timeline Waveform RMS</i></sub>
+</p>
 
 </div>
 
@@ -61,20 +72,23 @@ Membuat video lirik lagu beranimasi estetik saat ini terpecah di dua kutub ekstr
 
 SubStellar memisahkan tugas UI dan komputasi intensif dengan arsitektur dua lapisan:
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                          SUBSTELLAR STUDIO                             │
-├───────────────────────────────────┬────────────────────────────────────┤
-│      Frontend (React 19 / TS)     │       Rust Core (Tauri v2 IPC)     │
-├───────────────────────────────────┼────────────────────────────────────┤
-│ • Gatefold OKLCH Studio UI        │ • Lindera Japanese Morphological   │
-│ • PixiJS v8 60 FPS Viewport       │   Analyzer (Embedded IPADIC)       │
-│ • Interactive Timeline Scrubber   │ • Symphonia Native Audio Decoder   │
-│ • Ruby / Furigana Visual Editor   │ • RMS Waveform Peak Downsampler    │
-│ • Zero-GC Particle Pool System    │ • Zero-Copy ASS / SRT / LRC Parser │
-│ • Zustand High-Frequency Store    │ • WebSocket Sparse RLE Frame Pipe  │
-│                                   │ • Hardware Probing & FFmpeg Pipe   │
-└───────────────────────────────────┴────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph FE["Frontend — React 19 & TypeScript"]
+    UI["Gatefold OKLCH Studio UI"]
+    PIXI["Viewport PixiJS v8 60 FPS & Partikel Zero-GC"]
+    TIMELINE["Timeline Waveform & Editor Ruby Visual"]
+    STORE["Store Zustand Frekuensi Tinggi"]
+  end
+
+  subgraph CORE["Rust Core — Tauri v2 (src-tauri)"]
+    LINDERA["Lindera Morphological Analyzer (IPADIC)"]
+    SYMPHONIA["Dekoder Audio Symphonia & Peak RMS"]
+    PARSER["Parser Zero-Copy ASS / SRT / LRC"]
+    PIPE["WebSocket Sparse RLE Pipe & Prober FFmpeg"]
+  end
+
+  FE -- "Tauri v2 IPC & Loopback WS" --> CORE
 ```
 
 ---
@@ -95,14 +109,60 @@ SubStellar memisahkan tugas UI dan komputasi intensif dengan arsitektur dua lapi
 
 ---
 
-## Memulai (Quick Start)
+## Memulai (Build dari Source)
 
-### Prasyarat Sistem
+> [!NOTE]
+> Paket rilis (*binary release*) belum tersedia saat ini. Ikuti panduan sesuai sistem operasi di bawah ini untuk membangun dan menjalankan **SubStellar** langsung dari *source code*.
+
+### 1. Prasyarat Umum
 * [Node.js](https://nodejs.org/) v20+ atau v24+
 * [Rust & Cargo](https://rustup.rs/) v1.80+ (v1.94+ direkomendasikan)
 * [FFmpeg](https://ffmpeg.org/) & [yt-dlp](https://github.com/yt-dlp/yt-dlp) tersedia di `PATH` sistem (untuk fitur render video dan unduh YouTube)
 
-### Instalasi & Mode Pengembangan
+### 2. Persiapan per Sistem Operasi
+
+<details open>
+<summary><strong>Windows (10 / 11)</strong></summary>
+
+1. Pasang **[Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)** dan pilih *workload* **"Desktop development with C++"**.
+2. Pastikan **[Microsoft Edge WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)** terpasang (sudah tersedia bawaan di Windows 11 dan Windows 10 terbaru).
+3. Pasang `FFmpeg` dan `yt-dlp` (misalnya melalui `winget`):
+   ```powershell
+   winget install Gyan.FFmpeg yt-dlp.yt-dlp
+   ```
+
+</details>
+
+<details>
+<summary><strong>macOS (Apple Silicon / Intel)</strong></summary>
+
+1. Pasang Xcode Command Line Tools:
+   ```bash
+   xcode-select --install
+   ```
+2. Pasang `FFmpeg` dan `yt-dlp` melalui Homebrew:
+   ```bash
+   brew install ffmpeg yt-dlp
+   ```
+
+</details>
+
+<details>
+<summary><strong>Linux (Ubuntu / Debian / Fedora / Arch)</strong></summary>
+
+1. Pasang dependensi WebKitGTK Tauri v2, *build tools*, `FFmpeg`, dan `yt-dlp`:
+   ```bash
+   # Ubuntu / Debian
+   sudo apt update && sudo apt install -y \
+     libwebkit2gtk-4.1-dev build-essential curl wget file \
+     libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+     ffmpeg yt-dlp
+   ```
+   *(Untuk **Fedora**, gunakan `webkit2gtk4.1-devel` + `@development-tools`; untuk **Arch**, gunakan `webkit2gtk-4.1` + `base-devel`.)*
+
+</details>
+
+### 3. Kloning, Jalankan & Build
 
 ```bash
 # 1. Kloning repositori
@@ -114,14 +174,15 @@ npm install
 
 # 3. Jalankan aplikasi desktop Tauri v2 dalam mode pengembang
 npm run tauri dev
-```
 
-### Build Rilis Produksi
-
-```bash
-# Kompilasi installer desktop native (.msi / .exe / .dmg / .AppImage)
+# 4. Atau kompilasi installer produksi native
 npm run tauri build
 ```
+
+Hasil installer akan tersimpan di folder `src-tauri/target/release/bundle/`:
+* **Windows:** `msi/` (`.msi`) & `nsis/` (`.exe`)
+* **macOS:** `dmg/` (`.dmg`) & `macos/` (`.app`)
+* **Linux:** `deb/` (`.deb`) & `appimage/` (`.AppImage`)
 
 ---
 
