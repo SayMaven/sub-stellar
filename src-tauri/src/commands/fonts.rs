@@ -428,8 +428,8 @@ pub fn get_system_fonts() -> Result<Vec<SystemFontEntry>, String> {
             dirs.push(PathBuf::from("/usr/share/fonts"));
             dirs.push(PathBuf::from("/usr/local/share/fonts"));
             if let Ok(home) = std::env::var("HOME") {
-                dirs.push(PathBuf::from(home).join(".local").join("share").join("fonts"));
-                dirs.push(PathBuf::from(home).join(".fonts"));
+                dirs.push(PathBuf::from(&home).join(".local").join("share").join("fonts"));
+                dirs.push(PathBuf::from(&home).join(".fonts"));
             }
         }
         for dir in dirs {
@@ -532,8 +532,8 @@ pub fn stage_font_dir_for_burnin(font_family: &str, session_id: &str) -> Option<
                 PathBuf::from("/usr/local/share/fonts"),
             ];
             if let Ok(home) = std::env::var("HOME") {
-                dirs.push(PathBuf::from(home).join(".local").join("share").join("fonts"));
-                dirs.push(PathBuf::from(home).join(".fonts"));
+                dirs.push(PathBuf::from(&home).join(".local").join("share").join("fonts"));
+                dirs.push(PathBuf::from(&home).join(".fonts"));
             }
             for d in dirs {
                 collect_font_files_in_dir(&d, &mut candidate_files);
