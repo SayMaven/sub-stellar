@@ -60,18 +60,55 @@ pub fn analyze_lines_native(lines: &[String]) -> Result<Vec<Vec<MorphTokenDto>>,
             .segment(Cow::Borrowed(line.as_str()))
             .map_err(|e| format!("Lindera segmentation failed: {}", e))?;
 
-        let mut line_tokens = Vec::with_capacity(tokens.len());
+        let mut line_tokens = Vec::with_capacity(tokens.len() * 2);
+        let mut cursor = 0;
+        let line_str = line.as_str();
+
         for token in tokens.iter_mut() {
-            let surface = token.surface.as_ref().to_string();
-            let details = token.details();
-            // IPADIC CSV columns:
-            // [0]=pos, [1..3]=subpos, [4..5]=conj, [6]=base, [7]=reading, [8]=pronunciation
-            let reading = details
-                .get(7)
-                .map(|r| r.trim())
-                .filter(|r| !r.is_empty() && *r != "*")
-                .map(|r| r.to_string());
-            line_tokens.push(MorphTokenDto { surface, reading });
+            let surface = token.surface.to_string();
+            if surface.is_empty() {
+                continue;
+            }
+
+            // Preserve whitespace and non-morphemic characters that Lindera skips
+            if let Some(pos) = line_str[cursor..].find(&surface) {
+                let match_start = cursor + pos;
+                if match_start > cursor {
+                    let gap = &line_str[cursor..match_start];
+                    line_tokens.push(MorphTokenDto {
+                        surface: gap.to_string(),
+                        reading: None,
+                    });
+                }
+
+                let details = token.details();
+                let reading = details
+                    .get(7)
+                    .map(|r| r.trim())
+                    .filter(|r| !r.is_empty() && *r != "*")
+                    .map(|r| r.to_string());
+
+                let surface_len = surface.len();
+                line_tokens.push(MorphTokenDto { surface, reading });
+                cursor = match_start + surface_len;
+            } else {
+                let details = token.details();
+                let reading = details
+                    .get(7)
+                    .map(|r| r.trim())
+                    .filter(|r| !r.is_empty() && *r != "*")
+                    .map(|r| r.to_string());
+
+                line_tokens.push(MorphTokenDto { surface, reading });
+            }
+        }
+
+        if cursor < line_str.len() {
+            let trailing = &line_str[cursor..];
+            line_tokens.push(MorphTokenDto {
+                surface: trailing.to_string(),
+                reading: None,
+            });
         }
         out.push(line_tokens);
     }
@@ -99,15 +136,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_analyze_furigana_lines_japanese() {
-        let lines = vec!["関西国際空港".to_string(), "   ".to_string(), "東京タワー".to_string()];
+    fn test_analyze_furigana_lines_preserves_spaces_and_symbols() {
+        let lines = vec![
+            "関西国際空港".to_string(),
+            "   ".to_string(),
+            "Lonely ロリロリ神 降臨".to_string(),
+            "触ったら逮捕! (Ah!)".to_string(),
+            "極Chu de 点呼! (Uh!)".to_string(),
+            "粛聖! ロリ神レクイエム☆".to_string(),
+            "ハァ? ごめんなさいが 聞こえなーい (え~?!)".to_string(),
+            "法廷で会おう? (ねっ~)".to_string(),
+            "ういは 全てを赦します".to_string(),
+        ];
         let res = analyze_lines_native(&lines).expect("lindera analysis should succeed");
-        assert_eq!(res.len(), 3);
-        assert!(!res[0].is_empty());
-        assert!(res[1].is_empty());
-        let joined: String = res[0].iter().map(|t| t.surface.as_str()).collect();
-        assert_eq!(joined, "関西国際空港");
-        assert!(res[0].iter().any(|t| t.reading.is_some()));
+        assert_eq!(res.len(), lines.len());
+
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim().is_empty() {
+                assert!(res[i].is_empty());
+                continue;
+            }
+            let joined: String = res[i].iter().map(|t| t.surface.as_str()).collect();
+            assert_eq!(
+                line, &joined,
+                "Line {} mismatch: original='{}', joined='{}'",
+                i, line, joined
+            );
+        }
     }
 }
 

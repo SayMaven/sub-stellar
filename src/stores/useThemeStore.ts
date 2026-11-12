@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { ThemeTokens, ThemePresetName } from '../types';
+import { tauriBridge } from '../services/tauriBridge';
 
 export const THEME_PRESETS: Record<ThemePresetName, ThemeTokens> = {
   default: {
@@ -167,13 +168,28 @@ export const useThemeStore = create<ThemeStoreState>((set, get) => ({
   },
 
   extractFromCover: async (imageUrl: string) => {
+    let resolvedUrl = imageUrl;
+    let blobUrlToRevoke: string | null = null;
+
     try {
+      if (tauriBridge.isTauri() && imageUrl.startsWith('http')) {
+        const bytes = await tauriBridge.fetchImageBytes(imageUrl);
+        if (bytes && bytes.length > 0) {
+          const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'image/jpeg' });
+          resolvedUrl = URL.createObjectURL(blob);
+          blobUrlToRevoke = resolvedUrl;
+        }
+      }
+
       const img = new Image();
-      img.crossOrigin = 'Anonymous';
-      img.src = imageUrl;
+      if (!blobUrlToRevoke && !imageUrl.startsWith('data:')) {
+        img.crossOrigin = 'Anonymous';
+      }
+      img.src = resolvedUrl;
+
       await new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
-        img.onerror = () => reject(new Error('Failed to load image for extraction'));
+        img.onerror = (e) => reject(new Error('Failed to load image for extraction: ' + String(e)));
       });
 
       const canvas = document.createElement('canvas');
@@ -188,25 +204,45 @@ export const useThemeStore = create<ThemeStoreState>((set, get) => ({
       let rSum = 0;
       let gSum = 0;
       let bSum = 0;
-      let count = 0;
+      let totalWeight = 0;
 
+      // Extract vibrant dominant color by weighting colorful pixels more heavily
       for (let i = 0; i < data.length; i += 16) {
-        rSum += data[i];
-        gSum += data[i + 1];
-        bSum += data[i + 2];
-        count++;
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const delta = max - min;
+        // Avoid pure black or pure white dominating the accent
+        if (max > 25 && min < 240) {
+          const weight = 1 + delta * 2;
+          rSum += r * weight;
+          gSum += g * weight;
+          bSum += b * weight;
+          totalWeight += weight;
+        }
       }
 
-      const avgR = Math.round(rSum / count);
-      const avgG = Math.round(gSum / count);
-      const avgB = Math.round(bSum / count);
+      let avgR = totalWeight > 0 ? Math.round(rSum / totalWeight) : 143;
+      let avgG = totalWeight > 0 ? Math.round(gSum / totalWeight) : 180;
+      let avgB = totalWeight > 0 ? Math.round(bSum / totalWeight) : 255;
+
+      // Boost saturation/lightness so the accent pops brightly against gatefold dark surface
+      const maxC = Math.max(avgR, avgG, avgB);
+      if (maxC < 160) {
+        const factor = 160 / Math.max(maxC, 1);
+        avgR = Math.min(255, Math.round(avgR * factor));
+        avgG = Math.min(255, Math.round(avgG * factor));
+        avgB = Math.min(255, Math.round(avgB * factor));
+      }
 
       // Generate harmonious dark theme from dominant color
       const accent = `rgb(${avgR}, ${avgG}, ${avgB})`;
-      const glow = `rgba(${avgR}, ${avgG}, ${avgB}, 0.6)`;
-      const blob1 = `rgb(${Math.floor(avgR * 0.4)}, ${Math.floor(avgG * 0.4)}, ${Math.floor(avgB * 0.5)})`;
-      const blob2 = `rgb(${Math.floor(avgR * 0.5)}, ${Math.floor(avgG * 0.3)}, ${Math.floor(avgB * 0.6)})`;
-      const blob3 = `rgb(${Math.floor(avgR * 0.3)}, ${Math.floor(avgG * 0.5)}, ${Math.floor(avgB * 0.5)})`;
+      const glow = `rgba(${avgR}, ${avgG}, ${avgB}, 0.55)`;
+      const blob1 = `rgb(${Math.floor(avgR * 0.35)}, ${Math.floor(avgG * 0.35)}, ${Math.floor(avgB * 0.45)})`;
+      const blob2 = `rgb(${Math.floor(avgR * 0.45)}, ${Math.floor(avgG * 0.25)}, ${Math.floor(avgB * 0.55)})`;
+      const blob3 = `rgb(${Math.floor(avgR * 0.25)}, ${Math.floor(avgG * 0.45)}, ${Math.floor(avgB * 0.45)})`;
 
       const newTokens: ThemeTokens = {
         ...THEME_PRESETS.default,
@@ -220,12 +256,16 @@ export const useThemeStore = create<ThemeStoreState>((set, get) => ({
       applyTokensToRoot(newTokens);
       saveThemeToStorage('cover', newTokens);
       set({ currentPreset: 'cover', tokens: newTokens });
-    } catch {
+    } catch (err) {
       // Fallback silently if CORS or load fails
       const fallback = THEME_PRESETS.default;
       applyTokensToRoot(fallback);
       saveThemeToStorage('default', fallback);
       set({ currentPreset: 'default', tokens: fallback });
+    } finally {
+      if (blobUrlToRevoke) {
+        URL.revokeObjectURL(blobUrlToRevoke);
+      }
     }
   },
 }));

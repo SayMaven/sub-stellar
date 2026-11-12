@@ -45,6 +45,11 @@ fn hide_console_window(cmd: &mut Command) {
     }
 }
 
+fn configure_ytdlp_command(cmd: &mut Command) {
+    hide_console_window(cmd);
+    cmd.env("PYTHONIOENCODING", "utf-8");
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct YouTubeFormat {
     pub format_id: String,
@@ -186,7 +191,7 @@ pub fn probe_ytdlp_sync(force_refresh: bool) -> YtDlpStatus {
     }
 
     let mut cmd = Command::new("yt-dlp");
-    hide_console_window(&mut cmd);
+    configure_ytdlp_command(&mut cmd);
     let output = cmd.arg("--version").output();
 
     let status = match output {
@@ -255,7 +260,7 @@ pub async fn ytdl_get_info(
         let canonical_for_cmd = canonical.clone();
         let output = tauri::async_runtime::spawn_blocking(move || {
             let mut cmd = Command::new("yt-dlp");
-            hide_console_window(&mut cmd);
+            configure_ytdlp_command(&mut cmd);
             cmd.args([
                 "--dump-json",
                 "--no-warnings",
@@ -683,7 +688,7 @@ pub async fn ytdl_download_media(
 
     let output = tauri::async_runtime::spawn_blocking(move || {
         let mut cmd = Command::new("yt-dlp");
-        hide_console_window(&mut cmd);
+        configure_ytdlp_command(&mut cmd);
         cmd.args(&args).output()
     })
     .await
@@ -708,10 +713,29 @@ pub async fn ytdl_download_media(
         .find(|l| !l.is_empty())
         .ok_or_else(|| "yt-dlp finished but reported no output file".to_string())?;
 
-    if !std::path::Path::new(path).exists() {
-        return Err(format!("Downloaded file not found: {path}"));
+    if std::path::Path::new(path).exists() {
+        return Ok(path.to_string());
     }
-    Ok(path.to_string())
+
+    // Fallback: If stdout path was mangled by Windows OEM codepage, scan cache directory for target video_id & format_id
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.ends_with(".part") || name.ends_with(".ytdl") || name.ends_with(".json") {
+                    continue;
+                }
+                if name.contains(&bracket_suffix) || name.starts_with(&legacy_prefix) {
+                    if let Ok(meta) = entry.metadata() {
+                        if meta.is_file() && meta.len() > 0 {
+                            return Ok(entry.path().to_string_lossy().into_owned());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Err(format!("Downloaded file not found: {path}"))
 }
 
 /// Downloads a creator-provided manual subtitle track (`.srt` or `.vtt`) from YouTube via `yt-dlp`.
@@ -791,7 +815,7 @@ pub async fn ytdl_download_subtitle(
 
     tauri::async_runtime::spawn_blocking(move || {
         let mut cmd = Command::new("yt-dlp");
-        hide_console_window(&mut cmd);
+        configure_ytdlp_command(&mut cmd);
         let output = cmd
             .args(&args)
             .output()

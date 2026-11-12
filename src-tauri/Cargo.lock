@@ -3447,7 +3447,7 @@ dependencies = [
 
 [[package]]
 name = "sub-stellar"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "lindera",
  "regex",

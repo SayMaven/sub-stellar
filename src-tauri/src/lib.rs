@@ -21,6 +21,7 @@ pub fn run() {
             commands::ytdl::ytdl_list_cached_media,
             commands::ytdl::ytdl_delete_cached_media,
             commands::lyrics_proxy::lyrics_http_get,
+            commands::lyrics_proxy::fetch_image_bytes,
             commands::project_io::project_save_dialog,
             commands::project_io::project_write_file,
             commands::project_io::project_open_dialog,

@@ -542,6 +542,14 @@ export const tauriBridge = {
       await invokeTauri<void>('release_furigana_dictionary');
     }
   },
+
+  async fetchImageBytes(url: string): Promise<Uint8Array | null> {
+    if (isTauriEnvironment()) {
+      const bytes = await invokeTauri<number[] | Uint8Array>('fetch_image_bytes', { url });
+      return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    }
+    return null;
+  },
 };
 
 // Eagerly probe hardware capabilities in background so ExportDrawer has NVENC/encoders cached immediately without delay or UI flicker

@@ -8,12 +8,52 @@ const ALLOWED_DOMAINS: &[&str] = &[
     "c.y.qq.com",
     "kugou.com",
     "service-56839352-1300947703.gz.apigw.tencentcs.com",
+    "i.ytimg.com",
+    "img.youtube.com",
+    "ytimg.com",
 ];
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProxyResponse {
     pub status: u16,
     pub body: String,
+}
+
+#[tauri::command]
+pub async fn fetch_image_bytes(url: String) -> Result<Vec<u8>, String> {
+    let parsed_url = reqwest::Url::parse(&url)
+        .map_err(|e| format!("Invalid URL: {e}"))?;
+
+    let host = parsed_url
+        .host_str()
+        .ok_or_else(|| "URL missing host".to_string())?;
+
+    let is_allowed = ALLOWED_DOMAINS.iter().any(|domain| host == *domain || host.ends_with(&format!(".{domain}")));
+    if !is_allowed {
+        return Err(format!("Domain '{}' is not in the allowed image provider list", host));
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+
+    let res = client
+        .get(&url)
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        )
+        .send()
+        .await
+        .map_err(|e| format!("Image HTTP request failed: {e}"))?;
+
+    if !res.status().is_success() {
+        return Err(format!("Image request returned error status: {}", res.status()));
+    }
+
+    let bytes = res.bytes().await.map_err(|e| format!("Failed to read image bytes: {e}"))?;
+    Ok(bytes.to_vec())
 }
 
 #[tauri::command]

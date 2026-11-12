@@ -106,11 +106,30 @@ self.onmessage = async (event: MessageEvent<FuriganaWorkerRequest>) => {
   if (type !== 'ANALYZE') return;
   try {
     const tokenizer = await loadTokenizer(dicPath);
-    const tokens: MorphToken[][] = lines.map((line) =>
-      line.trim().length === 0
-        ? []
-        : tokenizer.tokenize(line).map((t) => ({ surface: t.surface_form, reading: t.reading }))
-    );
+    const tokens: MorphToken[][] = lines.map((line) => {
+      if (line.trim().length === 0) return [];
+      const rawTokens = tokenizer.tokenize(line);
+      const lineTokens: MorphToken[] = [];
+      let cursor = 0;
+      for (const t of rawTokens) {
+        const surface = t.surface_form;
+        if (!surface) continue;
+        const pos = line.indexOf(surface, cursor);
+        if (pos !== -1) {
+          if (pos > cursor) {
+            lineTokens.push({ surface: line.slice(cursor, pos), reading: undefined });
+          }
+          lineTokens.push({ surface, reading: t.reading && t.reading !== '*' ? t.reading : undefined });
+          cursor = pos + surface.length;
+        } else {
+          lineTokens.push({ surface, reading: t.reading && t.reading !== '*' ? t.reading : undefined });
+        }
+      }
+      if (cursor < line.length) {
+        lineTokens.push({ surface: line.slice(cursor), reading: undefined });
+      }
+      return lineTokens;
+    });
     const response: FuriganaWorkerResponse = { id, type: 'RESULT', tokens };
     (self as unknown as Worker).postMessage(response);
   } catch (err) {

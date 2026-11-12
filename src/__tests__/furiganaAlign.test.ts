@@ -10,6 +10,7 @@ import {
   normalizeReading,
   removeSegmentRuby,
   segmentsFromMorphTokens,
+  segmentsToPlain,
   segmentsToMarkdown,
   segmentsToReading,
   setSegmentRuby,
@@ -163,5 +164,19 @@ describe('furiganaAlign: morphological tokens', () => {
   it('leaves unknown words without furigana', () => {
     const segs = segmentsFromMorphTokens([{ surface: '鬱', reading: undefined }, { surface: '!' }]);
     expect(segmentsToMarkdown(segs)).toBe('鬱!');
+  });
+
+  it('preserves spaces and symbols when reconstructing lines from morph tokens', () => {
+    const tokens = [
+      { surface: 'Lonely ' },
+      { surface: 'ロリ' },
+      { surface: 'ロリ' },
+      { surface: '神', reading: 'シン' },
+      { surface: ' ' },
+      { surface: '降臨', reading: 'コウリン' },
+    ];
+    const segments = segmentsFromMorphTokens(tokens);
+    expect(segmentsToPlain(segments)).toBe('Lonely ロリロリ神 降臨');
+    expect(segmentsToMarkdown(segments)).toBe('Lonely ロリロリ{神|しん} {降臨|こうりん}');
   });
 });
