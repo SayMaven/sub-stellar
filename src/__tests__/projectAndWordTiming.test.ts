@@ -254,4 +254,57 @@ describe('Phase 8: Canvas Resolution, Project Save/Load, Line CRUD & Per-Word Vo
       await clearCachedProjectHandle();
     }
   });
+
+  it('shifts single-line and global timings with 1ms precision while clamping safely at zero', () => {
+    const store = useStudioStore.getState();
+    store.loadSampleTrack();
+
+    // Shift all lines +125ms
+    store.shiftAllLinesTiming(0.125);
+    const shiftedAll = useStudioStore.getState().lines;
+    expect(shiftedAll[0].startTime).toBe(12.125);
+    expect(shiftedAll[0].endTime).toBe(16.625);
+    expect(shiftedAll[0].tokens[0].startTime).toBe(12.125);
+    expect(shiftedAll[0].tokens[1].startTime).toBe(12.925);
+    expect(shiftedAll[1].startTime).toBe(17.125);
+
+    // Shift only line 1 backward past 0s (-20s): should clamp startTime to 0 and preserve duration
+    store.shiftSingleLineTiming(shiftedAll[0].id, -20);
+    const afterClamp = useStudioStore.getState().lines;
+    expect(afterClamp[0].startTime).toBe(0);
+    expect(afterClamp[0].endTime).toBe(4.5);
+    expect(afterClamp[0].tokens[0].startTime).toBe(0);
+    expect(afterClamp[0].tokens[afterClamp[0].tokens.length - 1].endTime).toBe(4.5);
+    // Line 2 remains untouched
+    expect(afterClamp[1].startTime).toBe(17.125);
+  });
+
+  it('tracks hasUnsavedChanges only for project edits and resets on save, import, or clear', () => {
+    const store = useStudioStore.getState();
+    store.loadSampleTrack();
+    expect(useStudioStore.getState().hasUnsavedChanges).toBe(false);
+
+    // Playback / seek / line selection must NOT mark project dirty
+    store.seek(14.5);
+    store.setSelectedLineId('line-2');
+    store.setActiveTab('studio');
+    expect(useStudioStore.getState().hasUnsavedChanges).toBe(false);
+
+    // Editing style or shifting offsets marks project dirty
+    store.setStyle({ fontSize: 54 });
+    expect(useStudioStore.getState().hasUnsavedChanges).toBe(true);
+
+    // Saving clears dirty flag
+    store.markProjectSaved('C:/projects/song.substellar');
+    expect(useStudioStore.getState().hasUnsavedChanges).toBe(false);
+    expect(useStudioStore.getState().projectFilePath).toBe('C:/projects/song.substellar');
+
+    // Shifting global offset marks dirty again
+    store.shiftAllLinesTiming(0.05);
+    expect(useStudioStore.getState().hasUnsavedChanges).toBe(true);
+
+    // Clearing project resets dirty flag
+    store.clearProject();
+    expect(useStudioStore.getState().hasUnsavedChanges).toBe(false);
+  });
 });

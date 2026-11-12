@@ -3,6 +3,7 @@ import { Application, Container, Text, TextStyle, Graphics, FillGradient } from 
 import { usePerfStore } from '../../stores/usePerfStore';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { tokenizeSubtitleText, computeRubyPosition } from '../../engine/text/RubyLayout';
+import { parseFontStack } from '../../engine/text/fontLoader';
 import { getCanvasPixelDimensions } from '../../engine/layout/layoutMath';
 import { ParticleManager } from '../../engine/particles/ParticleManager';
 import { playbackEngine } from '../../engine/audio/PlaybackEngine';
@@ -38,6 +39,8 @@ interface BuiltLineState {
   transBaseY: number;
   scaleFactor: number;
   textPadding: number;
+  edgeBleed: number;
+  rubyEdgeBleed: number;
   transitionSec: number;
   wordAnimStyle: WordAnimationStyle;
   particleEnabled: boolean;
@@ -47,6 +50,40 @@ interface BuiltLineState {
   lineContainer: Container;
   transText: Text | null;
   tokens: BuiltTokenNode[];
+}
+
+/** Creates a static offscreen-hidden rectangular mask that scales cleanly at 60 FPS with Zero-GC. */
+function createWipeMask(x: number, y: number, width: number, height: number): Graphics {
+  const mask = new Graphics();
+  mask.rect(0, 0, Math.max(1, width), Math.max(1, height));
+  mask.fill(0xffffff);
+  mask.x = x;
+  mask.y = y;
+  mask.visible = false;
+  return mask;
+}
+
+/** Updates a pre-built rectangular wipe mask's horizontal scale without rebuilding geometry. */
+function applyWipeScale(
+  mask: Graphics,
+  contentWidth: number,
+  padding: number,
+  totalWidth: number,
+  edgeBleed: number,
+  progress: number
+): void {
+  mask.visible = true;
+  const cutX = -edgeBleed + (contentWidth + edgeBleed * 2) * progress;
+  const wipeWidthPx = Math.max(1, padding + cutX);
+  mask.scale.x = Math.min(1, wipeWidthPx / Math.max(1, totalWidth));
+}
+
+/** Detaches wipe masks and hides them so PixiJS does not draw mask rectangles onto the stage. */
+function detachTokenMasks(token: BuiltTokenNode): void {
+  token.activeBase.mask = null;
+  if (token.wipeMask) token.wipeMask.visible = false;
+  if (token.activeRuby) token.activeRuby.mask = null;
+  if (token.rubyWipeMask) token.rubyWipeMask.visible = false;
 }
 
 function hexToNumber(hex: string, fallback = 0x8fb4ff): number {
@@ -201,6 +238,8 @@ const PixiViewportInner: React.FC = () => {
       transBaseY,
       scaleFactor,
       textPadding,
+      edgeBleed,
+      rubyEdgeBleed,
       transitionSec,
       wordAnimStyle,
       particleEnabled,
@@ -217,19 +256,16 @@ const PixiViewportInner: React.FC = () => {
     for (let idx = 0; idx < tokens.length; idx++) {
       const token = tokens[idx];
       if (token.disableAnim) {
-        token.activeBase.mask = null;
+        detachTokenMasks(token);
         token.activeBase.alpha = 0;
         token.activeBase.visible = false;
         token.inactiveBase.alpha = 1;
         token.inactiveBase.visible = true;
-        if (token.wipeMask) token.wipeMask.clear();
         if (token.activeRuby && token.inactiveRuby) {
-          token.activeRuby.mask = null;
           token.activeRuby.alpha = 0;
           token.activeRuby.visible = false;
           token.inactiveRuby.alpha = 1;
           token.inactiveRuby.visible = true;
-          if (token.rubyWipeMask) token.rubyWipeMask.clear();
         }
         token.container.y = 0;
         token.container.scale.set(1);
@@ -256,42 +292,43 @@ const PixiViewportInner: React.FC = () => {
           token.inactiveBase.visible = true;
           token.inactiveBase.alpha = 1;
 
-          if (token.wipeMask) {
+          if (token.wipeMask && token.wipeTotalWidth) {
+            applyWipeScale(
+              token.wipeMask,
+              token.baseWidth,
+              textPadding,
+              token.wipeTotalWidth,
+              edgeBleed,
+              progress
+            );
             token.activeBase.mask = token.wipeMask;
-            const wipeWidth = Math.max(1, textPadding + token.baseWidth * progress);
-            token.wipeMask.clear();
-            token.wipeMask.rect(-textPadding, -textPadding, wipeWidth, token.baseHeight + textPadding * 2);
-            token.wipeMask.fill(0xffffff);
           }
 
-          if (token.activeRuby && token.inactiveRuby && token.rubyWipeMask) {
+          if (token.activeRuby && token.inactiveRuby && token.rubyWipeMask && token.rubyWipeTotalWidth) {
             token.activeRuby.visible = true;
             token.activeRuby.alpha = 1;
             token.inactiveRuby.visible = true;
             token.inactiveRuby.alpha = 1;
-            token.activeRuby.mask = token.rubyWipeMask;
-
             const rubyTextPadding = Math.ceil(textPadding * 0.6);
-            const rubyWipeWidth = Math.max(1, rubyTextPadding + token.inactiveRuby.width * progress);
-            token.rubyWipeMask.clear();
-            token.rubyWipeMask.rect(
-              token.activeRuby.x - rubyTextPadding,
-              token.activeRuby.y - rubyTextPadding,
-              rubyWipeWidth,
-              token.inactiveRuby.height + rubyTextPadding * 2
+            applyWipeScale(
+              token.rubyWipeMask,
+              token.inactiveRuby.width,
+              rubyTextPadding,
+              token.rubyWipeTotalWidth,
+              rubyEdgeBleed,
+              progress
             );
-            token.rubyWipeMask.fill(0xffffff);
+            token.activeRuby.mask = token.rubyWipeMask;
           }
         } else if (isTokenPassed) {
           // Token has fully passed: 100% active highlight, mask detached so no stencil clamping
-          token.activeBase.mask = null;
+          detachTokenMasks(token);
           token.activeBase.visible = true;
           token.activeBase.alpha = 1;
           token.inactiveBase.visible = false;
           token.inactiveBase.alpha = 0;
 
           if (token.activeRuby) {
-            token.activeRuby.mask = null;
             token.activeRuby.visible = true;
             token.activeRuby.alpha = 1;
           }
@@ -301,14 +338,13 @@ const PixiViewportInner: React.FC = () => {
           }
         } else {
           // Future token: 100% inactive base, mask detached
-          token.activeBase.mask = null;
+          detachTokenMasks(token);
           token.activeBase.visible = false;
           token.activeBase.alpha = 0;
           token.inactiveBase.visible = true;
           token.inactiveBase.alpha = 1;
 
           if (token.activeRuby) {
-            token.activeRuby.mask = null;
             token.activeRuby.visible = false;
             token.activeRuby.alpha = 0;
           }
@@ -320,8 +356,7 @@ const PixiViewportInner: React.FC = () => {
       } else {
         // Standard Alpha and Motion animations for all other styles
         // Explicitly clear any masks so WebGL stencil buffer is completely free
-        token.activeBase.mask = null;
-        if (token.activeRuby) token.activeRuby.mask = null;
+        detachTokenMasks(token);
 
         if (isTokenActive) {
           enterProgress = easeOutCubic((currentTime - token.startTime) / transitionSec);
@@ -506,6 +541,7 @@ const PixiViewportInner: React.FC = () => {
 
       // Zero-GC Particle Manager with ParticleContainer
       localParticleManager = new ParticleManager(profile.maxParticles);
+      localParticleManager.stageContainer.visible = useStudioStore.getState().style.particleEnabled;
       particleManagerRef.current = localParticleManager;
       app.stage.addChild(localParticleManager.stageContainer);
 
@@ -529,8 +565,11 @@ const PixiViewportInner: React.FC = () => {
         // Animate pre-built subtitle tokens for the current time without allocating textures
         animateBuiltLine(useStudioStore.getState().currentTime);
 
-        // Update particle physics without GC allocations
-        if (localParticleManager && useStudioStore.getState().style.particleEnabled) {
+        // Update particle physics without GC allocations (also finish/drain any remaining active particles)
+        if (
+          localParticleManager &&
+          (useStudioStore.getState().style.particleEnabled || localParticleManager.activeCount > 0)
+        ) {
           localParticleManager.update(deltaSeconds);
         }
 
@@ -581,6 +620,17 @@ const PixiViewportInner: React.FC = () => {
       safeGuidesRef.current.visible = style.showSafeGuides;
     }
   }, [style.showSafeGuides]);
+
+  // Immediately hide & release pooled particles when Particle Engine is toggled off
+  useEffect(() => {
+    const pm = particleManagerRef.current;
+    if (!pm) return;
+    pm.stageContainer.visible = style.particleEnabled;
+    if (!style.particleEnabled) {
+      pm.clearAll();
+      updateMetrics({ activeParticles: 0 });
+    }
+  }, [pixiReady, style.particleEnabled, updateMetrics]);
 
   // Listen for manual burst trigger (e.g. from Inspector "Test Burst")
   useEffect(() => {
@@ -675,9 +725,13 @@ const PixiViewportInner: React.FC = () => {
     const rubyFillHex = style.rubyFillColor || '#8fb4ff';
     const rubyActiveHex = style.rubyActiveColor || '#5affb5';
     const transFillHex = style.translationFillColor || '#bfc3ca';
-    const fontStack = Array.from(
-      new Set([style.fontFamily || 'Segoe UI', 'Segoe UI', 'Noto Sans JP', 'sans-serif'])
-    );
+    const fontStack = parseFontStack(style.fontFamily, [
+      'Segoe UI',
+      'Yu Gothic UI',
+      'Meiryo',
+      'Noto Sans JP',
+      'sans-serif',
+    ]);
 
     // Create at most 2 shared FillGradient instances per line and track them for explicit .destroy()
     let normalFill: string | FillGradient = fillHex;
@@ -800,10 +854,10 @@ const PixiViewportInner: React.FC = () => {
       activeBase.alpha = 0;
       tokenContainer.addChild(activeBase);
 
-      // Create geometric horizontal wipe mask for smooth-sweep karaoke
+      // Create static geometric horizontal wipe mask (visible=false when detached, never renderable=false)
       const wipeTotalWidth = inactiveBase.width + textPadding * 2;
-      const wipeMask = new Graphics();
-      wipeMask.renderable = false;
+      const wipeTotalHeight = inactiveBase.height + textPadding * 2;
+      const wipeMask = createWipeMask(-textPadding, -textPadding, wipeTotalWidth, wipeTotalHeight);
       tokenContainer.addChild(wipeMask);
       // NOTE: activeBase.mask is dynamically attached ONLY during smooth-sweep on the active token
 
@@ -862,8 +916,12 @@ const PixiViewportInner: React.FC = () => {
 
         const rubyTextPadding = Math.ceil(textPadding * 0.6);
         rubyWipeTotalWidth = inactiveRuby.width + rubyTextPadding * 2;
-        rubyWipeMask = new Graphics();
-        rubyWipeMask.renderable = false;
+        rubyWipeMask = createWipeMask(
+          metrics.rubyX - rubyTextPadding,
+          metrics.rubyY - rubyTextPadding,
+          rubyWipeTotalWidth,
+          inactiveRuby.height + rubyTextPadding * 2
+        );
         tokenContainer.addChild(rubyWipeMask);
         // NOTE: activeRuby.mask is dynamically attached ONLY during smooth-sweep on the active token
       }
@@ -935,6 +993,9 @@ const PixiViewportInner: React.FC = () => {
 
     subtitleGroup.addChild(lineContainer);
 
+    const edgeBleed = Math.ceil(scaledInnerStroke * 0.6 + 2 * scaleFactor);
+    const rubyEdgeBleed = Math.ceil(Math.max(2, scaledOuterStroke * 0.55) * 0.6 + scaleFactor);
+
     builtLineRef.current = {
       lineId: activeLine.id,
       startTime: activeLine.startTime,
@@ -943,6 +1004,8 @@ const PixiViewportInner: React.FC = () => {
       transBaseY,
       scaleFactor,
       textPadding,
+      edgeBleed,
+      rubyEdgeBleed,
       transitionSec,
       wordAnimStyle: style.wordAnimStyle,
       particleEnabled: style.particleEnabled,

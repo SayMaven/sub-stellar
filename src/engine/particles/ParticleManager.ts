@@ -531,6 +531,26 @@ export class ParticleManager {
     }
   }
 
+  private deactivateParticle(p: ParticleState): void {
+    p.alive = false;
+    p.alpha = 0;
+    if (p.pixiParticle) {
+      p.pixiParticle.alpha = 0;
+      p.pixiParticle.x = -100; // Move offscreen
+    }
+    this.pool.release(p);
+  }
+
+  /**
+   * Immediately hides and releases all currently active particles back to the pool.
+   */
+  public clearAll(): void {
+    this.pool.forEachAllocated((p) => {
+      if (!p.alive) return;
+      this.deactivateParticle(p);
+    });
+  }
+
   /**
    * Updates all active particles in 60 FPS render ticker without allocating any new objects.
    */
@@ -542,13 +562,7 @@ export class ParticleManager {
       p.alpha -= p.decay * deltaSeconds;
 
       if (p.alpha <= 0.01 || p.life >= p.maxLife) {
-        p.alive = false;
-        p.alpha = 0;
-        if (p.pixiParticle) {
-          p.pixiParticle.alpha = 0;
-          p.pixiParticle.x = -100; // Move offscreen
-        }
-        this.pool.release(p);
+        this.deactivateParticle(p);
         return;
       }
 

@@ -26,6 +26,7 @@ import {
   openProjectWithFilePicker,
 } from '../../services/mediaCache';
 import { FFmpegExportPipeline } from '../../engine/export/FFmpegExportPipeline';
+import { confirmBeforeDiscardingProject } from '../common/UnsavedChangesModal';
 import type { CanvasResolutionPreset } from '../../types';
 
 export const ExportDrawer: React.FC = () => {
@@ -167,7 +168,7 @@ export const ExportDrawer: React.FC = () => {
         forceSaveAs: false,
       });
       if (res.saved && res.path) {
-        setProjectFilePath(res.path);
+        latest.markProjectSaved(res.path);
         latest.saveToLocalStorage();
         setLastSavedPath(res.path);
         setExportSuccess(`Project saved to: ${res.path} (${lines.length} subtitle lines).`);
@@ -178,6 +179,8 @@ export const ExportDrawer: React.FC = () => {
   };
 
   const handleTriggerOpenProject = async () => {
+    const allowed = await confirmBeforeDiscardingProject('membuka proyek lain');
+    if (!allowed) return;
     if (tauriBridge.isAvailable()) {
       try {
         const opened = await tauriBridge.openProjectDialog();

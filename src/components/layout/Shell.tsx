@@ -5,6 +5,10 @@ import { MainStage } from '../studio/MainStage';
 import { YouTubeDrawer } from '../youtube/YouTubeDrawer';
 import { TelemetryOverlay } from '../common/TelemetryOverlay';
 import {
+  UnsavedChangesHost,
+  confirmBeforeDiscardingProject,
+} from '../common/UnsavedChangesModal';
+import {
   useStudioStore,
   AUTOSAVE_STORAGE_KEY,
   AUTOSAVE_PATH_STORAGE_KEY,
@@ -108,9 +112,16 @@ export const Shell: React.FC = () => {
           });
         }
       }
+      if (isMounted) {
+        useStudioStore.getState().setHasUnsavedChanges(false);
+      }
     }
 
-    void restoreLastSession();
+    void restoreLastSession().finally(() => {
+      if (isMounted) {
+        useStudioStore.getState().setHasUnsavedChanges(false);
+      }
+    });
 
     // Background warm-up of yt-dlp binary check so opening the YouTube tab is 0ms instant
     const warmupTimer = setTimeout(() => {
@@ -150,7 +161,7 @@ export const Shell: React.FC = () => {
           forceSaveAs: e.shiftKey,
         }).then((res) => {
           if (res.saved && res.path) {
-            latest.setProjectFilePath(res.path);
+            latest.markProjectSaved(res.path);
             latest.saveToLocalStorage();
             window.dispatchEvent(
               new CustomEvent('substellar:project-saved', { detail: { path: res.path } })
@@ -215,6 +226,40 @@ export const Shell: React.FC = () => {
     track.title,
   ]);
 
+  // Warn user before closing the desktop window or browser tab if project has unsaved edits
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (useStudioStore.getState().hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    let unlistenClose: (() => void) | null = null;
+    if (tauriBridge.isAvailable()) {
+      void import('@tauri-apps/api/window')
+        .then(async ({ getCurrentWindow }) => {
+          const win = getCurrentWindow();
+          unlistenClose = await win.onCloseRequested(async (event) => {
+            if (!useStudioStore.getState().hasUnsavedChanges) return;
+            event.preventDefault();
+            const allowed = await confirmBeforeDiscardingProject('menutup aplikasi');
+            if (allowed) {
+              useStudioStore.getState().setHasUnsavedChanges(false);
+              await win.destroy();
+            }
+          });
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      unlistenClose?.();
+    };
+  }, []);
+
   return (
     <div className="relative w-screen h-screen flex flex-col overflow-hidden bg-gatefold-bg text-gatefold-text">
       {/* Top Header (40px) */}
@@ -262,6 +307,9 @@ export const Shell: React.FC = () => {
 
       {/* Diagnostics / Telemetry Overlay */}
       <TelemetryOverlay />
+
+      {/* Unsaved Project Confirmation Modal */}
+      <UnsavedChangesHost />
     </div>
   );
 };

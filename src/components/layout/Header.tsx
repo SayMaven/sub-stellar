@@ -35,6 +35,7 @@ import {
 } from '../../services/mediaCache';
 import { tauriBridge } from '../../services/tauriBridge';
 import { AutoFuriganaDialog } from '../furigana/AutoFuriganaDialog';
+import { confirmBeforeDiscardingProject } from '../common/UnsavedChangesModal';
 import type { AspectRatio, CanvasResolutionPreset } from '../../types';
 
 type MenuCategory = 'file' | 'subtitle' | 'view' | 'export' | null;
@@ -69,6 +70,7 @@ export const Header: React.FC = () => {
   const saveToLocalStorage = useStudioStore((s) => s.saveToLocalStorage);
   const projectFilePath = useStudioStore((s) => s.projectFilePath);
   const setProjectFilePath = useStudioStore((s) => s.setProjectFilePath);
+  const hasUnsavedChanges = useStudioStore((s) => s.hasUnsavedChanges);
   const setErrorMessage = useStudioStore((s) => s.setErrorMessage);
 
   const projectInputRef = useRef<HTMLInputElement>(null);
@@ -134,7 +136,7 @@ export const Header: React.FC = () => {
         forceSaveAs,
       });
       if (res.saved && res.path) {
-        setProjectFilePath(res.path);
+        latest.markProjectSaved(res.path);
         latest.saveToLocalStorage();
         const baseName = res.path.split(/[/\\]/).pop() || res.path;
         setSavedToast(baseName);
@@ -145,8 +147,26 @@ export const Header: React.FC = () => {
     }
   };
 
+  const handleNewEmptyProject = async () => {
+    setOpenMenu(null);
+    const allowed = await confirmBeforeDiscardingProject('membuat proyek baru');
+    if (!allowed) return;
+    clearProject();
+    setActiveTab('studio');
+  };
+
+  const handleLoadDemoShowcase = async () => {
+    setOpenMenu(null);
+    const allowed = await confirmBeforeDiscardingProject('memuat proyek demo');
+    if (!allowed) return;
+    loadSampleTrack();
+    setActiveTab('studio');
+  };
+
   const handleTriggerOpenProject = async () => {
     setOpenMenu(null);
+    const allowed = await confirmBeforeDiscardingProject('membuka proyek lain');
+    if (!allowed) return;
     if (tauriBridge.isAvailable()) {
       try {
         const opened = await tauriBridge.openProjectDialog();
@@ -378,11 +398,7 @@ export const Header: React.FC = () => {
             {openMenu === 'file' && (
               <div className="absolute left-0 top-full mt-1 w-60 rounded-lg bg-gatefold-surface border border-gatefold-line-2 shadow-xl py-1.5 z-50 text-xs">
                 <button
-                  onClick={() => {
-                    clearProject();
-                    setActiveTab('studio');
-                    setOpenMenu(null);
-                  }}
+                  onClick={() => void handleNewEmptyProject()}
                   className="w-full px-3 py-1.5 hover:bg-gatefold-hover flex items-center justify-between text-left text-gatefold-text"
                 >
                   <span className="flex items-center gap-2">
@@ -465,11 +481,7 @@ export const Header: React.FC = () => {
                 <div className="my-1 border-t border-gatefold-line" />
 
                 <button
-                  onClick={() => {
-                    loadSampleTrack();
-                    setActiveTab('studio');
-                    setOpenMenu(null);
-                  }}
+                  onClick={() => void handleLoadDemoShowcase()}
                   className="w-full px-3 py-1.5 hover:bg-gatefold-hover flex items-center justify-between text-left text-gatefold-text-2"
                 >
                   <span className="flex items-center gap-2">
@@ -759,6 +771,19 @@ export const Header: React.FC = () => {
             )}
           </div>
         </div>
+
+        {/* Unsaved Indicator */}
+        {hasUnsavedChanges && !savedToast && (
+          <button
+            type="button"
+            onClick={() => void handleSaveProject(false)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[10px] font-mono transition-colors"
+            title="Proyek memiliki perubahan yang belum disimpan — klik untuk Simpan (Ctrl+S)"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            <span>Unsaved</span>
+          </button>
+        )}
 
         {/* Saved Feedback Badge */}
         {savedToast && (

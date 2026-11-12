@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Type,
   Clock,
@@ -26,7 +26,7 @@ import {
   Heart,
   Check,
 } from 'lucide-react';
-import { useStudioStore } from '../../stores/useStudioStore';
+import { useStudioStore, shiftLineTiming } from '../../stores/useStudioStore';
 import { FuriganaEditor } from '../furigana/FuriganaEditor';
 import { StudioColorPicker } from '../common/StudioColorPicker';
 import { StudioFontPicker } from './StudioFontPicker';
@@ -34,11 +34,11 @@ import {
   discoverSystemFonts,
   loadFontFromFile,
   getLoadedCustomFonts,
-  CURATED_FONTS,
+  getCuratedFontsWithStatus,
   type FontOption,
 } from '../../engine/text/fontLoader';
 import { VISUAL_PRESETS } from '../../engine/presets/presetRegistry';
-import type { ParticlePresetType, WordAnimationStyle } from '../../types';
+import type { ParticlePresetType, SubtitleLine, WordAnimationStyle } from '../../types';
 
 interface SubtitleInspectorProps {
   width?: number;
@@ -51,7 +51,14 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
   const [customFonts, setCustomFonts] = useState<FontOption[]>(() => getLoadedCustomFonts());
   const [isDraggingFont, setIsDraggingFont] = useState(false);
   const [fontLoadSuccess, setFontLoadSuccess] = useState<string | null>(null);
+  const [lineOffsetScrubMs, setLineOffsetScrubMs] = useState<number>(0);
+  const lineScrubSnapshotRef = useRef<SubtitleLine[] | null>(null);
   const fontFileInputRef = useRef<HTMLInputElement>(null);
+
+  const curatedFontsWithStatus = useMemo(
+    () => getCuratedFontsWithStatus(systemFonts),
+    [systemFonts]
+  );
 
   const lines = useStudioStore((s) => s.lines);
   const selectedLineId = useStudioStore((s) => s.selectedLineId);
@@ -61,6 +68,8 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
   const deleteLine = useStudioStore((s) => s.deleteLine);
   const updateLineTranslation = useStudioStore((s) => s.updateLineTranslation);
   const updateLineTiming = useStudioStore((s) => s.updateLineTiming);
+  const shiftSingleLineTiming = useStudioStore((s) => s.shiftSingleLineTiming);
+  const replaceLinesFromOffsetScrub = useStudioStore((s) => s.replaceLinesFromOffsetScrub);
   const updateTokenTiming = useStudioStore((s) => s.updateTokenTiming);
   const resetTokenTimingsEvenly = useStudioStore((s) => s.resetTokenTimingsEvenly);
   const splitTokenIntoChars = useStudioStore((s) => s.splitTokenIntoChars);
@@ -340,33 +349,72 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
                   />
                 </div>
               </div>
-              <div className="flex justify-between text-[11px] text-gatefold-text-3 pt-1">
+              <div className="flex justify-between items-center text-[11px] text-gatefold-text-3 pt-1">
                 <span>Duration: {(activeLine.endTime - activeLine.startTime).toFixed(2)}s</span>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() =>
-                      updateLineTiming(
-                        activeLine.id,
-                        activeLine.startTime - 0.1,
-                        activeLine.endTime - 0.1
-                      )
-                    }
-                    className="px-1.5 py-0.5 rounded bg-gatefold-surface-2 hover:bg-gatefold-hover"
+                <span className="text-[10px] font-mono text-gatefold-text-3">
+                  Line Offset
+                </span>
+              </div>
+
+              {/* Per-Line Offset Controls (Shifts only this active line & its word tokens) */}
+              <div className="p-2 rounded-lg bg-gatefold-surface/70 border border-gatefold-line space-y-2">
+                <div className="flex items-center justify-between text-[10px] font-mono">
+                  <span className="text-gatefold-text-2 font-semibold">Line Sync Shift</span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded ${
+                      lineOffsetScrubMs !== 0
+                        ? 'bg-gatefold-accent/20 text-gatefold-accent font-semibold'
+                        : 'text-gatefold-text-3'
+                    }`}
                   >
-                    -0.1s
-                  </button>
-                  <button
-                    onClick={() =>
-                      updateLineTiming(
-                        activeLine.id,
-                        activeLine.startTime + 0.1,
-                        activeLine.endTime + 0.1
-                      )
+                    {lineOffsetScrubMs > 0 ? `+${lineOffsetScrubMs}` : lineOffsetScrubMs} ms
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={-2000}
+                  max={2000}
+                  step={10}
+                  value={lineOffsetScrubMs}
+                  onPointerDown={() => {
+                    lineScrubSnapshotRef.current = useStudioStore.getState().lines;
+                    setLineOffsetScrubMs(0);
+                  }}
+                  onChange={(e) => {
+                    const ms = parseInt(e.target.value, 10) || 0;
+                    setLineOffsetScrubMs(ms);
+                    const snap = lineScrubSnapshotRef.current;
+                    if (snap && activeLine) {
+                      replaceLinesFromOffsetScrub(
+                        snap.map((l) =>
+                          l.id === activeLine.id ? shiftLineTiming(l, ms / 1000) : l
+                        )
+                      );
                     }
-                    className="px-1.5 py-0.5 rounded bg-gatefold-surface-2 hover:bg-gatefold-hover"
-                  >
-                    +0.1s
-                  </button>
+                  }}
+                  onPointerUp={() => {
+                    lineScrubSnapshotRef.current = null;
+                    setLineOffsetScrubMs(0);
+                  }}
+                  onPointerCancel={() => {
+                    lineScrubSnapshotRef.current = null;
+                    setLineOffsetScrubMs(0);
+                  }}
+                  className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent cursor-pointer"
+                  title="Drag to shift this line earlier (left) or later (right)"
+                />
+                <div className="grid grid-cols-6 gap-1">
+                  {[-250, -100, -50, 50, 100, 250].map((ms) => (
+                    <button
+                      key={ms}
+                      type="button"
+                      onClick={() => shiftSingleLineTiming(activeLine.id, ms / 1000)}
+                      className="px-1 py-1 rounded bg-gatefold-surface-2 hover:bg-gatefold-hover border border-gatefold-line/70 text-[10px] font-mono text-gatefold-text-2 hover:text-gatefold-accent transition-colors"
+                      title={`Shift this line ${ms > 0 ? `+${ms}` : ms} ms`}
+                    >
+                      {ms > 0 ? `+${ms}` : ms}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
@@ -871,7 +919,7 @@ const SubtitleInspectorBody: React.FC = React.memo(() => {
                 <StudioFontPicker
                   value={style.fontFamily}
                   onChange={(family) => setStyle({ fontFamily: family })}
-                  curatedFonts={CURATED_FONTS}
+                  curatedFonts={curatedFontsWithStatus}
                   customFonts={customFonts}
                   systemFonts={systemFonts}
                   onImportFontFile={handleFontFile}

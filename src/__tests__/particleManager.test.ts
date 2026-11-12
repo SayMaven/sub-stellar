@@ -44,4 +44,17 @@ describe('ParticleManager (Zero-GC)', () => {
       expect(config.scaleMax).toBeGreaterThan(config.scaleMin);
     }
   });
+
+  it('clearAll immediately hides and releases all active particles back to the pool', () => {
+    const manager = new ParticleManager(60);
+    manager.emit('sakura', 300, 400, 25, 0xff94b8);
+    expect(manager.activeCount).toBe(25);
+
+    manager.clearAll();
+    expect(manager.activeCount).toBe(0);
+
+    // Pool capacity should be completely reusable after clearAll
+    manager.emit('heart', 300, 400, 60, 0xff007f);
+    expect(manager.activeCount).toBe(60);
+  });
 });

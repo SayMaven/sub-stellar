@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use serde::{Deserialize, Serialize};
 
@@ -58,22 +58,28 @@ pub struct ExportResult {
     pub error_message: Option<String>,
 }
 
-struct ActiveExportSession {
-    child: Child,
-    stdin: Option<ChildStdin>,
-    output_path: String,
-    width: u32,
-    height: u32,
+struct PipeWriterState {
+    stdin: Option<BufWriter<ChildStdin>>,
+    bytes_per_frame: usize,
     total_frames: u64,
     frames_written: u64,
+    blank_frame: Option<Vec<u8>>,
+    blank_accumulator: Vec<u8>,
     start_time: Instant,
 }
 
-static SESSIONS: Mutex<Option<HashMap<String, ActiveExportSession>>> = Mutex::new(None);
+struct ActiveExportSession {
+    child: Mutex<Option<Child>>,
+    pipe: Mutex<PipeWriterState>,
+    output_path: String,
+    cancelled: std::sync::atomic::AtomicBool,
+}
+
+static SESSIONS: Mutex<Option<HashMap<String, Arc<ActiveExportSession>>>> = Mutex::new(None);
 
 fn with_sessions<F, R>(f: F) -> R
 where
-    F: FnOnce(&mut HashMap<String, ActiveExportSession>) -> R,
+    F: FnOnce(&mut HashMap<String, Arc<ActiveExportSession>>) -> R,
 {
     let mut lock = SESSIONS.lock().unwrap();
     if lock.is_none() {
@@ -274,6 +280,8 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
 
     // Raw video input from stdin
     cmd.args([
+        "-thread_queue_size",
+        "64",
         "-f",
         "rawvideo",
         "-pix_fmt",
@@ -290,7 +298,7 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
     let mut is_video_source = false;
     let has_audio = if let Some(ref audio_path) = config.audio_source_path {
         if Path::new(audio_path).exists() {
-            cmd.args(["-i", audio_path]);
+            cmd.args(["-thread_queue_size", "64", "-i", audio_path]);
             let lower = audio_path.to_lowercase();
             is_video_source = lower.ends_with(".mp4")
                 || lower.ends_with(".webm")
@@ -415,18 +423,23 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
 
     let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn FFmpeg: {}", e))?;
     let stdin = child.stdin.take().ok_or_else(|| "Failed to open FFmpeg stdin".to_string())?;
+    let bytes_per_frame = (config.width as usize).saturating_mul(config.height as usize).saturating_mul(4);
 
     let session_id = config.session_id.clone();
-    let session = ActiveExportSession {
-        child,
-        stdin: Some(stdin),
+    let session = Arc::new(ActiveExportSession {
+        child: Mutex::new(Some(child)),
+        pipe: Mutex::new(PipeWriterState {
+            stdin: Some(BufWriter::with_capacity(1024 * 1024, stdin)),
+            bytes_per_frame,
+            total_frames: config.total_frames,
+            frames_written: 0,
+            blank_frame: None,
+            blank_accumulator: Vec::new(),
+            start_time: Instant::now(),
+        }),
         output_path: config.output_path,
-        width: config.width,
-        height: config.height,
-        total_frames: config.total_frames,
-        frames_written: 0,
-        start_time: Instant::now(),
-    };
+        cancelled: std::sync::atomic::AtomicBool::new(false),
+    });
 
     with_sessions(|map| {
         map.insert(session_id.clone(), session);
@@ -436,96 +449,201 @@ pub fn ffmpeg_start_export_pipe(config: ExportPipeConfig) -> Result<String, Stri
 }
 
 #[tauri::command]
-pub fn ffmpeg_write_frame_chunk(session_id: String, chunk: Vec<u8>) -> Result<ExportProgress, String> {
-    with_sessions(|map| {
-        let session = map
-            .get_mut(&session_id)
-            .ok_or_else(|| format!("Export session not found: {}", session_id))?;
+pub async fn ffmpeg_write_frame_chunk(request: tauri::ipc::Request<'_>) -> Result<ExportProgress, String> {
+    let headers = request.headers();
+    let session_id = headers
+        .get("x-session-id")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| "Missing x-session-id header".to_string())?
+        .to_string();
 
-        let stdin = session
-            .stdin
-            .as_mut()
-            .ok_or_else(|| "Stdin already closed".to_string())?;
+    let use_blank = headers
+        .get("x-use-blank")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
 
-        stdin
-            .write_all(&chunk)
-            .map_err(|e| format!("Failed to write frame to FFmpeg: {}", e))?;
+    let cache_blank = headers
+        .get("x-cache-blank")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
 
-        let bytes_per_frame = (session.width * session.height * 4) as usize;
-        let new_frames = if bytes_per_frame > 0 {
-            (chunk.len() / bytes_per_frame) as u64
+    let commit_frame = headers
+        .get("x-commit-frame")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(true);
+
+    let repeat_count = headers
+        .get("x-repeat-count")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(1)
+        .clamp(1, 240);
+
+    let chunk_bytes: Vec<u8> = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
+        tauri::ipc::InvokeBody::Json(_) if use_blank => Vec::new(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err("Expected raw binary frame payload".to_string());
+        }
+    };
+
+    let session = with_sessions(|map| map.get(&session_id).cloned())
+        .ok_or_else(|| format!("Export session not found: {}", session_id))?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        if session.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("Export was cancelled by user".to_string());
+        }
+
+        let mut pipe = session
+            .pipe
+            .lock()
+            .map_err(|_| "Export pipe lock poisoned".to_string())?;
+
+        if session.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("Export was cancelled by user".to_string());
+        }
+
+        let bytes_per_frame = pipe.bytes_per_frame;
+
+        if use_blank {
+            let state = &mut *pipe;
+            let frames_to_write = state.total_frames.saturating_sub(state.frames_written).min(repeat_count);
+            let blank = state
+                .blank_frame
+                .as_deref()
+                .ok_or_else(|| "Blank frame cache not initialized".to_string())?;
+            let stdin = state
+                .stdin
+                .as_mut()
+                .ok_or_else(|| "Stdin already closed".to_string())?;
+            for _ in 0..frames_to_write {
+                stdin
+                    .write_all(blank)
+                    .map_err(|e| format!("Failed to write cached blank frame to FFmpeg: {}", e))?;
+            }
+            state.frames_written += frames_to_write;
         } else {
-            1
-        };
+            if cache_blank {
+                if pipe.blank_accumulator.is_empty() && bytes_per_frame > 0 {
+                    pipe.blank_accumulator.reserve(bytes_per_frame);
+                }
+                pipe.blank_accumulator.extend_from_slice(&chunk_bytes);
+                if commit_frame {
+                    let cached = std::mem::take(&mut pipe.blank_accumulator);
+                    pipe.blank_frame = Some(cached);
+                }
+            }
 
-        session.frames_written += new_frames;
+            let stdin = pipe
+                .stdin
+                .as_mut()
+                .ok_or_else(|| "Stdin already closed".to_string())?;
+            stdin
+                .write_all(&chunk_bytes)
+                .map_err(|e| format!("Failed to write raw frame to FFmpeg: {}", e))?;
 
-        let elapsed = session.start_time.elapsed().as_secs_f32().max(0.001);
-        let fps = session.frames_written as f32 / elapsed;
-        let percentage = if session.total_frames > 0 {
-            (session.frames_written as f32 / session.total_frames as f32 * 100.0).min(100.0)
+            if commit_frame {
+                pipe.frames_written += 1;
+            }
+        }
+
+        let elapsed = pipe.start_time.elapsed().as_secs_f32().max(0.001);
+        let fps = pipe.frames_written as f32 / elapsed;
+        let percentage = if pipe.total_frames > 0 {
+            (pipe.frames_written as f32 / pipe.total_frames as f32 * 100.0).min(100.0)
         } else {
             0.0
         };
 
         Ok(ExportProgress {
             session_id,
-            frames_written: session.frames_written,
-            total_frames: session.total_frames,
+            frames_written: pipe.frames_written,
+            total_frames: pipe.total_frames,
             percentage,
             fps,
         })
     })
+    .await
+    .map_err(|e| format!("Export worker thread failed: {}", e))?
 }
 
 #[tauri::command]
-pub fn ffmpeg_finish_export(session_id: String) -> Result<ExportResult, String> {
-    let mut session = with_sessions(|map| map.remove(&session_id))
+pub async fn ffmpeg_finish_export(session_id: String) -> Result<ExportResult, String> {
+    let session = with_sessions(|map| map.remove(&session_id))
         .ok_or_else(|| format!("Export session not found: {}", session_id))?;
 
-    // Close stdin to signal EOF to FFmpeg
-    session.stdin.take();
+    tauri::async_runtime::spawn_blocking(move || {
+        let elapsed = {
+            let mut pipe = session
+                .pipe
+                .lock()
+                .map_err(|_| "Export pipe lock poisoned".to_string())?;
+            if let Some(mut bw) = pipe.stdin.take() {
+                let _ = bw.flush();
+            }
+            pipe.start_time.elapsed().as_secs_f64()
+        };
 
-    let output = session
-        .child
-        .wait_with_output()
-        .map_err(|e| format!("Failed to wait for FFmpeg: {}", e))?;
+        let child = session
+            .child
+            .lock()
+            .map_err(|_| "Export child lock poisoned".to_string())?
+            .take()
+            .ok_or_else(|| "FFmpeg process already finalized".to_string())?;
 
-    let elapsed = session.start_time.elapsed().as_secs_f64();
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("Failed to wait for FFmpeg: {}", e))?;
 
-    if output.status.success() {
-        let file_size = fs::metadata(&session.output_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        if output.status.success() {
+            let file_size = fs::metadata(&session.output_path)
+                .map(|m| m.len())
+                .unwrap_or(0);
 
-        Ok(ExportResult {
-            success: true,
-            output_path: session.output_path,
-            file_size_bytes: file_size,
-            elapsed_seconds: elapsed,
-            error_message: None,
-        })
-    } else {
-        let err_text = String::from_utf8_lossy(&output.stderr).to_string();
-        Ok(ExportResult {
-            success: false,
-            output_path: session.output_path,
-            file_size_bytes: 0,
-            elapsed_seconds: elapsed,
-            error_message: Some(if err_text.is_empty() {
-                "FFmpeg exited with non-zero status".to_string()
-            } else {
-                err_text
-            }),
-        })
-    }
+            Ok(ExportResult {
+                success: true,
+                output_path: session.output_path.clone(),
+                file_size_bytes: file_size,
+                elapsed_seconds: elapsed,
+                error_message: None,
+            })
+        } else {
+            let err_text = String::from_utf8_lossy(&output.stderr).to_string();
+            Ok(ExportResult {
+                success: false,
+                output_path: session.output_path.clone(),
+                file_size_bytes: 0,
+                elapsed_seconds: elapsed,
+                error_message: Some(if err_text.is_empty() {
+                    "FFmpeg exited with non-zero status".to_string()
+                } else {
+                    err_text
+                }),
+            })
+        }
+    })
+    .await
+    .map_err(|e| format!("Export finish worker failed: {}", e))?
 }
 
 #[tauri::command]
 pub fn ffmpeg_cancel_export(session_id: String) -> Result<(), String> {
-    if let Some(mut session) = with_sessions(|map| map.remove(&session_id)) {
-        let _ = session.child.kill();
-        // Remove incomplete output file
+    if let Some(session) = with_sessions(|map| map.remove(&session_id)) {
+        session
+            .cancelled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(mut child_guard) = session.child.lock() {
+            if let Some(mut child) = child_guard.take() {
+                let _ = child.kill();
+            }
+        }
+        if let Ok(mut pipe_guard) = session.pipe.lock() {
+            pipe_guard.stdin.take();
+        }
         if Path::new(&session.output_path).exists() {
             let _ = fs::remove_file(&session.output_path);
         }

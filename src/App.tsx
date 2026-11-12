@@ -3,12 +3,12 @@ import { Shell } from './components/layout/Shell';
 import { useThemeStore } from './stores/useThemeStore';
 
 export const App: React.FC = () => {
-  const { setPreset } = useThemeStore();
+  const syncThemeToRoot = useThemeStore((s) => s.syncThemeToRoot);
 
   useEffect(() => {
-    // Initialize default Gatefold OKLCH theme on mount
-    setPreset('default');
-  }, [setPreset]);
+    // Re-apply persisted Gatefold OKLCH theme tokens without overwriting saved preset
+    syncThemeToRoot();
+  }, [syncThemeToRoot]);
 
   return <Shell />;
 };

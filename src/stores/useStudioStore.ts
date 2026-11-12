@@ -116,7 +116,48 @@ export const SAMPLE_SUBTITLES: SubtitleLine[] = [
 ];
 
 function roundTime(t: number): number {
-  return Math.round(t * 100) / 100;
+  return Math.round(t * 1000) / 1000;
+}
+
+/**
+ * Shifts a single subtitle line and all of its word tokens by deltaSeconds while preserving durations.
+ */
+export function shiftLineTiming(line: SubtitleLine, deltaSeconds: number): SubtitleLine {
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds === 0) return line;
+  const clampedDelta = Math.max(-line.startTime, deltaSeconds);
+  if (Math.abs(clampedDelta) < 0.0005) return line;
+
+  const nextStart = roundTime(Math.max(0, line.startTime + clampedDelta));
+  const nextEnd = roundTime(Math.max(nextStart + 0.1, line.endTime + clampedDelta));
+  const actualDelta = nextStart - line.startTime;
+
+  const shiftedTokens: RubyToken[] = line.tokens.map((tok, i) => ({
+    ...tok,
+    startTime:
+      i === 0 ? nextStart : roundTime(Math.max(nextStart, tok.startTime + actualDelta)),
+    endTime:
+      i === line.tokens.length - 1
+        ? nextEnd
+        : roundTime(Math.max(nextStart + 0.05, tok.endTime + actualDelta)),
+  }));
+
+  return {
+    ...line,
+    startTime: nextStart,
+    endTime: nextEnd,
+    tokens: shiftedTokens,
+  };
+}
+
+/**
+ * Shifts all subtitle lines (and every per-word token) uniformly by deltaSeconds.
+ */
+export function shiftSubtitleLines(
+  lines: SubtitleLine[],
+  deltaSeconds: number
+): SubtitleLine[] {
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds === 0) return lines;
+  return lines.map((line) => shiftLineTiming(line, deltaSeconds));
 }
 
 function buildEvenTokens(text: string, startTime: number, endTime: number): RubyToken[] {
@@ -204,6 +245,7 @@ interface StudioStoreState {
   status: ProjectStatus;
   errorMessage: string | null;
   projectFilePath: string | null;
+  hasUnsavedChanges: boolean;
   track: TrackMetadata;
   lines: SubtitleLine[];
   selectedLineId: string | null;
@@ -211,6 +253,8 @@ interface StudioStoreState {
 
   setActiveTab: (tab: StudioTab) => void;
   setProjectFilePath: (path: string | null) => void;
+  setHasUnsavedChanges: (dirty: boolean) => void;
+  markProjectSaved: (path?: string | null) => void;
   setAspectRatio: (aspect: AspectRatio) => void;
   setCanvasResolution: (res: CanvasResolutionPreset) => void;
   setZoom: (zoom: number) => void;
@@ -235,6 +279,9 @@ interface StudioStoreState {
   updateLineText: (id: string, text: string) => void;
   updateLineTranslation: (id: string, translation: string) => void;
   updateLineTiming: (id: string, startTime: number, endTime: number) => void;
+  shiftSingleLineTiming: (lineId: string, deltaSeconds: number) => void;
+  shiftAllLinesTiming: (deltaSeconds: number) => void;
+  replaceLinesFromOffsetScrub: (nextLines: SubtitleLine[]) => void;
   updateTokenTiming: (lineId: string, tokenIndex: number, startTime: number, endTime: number) => void;
   resetTokenTimingsEvenly: (lineId: string) => void;
   splitTokenIntoChars: (lineId: string, tokenIndex: number) => void;
@@ -276,35 +323,64 @@ const getInitialSidebarCollapsed = (): boolean => {
   return true;
 };
 
-export const useStudioStore = create<StudioStoreState>((set, get) => ({
-  activeTab: 'studio',
-  aspectRatio: '16:9',
-  canvasResolution: '1080p',
-  zoom: 100,
-  sidebarCollapsed: getInitialSidebarCollapsed(),
-  isPlaying: false,
-  currentTime: 13.2,
-  duration: 185.0,
-  volume: 0.8,
-  isMuted: false,
-  isLooping: false,
-  status: 'ready',
-  errorMessage: null,
-  projectFilePath: null,
-  track: {
-    id: 'sample-track-1',
-    title: 'Stellar Night Flight',
-    artist: 'Luna feat. Hatsune Miku',
-    duration: 185.0,
-    bpm: 134,
-    coverUrl: '',
-  },
-  lines: SAMPLE_SUBTITLES,
-  selectedLineId: 'line-1',
-  style: DEFAULT_SUBTITLE_STYLE,
+export const useStudioStore = create<StudioStoreState>((rawSet, get) => {
+  const set = (
+    partial:
+      | Partial<StudioStoreState>
+      | ((state: StudioStoreState) => Partial<StudioStoreState>)
+  ) => {
+    rawSet((state) => {
+      const next = typeof partial === 'function' ? partial(state) : partial;
+      const touchesProjectData =
+        'lines' in next ||
+        'style' in next ||
+        'track' in next ||
+        'aspectRatio' in next ||
+        'canvasResolution' in next;
+      if (touchesProjectData && !('hasUnsavedChanges' in next)) {
+        return { ...next, hasUnsavedChanges: true };
+      }
+      return next;
+    });
+  };
 
-  setActiveTab: (tab: StudioTab) => set({ activeTab: tab }),
-  setProjectFilePath: (path: string | null) => {
+  return {
+    activeTab: 'studio',
+    aspectRatio: '16:9',
+    canvasResolution: '1080p',
+    zoom: 100,
+    sidebarCollapsed: getInitialSidebarCollapsed(),
+    isPlaying: false,
+    currentTime: 13.2,
+    duration: 185.0,
+    volume: 0.8,
+    isMuted: false,
+    isLooping: false,
+    status: 'ready',
+    errorMessage: null,
+    projectFilePath: null,
+    hasUnsavedChanges: false,
+    track: {
+      id: 'sample-track-1',
+      title: 'Stellar Night Flight',
+      artist: 'Luna feat. Hatsune Miku',
+      duration: 185.0,
+      bpm: 134,
+      coverUrl: '',
+    },
+    lines: SAMPLE_SUBTITLES,
+    selectedLineId: 'line-1',
+    style: DEFAULT_SUBTITLE_STYLE,
+
+    setActiveTab: (tab: StudioTab) => set({ activeTab: tab }),
+    setHasUnsavedChanges: (dirty: boolean) => set({ hasUnsavedChanges: dirty }),
+    markProjectSaved: (path?: string | null) => {
+      if (path !== undefined) {
+        get().setProjectFilePath(path);
+      }
+      set({ hasUnsavedChanges: false });
+    },
+    setProjectFilePath: (path: string | null) => {
     set({ projectFilePath: path });
     try {
       if (typeof localStorage !== 'undefined') {
@@ -543,6 +619,24 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       };
     });
     set({ lines: updated });
+  },
+
+  shiftSingleLineTiming: (lineId: string, deltaSeconds: number) => {
+    const { lines } = get();
+    set({
+      lines: lines.map((l) => (l.id === lineId ? shiftLineTiming(l, deltaSeconds) : l)),
+    });
+  },
+
+  shiftAllLinesTiming: (deltaSeconds: number) => {
+    const { lines } = get();
+    set({
+      lines: shiftSubtitleLines(lines, deltaSeconds),
+    });
+  },
+
+  replaceLinesFromOffsetScrub: (nextLines: SubtitleLine[]) => {
+    set({ lines: nextLines });
   },
 
   updateTokenTiming: (lineId: string, tokenIndex: number, startTime: number, endTime: number) => {
@@ -1016,6 +1110,7 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       currentTime: nextLines[0]?.startTime ?? 0,
       status: nextLines.length > 0 || hasMedia ? 'ready' : 'idle',
       errorMessage: null,
+      hasUnsavedChanges: false,
     });
   },
 
@@ -1059,6 +1154,7 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       currentTime: 13.2,
       selectedLineId: 'line-1',
       style: DEFAULT_SUBTITLE_STYLE,
+      hasUnsavedChanges: false,
     });
   },
 
@@ -1321,6 +1417,7 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       currentTime: 0,
       selectedLineId: null,
       isPlaying: false,
+      hasUnsavedChanges: false,
     });
   },
 
@@ -1330,4 +1427,5 @@ export const useStudioStore = create<StudioStoreState>((set, get) => ({
       status: msg ? 'error' : get().lines.length > 0 ? 'ready' : 'idle',
     });
   },
-}));
+  };
+});

@@ -100,17 +100,29 @@ export interface OpenedProjectFile {
   contents: string;
 }
 
+export interface SystemFontEntry {
+  family: string;
+}
+
 let cachedYtDlpStatus: YtDlpStatus | null = null;
 let cachedHardwareCaps: HardwareCapabilities | null = null;
+let cachedSystemFonts: string[] | null = null;
 
 function isTauriEnvironment(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-async function invokeTauri<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+type TauriInvokeArgs = import('@tauri-apps/api/core').InvokeArgs;
+type TauriInvokeOptions = import('@tauri-apps/api/core').InvokeOptions;
+
+async function invokeTauri<T>(
+  cmd: string,
+  args?: TauriInvokeArgs,
+  options?: TauriInvokeOptions
+): Promise<T> {
   if (isTauriEnvironment()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    return invoke<T>(cmd, args);
+    return invoke<T>(cmd, args, options);
   }
   throw new Error(`Tauri IPC is not available in browser mode for command: ${cmd}`);
 }
@@ -174,10 +186,24 @@ export const tauriBridge = {
     return invokeTauri<string>('ffmpeg_start_export_pipe', { config });
   },
 
-  async ffmpegWriteFrameChunk(sessionId: string, chunk: Uint8Array): Promise<ExportProgress> {
-    return invokeTauri<ExportProgress>('ffmpeg_write_frame_chunk', {
-      sessionId,
-      chunk: Array.from(chunk),
+  async ffmpegWriteFrameChunk(
+    sessionId: string,
+    chunk: Uint8Array,
+    options?: {
+      useBlank?: boolean;
+      cacheBlank?: boolean;
+      commitFrame?: boolean;
+      repeatCount?: number;
+    }
+  ): Promise<ExportProgress> {
+    return invokeTauri<ExportProgress>('ffmpeg_write_frame_chunk', chunk, {
+      headers: {
+        'x-session-id': sessionId,
+        'x-use-blank': options?.useBlank ? '1' : '0',
+        'x-cache-blank': options?.cacheBlank ? '1' : '0',
+        'x-commit-frame': options?.commitFrame === false ? '0' : '1',
+        'x-repeat-count': String(options?.repeatCount ?? 1),
+      },
     });
   },
 
@@ -369,6 +395,25 @@ export const tauriBridge = {
     if (isTauriEnvironment()) {
       await invokeTauri<void>('reveal_in_explorer', { path });
     }
+  },
+
+  async getSystemFonts(): Promise<string[]> {
+    if (cachedSystemFonts) return cachedSystemFonts;
+    if (isTauriEnvironment()) {
+      try {
+        const entries = await invokeTauri<SystemFontEntry[]>('get_system_fonts');
+        const list = (entries || [])
+          .map((e) => (e.family || '').trim())
+          .filter(Boolean);
+        if (list.length > 0) {
+          cachedSystemFonts = list;
+          return list;
+        }
+      } catch {
+        // Fall through to browser discovery if Tauri command fails
+      }
+    }
+    return [];
   },
 
   async lyricsHttpGet(url: string, headers?: Record<string, string>): Promise<string> {

@@ -1,6 +1,7 @@
 import { tauriBridge, type ExportProgress, type ExportResult } from '../../services/tauriBridge';
 import type { SubtitleLine, WordAnimationStyle } from '../../types';
 import { tokenizeSubtitleText, computeRubyPosition } from '../text/RubyLayout';
+import { formatCssFontStack } from '../text/fontLoader';
 
 const CJK_TOKEN_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
@@ -50,6 +51,9 @@ interface SafeContext {
   getImageData: () => Uint8Array;
 }
 
+const RAW_IPC_CHUNK_SIZE = 4 * 1024 * 1024;
+const EMPTY_CHUNK = new Uint8Array(0);
+
 function createSafeOffscreenContext(width: number, height: number): SafeContext {
   if (typeof document !== 'undefined') {
     const canvas = document.createElement('canvas');
@@ -61,7 +65,7 @@ function createSafeOffscreenContext(width: number, height: number): SafeContext 
       getImageData: () => {
         if (!ctx) return new Uint8Array(width * height * 4);
         const img = ctx.getImageData(0, 0, width, height);
-        return new Uint8Array(img.data.buffer);
+        return new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
       },
     };
   }
@@ -139,6 +143,8 @@ export class FFmpegExportPipeline {
     const isTransparent =
       options.mode === 'webm_alpha' || options.mode === 'prores_alpha' || hasVideoBackground;
     const startTime = performance.now();
+    let hasCachedBlank = false;
+    const maxGapBatch = Math.min(30, Math.max(1, Math.round(options.fps / 2)));
 
     for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
       if (this.isCancelled) {
@@ -155,6 +161,29 @@ export class FFmpegExportPipeline {
       }
 
       const currentTime = frameIndex * frameInterval;
+      const activeLine = options.lines.find(
+        (l) => currentTime >= l.startTime && currentTime <= l.endTime
+      );
+
+      if (isNative && !activeLine && hasCachedBlank) {
+        let repeatCount = 1;
+        while (repeatCount < maxGapBatch && frameIndex + repeatCount < totalFrames) {
+          const nextTime = (frameIndex + repeatCount) * frameInterval;
+          const nextLine = options.lines.find(
+            (l) => nextTime >= l.startTime && nextTime <= l.endTime
+          );
+          if (nextLine) break;
+          repeatCount++;
+        }
+
+        const progress = await tauriBridge.ffmpegWriteFrameChunk(sessionId, EMPTY_CHUNK, {
+          useBlank: true,
+          repeatCount,
+        });
+        options.onProgress?.(progress);
+        frameIndex += repeatCount - 1;
+        continue;
+      }
 
       if (ctx) {
         if (isTransparent) {
@@ -164,10 +193,6 @@ export class FFmpegExportPipeline {
           ctx.fillRect(0, 0, options.width, options.height);
         }
 
-        const activeLine = options.lines.find(
-          (l) => currentTime >= l.startTime && currentTime <= l.endTime
-        );
-
         if (activeLine) {
           this.renderSubtitleFrame(ctx, activeLine, currentTime, options);
         }
@@ -175,7 +200,11 @@ export class FFmpegExportPipeline {
 
       if (isNative) {
         const rawBytes = getImageData();
-        const progress = await tauriBridge.ffmpegWriteFrameChunk(sessionId, rawBytes);
+        const shouldCacheBlank = !activeLine && !hasCachedBlank;
+        const progress = await this.writeRawFrameInChunks(sessionId, rawBytes, shouldCacheBlank);
+        if (shouldCacheBlank) {
+          hasCachedBlank = true;
+        }
         options.onProgress?.(progress);
       } else {
         const percentage = ((frameIndex + 1) / totalFrames) * 100;
@@ -208,6 +237,45 @@ export class FFmpegExportPipeline {
     };
   }
 
+  private async writeRawFrameInChunks(
+    sessionId: string,
+    rawBytes: Uint8Array,
+    cacheBlank = false
+  ): Promise<ExportProgress> {
+    if (rawBytes.byteLength <= RAW_IPC_CHUNK_SIZE) {
+      return tauriBridge.ffmpegWriteFrameChunk(sessionId, rawBytes, {
+        cacheBlank,
+        commitFrame: true,
+        repeatCount: 1,
+      });
+    }
+
+    let lastProgress: ExportProgress | undefined;
+    for (let offset = 0; offset < rawBytes.byteLength; offset += RAW_IPC_CHUNK_SIZE) {
+      if (this.isCancelled) {
+        break;
+      }
+      const end = Math.min(rawBytes.byteLength, offset + RAW_IPC_CHUNK_SIZE);
+      const isLast = end >= rawBytes.byteLength;
+      const slice = rawBytes.subarray(offset, end);
+      lastProgress = await tauriBridge.ffmpegWriteFrameChunk(sessionId, slice, {
+        cacheBlank,
+        commitFrame: isLast,
+        repeatCount: 1,
+      });
+    }
+
+    return (
+      lastProgress ?? {
+        session_id: sessionId,
+        frames_written: 0,
+        total_frames: 0,
+        percentage: 0,
+        fps: 0,
+      }
+    );
+  }
+
   private renderSubtitleFrame(
     ctx: CanvasRenderingContext2D,
     line: SubtitleLine,
@@ -223,7 +291,15 @@ export class FFmpegExportPipeline {
       Math.round((options.style.innerStrokeWidth ?? options.style.outlineThickness * 0.4) * scale)
     );
     const glowBlur = Math.max(0, (options.style.glowBlur ?? 0) * scale);
-    const fontFamily = options.style.fontFamily || 'Segoe UI';
+    const cssFontStack = formatCssFontStack(options.style.fontFamily, [
+      'Segoe UI',
+      'Yu Gothic UI',
+      'Meiryo',
+      'Noto Sans JP',
+      'sans-serif',
+    ]);
+    const baseFont = `700 ${baseFontSize}px ${cssFontStack}`;
+    const rubyFont = `700 ${rubyFontSize}px ${cssFontStack}`;
 
     const autoTokens = tokenizeSubtitleText(line.text);
     const lineSpan = Math.max(0.2, line.endTime - line.startTime);
@@ -255,7 +331,7 @@ export class FFmpegExportPipeline {
 
     ctx.save();
     ctx.globalAlpha = lineAlpha;
-    ctx.font = `700 ${baseFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
+    ctx.font = baseFont;
 
     interface MeasuredToken {
       base: string;
@@ -288,11 +364,11 @@ export class FFmpegExportPipeline {
           }));
 
     const measured: MeasuredToken[] = sourceTokens.map((t, idx) => {
-      ctx.font = `700 ${baseFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
+      ctx.font = baseFont;
       const bw = ctx.measureText(t.base).width;
       let rw = 0;
       if (t.isRuby && t.ruby) {
-        ctx.font = `700 ${rubyFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
+        ctx.font = rubyFont;
         rw = ctx.measureText(t.ruby).width;
       }
       const nextToken = sourceTokens[idx + 1];
@@ -396,7 +472,7 @@ export class FFmpegExportPipeline {
         ctx.translate(-pivotX, -pivotY);
       }
 
-      ctx.font = `700 ${baseFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
+      ctx.font = baseFont;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
       ctx.lineJoin = 'round';
@@ -442,13 +518,13 @@ export class FFmpegExportPipeline {
         ctx.fillText(m.base, metrics.baseX, tokenBaselineY);
 
         if (m.isRuby && m.ruby) {
-          ctx.font = `700 ${rubyFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
+          ctx.font = rubyFont;
           ctx.lineWidth = Math.max(2, Math.round(outerStroke * 0.55));
           ctx.strokeStyle = options.style.secondaryOutlineColor;
           ctx.strokeText(m.ruby, metrics.rubyX, metrics.rubyY);
           ctx.fillStyle = rubyFillColor;
           ctx.fillText(m.ruby, metrics.rubyX, metrics.rubyY);
-          ctx.font = `700 ${baseFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
+          ctx.font = baseFont;
         }
 
         // 2. Draw active highlighted text clipped horizontally (crisp geometric wipe)
@@ -482,7 +558,7 @@ export class FFmpegExportPipeline {
           ctx.fillText(m.base, metrics.baseX, tokenBaselineY);
 
           if (m.isRuby && m.ruby) {
-            ctx.font = `700 ${rubyFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
+            ctx.font = rubyFont;
             ctx.lineWidth = Math.max(2, Math.round(outerStroke * 0.55));
             ctx.strokeStyle = options.style.secondaryOutlineColor;
             ctx.strokeText(m.ruby, metrics.rubyX, metrics.rubyY);
@@ -523,7 +599,7 @@ export class FFmpegExportPipeline {
         ctx.fillText(m.base, metrics.baseX, tokenBaselineY);
 
         if (m.isRuby && m.ruby) {
-          ctx.font = `700 ${rubyFontSize}px "${fontFamily}", "Segoe UI", "Noto Sans JP", sans-serif`;
+          ctx.font = rubyFont;
           ctx.lineWidth = Math.max(2, Math.round(outerStroke * 0.55));
           ctx.strokeStyle = options.style.secondaryOutlineColor;
           ctx.strokeText(m.ruby, metrics.rubyX, metrics.rubyY);
@@ -540,7 +616,7 @@ export class FFmpegExportPipeline {
     // Secondary translation rendering
     if (line.translation && line.translation.trim().length > 0) {
       const transSize = Math.max(14, Math.round(baseFontSize * 0.45));
-      ctx.font = `600 ${transSize}px "${fontFamily}", "Segoe UI", sans-serif`;
+      ctx.font = `600 ${transSize}px ${cssFontStack}`;
       ctx.textAlign = 'center';
       ctx.lineJoin = 'round';
       ctx.lineWidth = Math.max(2, Math.round(4 * scale));

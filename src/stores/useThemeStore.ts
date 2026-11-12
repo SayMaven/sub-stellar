@@ -103,6 +103,7 @@ interface ThemeStoreState {
   tokens: ThemeTokens;
   setPreset: (preset: ThemePresetName) => void;
   setCustomTokens: (partial: Partial<ThemeTokens>) => void;
+  syncThemeToRoot: () => void;
   extractFromCover: (imageUrl: string) => Promise<void>;
 }
 
@@ -159,6 +160,10 @@ export const useThemeStore = create<ThemeStoreState>((set, get) => ({
     applyTokensToRoot(updated);
     saveThemeToStorage(get().currentPreset, updated);
     set({ tokens: updated });
+  },
+
+  syncThemeToRoot: () => {
+    applyTokensToRoot(get().tokens);
   },
 
   extractFromCover: async (imageUrl: string) => {

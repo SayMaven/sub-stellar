@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ZoomIn,
   ZoomOut,
@@ -8,8 +9,11 @@ import {
   Plus,
   Trash2,
   Wand2,
+  Clock,
+  RotateCcw,
 } from 'lucide-react';
-import { useStudioStore } from '../../stores/useStudioStore';
+import { useStudioStore, shiftSubtitleLines } from '../../stores/useStudioStore';
+import type { SubtitleLine } from '../../types';
 import { waveformManager } from '../../engine/audio/WaveformManager';
 import { RubyEditorModal } from '../furigana/RubyEditorModal';
 import { AutoFuriganaDialog } from '../furigana/AutoFuriganaDialog';
@@ -30,6 +34,8 @@ const TimelineDrawerInner: React.FC = () => {
   const updateLineTiming = useStudioStore((s) => s.updateLineTiming);
   const updateTokenTiming = useStudioStore((s) => s.updateTokenTiming);
   const resolveOverlappingLines = useStudioStore((s) => s.resolveOverlappingLines);
+  const shiftAllLinesTiming = useStudioStore((s) => s.shiftAllLinesTiming);
+  const replaceLinesFromOffsetScrub = useStudioStore((s) => s.replaceLinesFromOffsetScrub);
   const track = useStudioStore((s) => s.track);
   const loadSampleTrack = useStudioStore((s) => s.loadSampleTrack);
 
@@ -45,6 +51,13 @@ const TimelineDrawerInner: React.FC = () => {
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
   const [isFuriganaBatchOpen, setIsFuriganaBatchOpen] = useState(false);
+  const [isGlobalOffsetOpen, setIsGlobalOffsetOpen] = useState(false);
+  const [globalOffsetScrubMs, setGlobalOffsetScrubMs] = useState<number>(0);
+  const [globalOffsetInput, setGlobalOffsetInput] = useState<string>('0');
+  const [globalPopoverPos, setGlobalPopoverPos] = useState<{ bottom: number; right: number }>({
+    bottom: 240,
+    right: 24,
+  });
   const [viewport, setViewport] = useState({ scrollLeft: 0, width: 1200 });
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -52,6 +65,29 @@ const TimelineDrawerInner: React.FC = () => {
   const playheadRef = useRef<HTMLDivElement>(null);
   const isProgrammaticScrollRef = useRef<boolean>(false);
   const userScrollCooldownRef = useRef<number>(0);
+  const globalOffsetBtnRef = useRef<HTMLButtonElement>(null);
+  const globalOffsetMenuRef = useRef<HTMLDivElement>(null);
+  const globalScrubSnapshotRef = useRef<SubtitleLine[] | null>(null);
+
+  // Close Global Offset popover on outside click
+  useEffect(() => {
+    if (!isGlobalOffsetOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        globalOffsetMenuRef.current &&
+        !globalOffsetMenuRef.current.contains(target) &&
+        globalOffsetBtnRef.current &&
+        !globalOffsetBtnRef.current.contains(target)
+      ) {
+        setIsGlobalOffsetOpen(false);
+        globalScrubSnapshotRef.current = null;
+        setGlobalOffsetScrubMs(0);
+      }
+    };
+    window.addEventListener('mousedown', handleOutside);
+    return () => window.removeEventListener('mousedown', handleOutside);
+  }, [isGlobalOffsetOpen]);
 
   // Load downsampled waveform peaks via Web Worker
   useEffect(() => {
@@ -469,30 +505,205 @@ const TimelineDrawerInner: React.FC = () => {
           )}
         </div>
 
-        {/* Zoom Controls */}
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-gatefold-text-3 uppercase">Zoom:</span>
-          <button
-            onClick={() => setZoom((z) => Math.max(1, z / 2))}
-            disabled={zoom <= 1}
-            className="p-1 rounded hover:bg-gatefold-hover text-gatefold-text-3 hover:text-gatefold-text disabled:opacity-30"
-            title="Zoom Out (Ctrl+Scroll)"
-          >
-            <ZoomOut className="w-3.5 h-3.5" />
-          </button>
-          <span className="text-[10px] font-semibold text-gatefold-accent min-w-7 text-center">
-            {zoom}x
-          </span>
-          <button
-            onClick={() => setZoom((z) => Math.min(16, z * 2))}
-            disabled={zoom >= 16}
-            className="p-1 rounded hover:bg-gatefold-hover text-gatefold-text-3 hover:text-gatefold-text disabled:opacity-30"
-            title="Zoom In (Ctrl+Scroll)"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-          </button>
+        {/* Right Controls: Global Offset (All Lines) + Zoom */}
+        <div className="flex items-center gap-3">
+          {lines.length > 0 && (
+            <div className="flex items-center gap-1 pr-2 border-r border-gatefold-line">
+              <button
+                type="button"
+                onClick={() => shiftAllLinesTiming(-0.1)}
+                className="px-1.5 py-0.5 rounded bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-[10px] font-mono text-gatefold-text-2 hover:text-gatefold-accent transition-colors"
+                title="Shift ALL subtitle lines earlier by 100ms"
+              >
+                -100ms
+              </button>
+              <button
+                ref={globalOffsetBtnRef}
+                type="button"
+                onClick={() => {
+                  const rect = globalOffsetBtnRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    setGlobalPopoverPos({
+                      bottom: Math.max(16, window.innerHeight - rect.top + 8),
+                      right: Math.max(16, window.innerWidth - rect.right - 40),
+                    });
+                  }
+                  setGlobalOffsetScrubMs(0);
+                  setGlobalOffsetInput('0');
+                  setIsGlobalOffsetOpen((v) => !v);
+                }}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-sans font-medium transition-colors ${
+                  isGlobalOffsetOpen
+                    ? 'bg-gatefold-accent/20 text-gatefold-accent border-gatefold-accent/50'
+                    : 'bg-gatefold-surface hover:bg-gatefold-hover text-gatefold-text-2 hover:text-gatefold-text border-gatefold-line'
+                }`}
+                title="Adjust Global Timing Offset for ALL subtitle lines simultaneously"
+              >
+                <Clock className="w-3 h-3 text-gatefold-accent" />
+                <span>Global Offset</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => shiftAllLinesTiming(0.1)}
+                className="px-1.5 py-0.5 rounded bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-[10px] font-mono text-gatefold-text-2 hover:text-gatefold-accent transition-colors"
+                title="Shift ALL subtitle lines later by 100ms"
+              >
+                +100ms
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-gatefold-text-3 uppercase">Zoom:</span>
+            <button
+              onClick={() => setZoom((z) => Math.max(1, z / 2))}
+              disabled={zoom <= 1}
+              className="p-1 rounded hover:bg-gatefold-hover text-gatefold-text-3 hover:text-gatefold-text disabled:opacity-30"
+              title="Zoom Out (Ctrl+Scroll)"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-[10px] font-semibold text-gatefold-accent min-w-7 text-center">
+              {zoom}x
+            </span>
+            <button
+              onClick={() => setZoom((z) => Math.min(16, z * 2))}
+              disabled={zoom >= 16}
+              className="p-1 rounded hover:bg-gatefold-hover text-gatefold-text-3 hover:text-gatefold-text disabled:opacity-30"
+              title="Zoom In (Ctrl+Scroll)"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Portal Global Offset Popover (renders cleanly above Timeline overflow-hidden) */}
+      {isGlobalOffsetOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={globalOffsetMenuRef}
+            style={{
+              position: 'fixed',
+              bottom: globalPopoverPos.bottom,
+              right: globalPopoverPos.right,
+            }}
+            className="w-80 bg-[#181b22] border border-gatefold-line-2 rounded-xl shadow-2xl shadow-black/90 p-3.5 z-[120] space-y-3 text-xs select-none"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-gatefold-accent" />
+                <span className="font-semibold text-gatefold-text">
+                  Global Offset ({lines.length} Lines)
+                </span>
+              </div>
+              <span
+                className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                  globalOffsetScrubMs !== 0
+                    ? 'bg-gatefold-accent/20 text-gatefold-accent font-semibold'
+                    : 'bg-gatefold-surface text-gatefold-text-3'
+                }`}
+              >
+                {globalOffsetScrubMs > 0 ? `+${globalOffsetScrubMs}` : globalOffsetScrubMs} ms
+              </span>
+            </div>
+
+            <p className="text-[10px] text-gatefold-text-3 leading-relaxed">
+              Geser seluruh baris lirik & token vokal maju (negatif) atau mundur (positif) agar
+              cocok dengan gelombang audio.
+            </p>
+
+            {/* Non-destructive Interactive Slider */}
+            <div className="space-y-1">
+              <input
+                type="range"
+                min={-5000}
+                max={5000}
+                step={10}
+                value={globalOffsetScrubMs}
+                onPointerDown={() => {
+                  globalScrubSnapshotRef.current = useStudioStore.getState().lines;
+                  setGlobalOffsetScrubMs(0);
+                }}
+                onChange={(e) => {
+                  const ms = parseInt(e.target.value, 10) || 0;
+                  setGlobalOffsetScrubMs(ms);
+                  const snap = globalScrubSnapshotRef.current;
+                  if (snap) {
+                    replaceLinesFromOffsetScrub(shiftSubtitleLines(snap, ms / 1000));
+                  }
+                }}
+                onPointerUp={() => {
+                  globalScrubSnapshotRef.current = null;
+                  setGlobalOffsetScrubMs(0);
+                }}
+                onPointerCancel={() => {
+                  globalScrubSnapshotRef.current = null;
+                  setGlobalOffsetScrubMs(0);
+                }}
+                className="w-full h-1.5 bg-gatefold-surface-2 rounded-lg accent-gatefold-accent cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] font-mono text-gatefold-text-3">
+                <span>-5.0s (Earlier)</span>
+                <span>0ms</span>
+                <span>+5.0s (Later)</span>
+              </div>
+            </div>
+
+            {/* Quick Nudge Grid */}
+            <div className="grid grid-cols-6 gap-1">
+              {[-500, -100, -50, 50, 100, 500].map((ms) => (
+                <button
+                  key={ms}
+                  type="button"
+                  onClick={() => shiftAllLinesTiming(ms / 1000)}
+                  className="px-1 py-1 rounded bg-gatefold-surface hover:bg-gatefold-hover border border-gatefold-line text-[10px] font-mono text-gatefold-text-2 hover:text-gatefold-accent transition-colors"
+                >
+                  {ms > 0 ? `+${ms}` : ms}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom Exact Millisecond Input */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const parsed = parseFloat(globalOffsetInput);
+                if (Number.isFinite(parsed) && parsed !== 0) {
+                  shiftAllLinesTiming(parsed / 1000);
+                  setGlobalOffsetInput('0');
+                }
+              }}
+              className="flex items-center gap-1.5 pt-1 border-t border-gatefold-line"
+            >
+              <input
+                type="number"
+                step={5}
+                value={globalOffsetInput}
+                onChange={(e) => setGlobalOffsetInput(e.target.value)}
+                placeholder="ms"
+                className="flex-1 px-2 py-1 rounded bg-gatefold-surface border border-gatefold-line font-mono text-xs text-gatefold-text focus:outline-none focus:border-gatefold-accent"
+              />
+              <span className="text-[10px] font-mono text-gatefold-text-3">ms</span>
+              <button
+                type="submit"
+                className="px-2.5 py-1 rounded bg-gatefold-accent text-gatefold-bg font-semibold text-[11px] hover:opacity-90 transition-opacity"
+              >
+                Shift
+              </button>
+              <button
+                type="button"
+                onClick={() => setGlobalOffsetInput('0')}
+                title="Reset input"
+                className="p-1 rounded bg-gatefold-surface border border-gatefold-line text-gatefold-text-3 hover:text-gatefold-text"
+              >
+                <RotateCcw className="w-3 h-3" />
+              </button>
+            </form>
+          </div>,
+          document.body
+        )}
 
       {/* Scroller Area */}
       <div

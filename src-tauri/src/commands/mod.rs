@@ -4,6 +4,7 @@ pub mod ytdl;
 pub mod lyrics_proxy;
 pub mod ffmpeg;
 pub mod project_io;
+pub mod fonts;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {
